@@ -697,6 +697,9 @@ def cmd_help(args=None):
         ("ledger",        "Historial criptográfico de acciones"),
         ("ledger verify", "Verifica la integridad de la cadena"),
         ("alerts",        "Alertas de acciones bloqueadas o escaladas"),
+        ("skill",         "Catálogo de skills — conecta nova con el mundo"),
+        ("skill add",     "Instala y configura un skill paso a paso"),
+        ("skill info",    "Detalles y estado de un skill"),
         ("seed",          "Carga datos de demostración"),
         ("config",        "Configuración actual"),
     ]
@@ -729,6 +732,456 @@ def cmd_help(args=None):
 
 
 # ══════════════════════════════════════════════════════════════════
+# SKILLS CATALOG — Nova · Constellation
+# ══════════════════════════════════════════════════════════════════
+
+SKILLS = {
+    # ── Comunicación ───────────────────────────────────────────────
+    "gmail": {
+        "name": "Gmail",
+        "category": "Comunicación",
+        "icon": "✉",
+        "color": "RED",
+        "desc": "Verifica emails enviados, detecta duplicados, lee bandeja",
+        "what": "nova consulta tu Gmail antes de aprobar cualquier envío",
+        "fields": [
+            ("service_account_json", "Ruta al JSON de Service Account", False),
+            ("delegated_email",      "Email de tu cuenta Google",        False),
+        ],
+        "docs": "https://console.cloud.google.com/iam-admin/serviceaccounts",
+        "mcp":  "gmail-mcp",
+    },
+    "sheets": {
+        "name": "Google Sheets",
+        "category": "Datos",
+        "icon": "⊞",
+        "color": "GRN",
+        "desc": "Lee y escribe en tus hojas de cálculo en tiempo real",
+        "what": "nova verifica registros en tu Sheet antes de ejecutar acciones",
+        "fields": [
+            ("service_account_json", "Ruta al JSON de Service Account", False),
+            ("spreadsheet_id",       "ID del Spreadsheet principal",     False),
+        ],
+        "docs": "https://console.cloud.google.com/iam-admin/serviceaccounts",
+        "mcp":  "google-sheets-mcp",
+    },
+    "slack": {
+        "name": "Slack",
+        "category": "Comunicación",
+        "icon": "◈",
+        "color": "YLW",
+        "desc": "Envía alertas, lee canales, valida mensajes enviados",
+        "what": "nova puede notificar en Slack cuando bloquea o escala una acción",
+        "fields": [
+            ("bot_token",   "Bot Token (xoxb-...)",       False),
+            ("channel",     "Canal default (#general)",   False),
+        ],
+        "docs": "https://api.slack.com/apps",
+        "mcp":  "slack-mcp-server",
+    },
+    "whatsapp": {
+        "name": "WhatsApp",
+        "category": "Comunicación",
+        "icon": "◉",
+        "color": "GRN",
+        "desc": "Verifica mensajes enviados, evita spam, gestiona contactos",
+        "what": "nova consulta el historial de WhatsApp antes de aprobar mensajes",
+        "fields": [
+            ("evolution_api_url", "URL de Evolution API",   False),
+            ("evolution_api_key", "API Key de Evolution",   True),
+            ("instance_name",     "Nombre de la instancia", False),
+        ],
+        "docs": "https://doc.evolution-api.com",
+        "mcp":  "whatsapp-mcp",
+    },
+    "telegram": {
+        "name": "Telegram",
+        "category": "Comunicación",
+        "icon": "◎",
+        "color": "B6",
+        "desc": "Lee y envía mensajes, gestiona bots, verifica canales",
+        "what": "nova puede recibir comandos y enviar alertas por Telegram",
+        "fields": [
+            ("bot_token",  "Bot Token de @BotFather", True),
+            ("chat_id",    "Chat ID principal",       False),
+        ],
+        "docs": "https://core.telegram.org/bots",
+        "mcp":  "telegram-mcp",
+    },
+    # ── Productividad ──────────────────────────────────────────────
+    "notion": {
+        "name": "Notion",
+        "category": "Productividad",
+        "icon": "◻",
+        "color": "W",
+        "desc": "Lee bases de datos, crea páginas, actualiza registros",
+        "what": "nova puede consultar y actualizar tu Notion como fuente de verdad",
+        "fields": [
+            ("api_key",     "Integration Token (secret_...)", True),
+            ("database_id", "ID de base de datos principal",  False),
+        ],
+        "docs": "https://www.notion.so/my-integrations",
+        "mcp":  "notion-mcp",
+    },
+    "airtable": {
+        "name": "Airtable",
+        "category": "Datos",
+        "icon": "◈",
+        "color": "ORG",
+        "desc": "CRM, base de leads, inventario — consulta antes de actuar",
+        "what": "nova verifica registros en Airtable antes de ejecutar",
+        "fields": [
+            ("api_key",  "Personal Access Token", True),
+            ("base_id",  "Base ID (app...)",       False),
+        ],
+        "docs": "https://airtable.com/create/tokens",
+        "mcp":  "airtable-mcp",
+    },
+    "github": {
+        "name": "GitHub",
+        "category": "Desarrollo",
+        "icon": "◯",
+        "color": "W",
+        "desc": "Crea issues, revisa PRs, verifica código antes de deploy",
+        "what": "nova puede bloquear deploys si hay issues críticos abiertos",
+        "fields": [
+            ("token",  "Personal Access Token (ghp_...)", True),
+            ("repo",   "Repo default (owner/repo)",       False),
+        ],
+        "docs": "https://github.com/settings/tokens",
+        "mcp":  "github-mcp",
+    },
+    # ── Pagos ──────────────────────────────────────────────────────
+    "stripe": {
+        "name": "Stripe",
+        "category": "Pagos",
+        "icon": "◈",
+        "color": "B7",
+        "desc": "Verifica cobros, detecta fraude, aprueba transacciones",
+        "what": "nova valida pagos y bloquea transacciones sospechosas",
+        "fields": [
+            ("secret_key", "Secret Key (sk_live_... o sk_test_...)", True),
+        ],
+        "docs": "https://dashboard.stripe.com/apikeys",
+        "mcp":  "stripe-mcp",
+    },
+    "hubspot": {
+        "name": "HubSpot",
+        "category": "CRM",
+        "icon": "◉",
+        "color": "ORG",
+        "desc": "Consulta contactos, deals, historial de comunicación",
+        "what": "nova verifica si un lead ya fue contactado antes de aprobar",
+        "fields": [
+            ("api_key", "Private App Token", True),
+        ],
+        "docs": "https://developers.hubspot.com/docs/api/private-apps",
+        "mcp":  "hubspot-mcp",
+    },
+    # ── Infraestructura ────────────────────────────────────────────
+    "supabase": {
+        "name": "Supabase",
+        "category": "Base de datos",
+        "icon": "◈",
+        "color": "GRN",
+        "desc": "Consulta tu base de datos Postgres en tiempo real",
+        "what": "nova puede verificar cualquier tabla antes de ejecutar acciones",
+        "fields": [
+            ("url",         "Project URL (https://xxx.supabase.co)", False),
+            ("service_key", "Service Role Key",                       True),
+        ],
+        "docs": "https://app.supabase.com/project/_/settings/api",
+        "mcp":  "supabase-mcp",
+    },
+    "postgres": {
+        "name": "PostgreSQL",
+        "category": "Base de datos",
+        "icon": "◉",
+        "color": "B6",
+        "desc": "Conexión directa a tu base de datos PostgreSQL",
+        "what": "nova consulta tu DB antes de cada validación crítica",
+        "fields": [
+            ("connection_string", "postgresql://user:pass@host:5432/db", True),
+        ],
+        "docs": "https://www.postgresql.org/docs/current/libpq-connect.html",
+        "mcp":  "postgres-mcp",
+    },
+}
+
+SKILL_CATEGORIES = ["Comunicación", "Datos", "Productividad", "Desarrollo", "CRM", "Pagos", "Base de datos"]
+
+SKILLS_DIR = os.path.join(NOVA_DIR, "skills")
+
+
+def load_skill(name):
+    path = os.path.join(SKILLS_DIR, name + ".json")
+    if os.path.exists(path):
+        try: return json.load(open(path))
+        except: pass
+    return None
+
+
+def save_skill(name, data):
+    os.makedirs(SKILLS_DIR, exist_ok=True)
+    json.dump(data, open(os.path.join(SKILLS_DIR, name + ".json"), "w"), indent=2)
+
+
+def skill_status(name):
+    d = load_skill(name)
+    if not d: return "not_installed"
+    return d.get("status", "installed")
+
+
+def _skill_color(skill_def):
+    color_map = {
+        "RED": C.RED, "GRN": C.GRN, "YLW": C.YLW,
+        "W": C.W, "B6": C.B6, "B7": C.B7, "ORG": C.ORG,
+    }
+    return color_map.get(skill_def.get("color", "W"), C.W)
+
+
+# ── nova skill list ──────────────────────────────────────────────
+def cmd_skill_list(args):
+    print_logo(tagline=False)
+    print("  " + q(C.W, "Skills disponibles", bold=True) + "  " + q(C.G4, "· conecta nova con el mundo"))
+    print("  " + q(C.G4, "─" * 54))
+    print()
+
+    # Star intro — nova branding
+    print("  " + q(C.B5, "✦") + "  " + q(C.G2, "nova es una estrella nueva. los skills son su constelación."))
+    print("  " + q(C.G5, "   instala los que necesites · cada uno amplifica lo que nova puede ver"))
+    print()
+
+    for cat in SKILL_CATEGORIES:
+        cat_skills = [(k, v) for k, v in SKILLS.items() if v["category"] == cat]
+        if not cat_skills: continue
+
+        print("  " + q(C.G3, cat.upper()))
+        print()
+
+        for name, s in cat_skills:
+            st    = skill_status(name)
+            sc    = _skill_color(s)
+            icon  = s["icon"]
+
+            if st == "installed":
+                badge = q(C.GRN, " installed", bold=True)
+                dot   = q(C.GRN, "●")
+            else:
+                badge = q(C.G4, " ·")
+                dot   = q(C.G4, "○")
+
+            print("  " + dot + "  " + q(sc, icon + " " + s["name"], bold=True) +
+                  badge + "  " + q(C.G3, s["desc"]))
+
+        print()
+
+    print("  " + q(C.G4, "─" * 54))
+    print()
+    print("  " + q(C.B7, "nova skill add <nombre>", bold=True) + q(C.G3, "   instalar un skill"))
+    print("  " + q(C.B5, "nova skill info <nombre>") + q(C.G3, "   ver detalles"))
+    print("  " + q(C.B5, "nova skill remove <nombre>") + q(C.G3, " desinstalar"))
+    print()
+
+
+# ── nova skill info ──────────────────────────────────────────────
+def cmd_skill_info(args):
+    name = getattr(args, "third", "") or args.subcommand or args.agent or ""
+    if name in ("info", "add", "list", "remove", ""):
+        name = getattr(args, "third", "") or args.agent or ""
+        fail("Skill no encontrado: " + (name or "?"))
+        print()
+        info("Skills disponibles: " + ", ".join(SKILLS.keys()))
+        return
+
+    s  = SKILLS[name]
+    sc = _skill_color(s)
+    st = skill_status(name)
+    data = load_skill(name)
+
+    print()
+    print("  " + q(sc, s["icon"] + "  " + s["name"], bold=True) +
+          "  " + q(C.G4, s["category"]))
+    print()
+    kv("Descripción",  s["desc"])
+    kv("Lo que hace",  s["what"], C.G2)
+    kv("MCP",          s["mcp"], C.G3)
+    kv("Docs",         s["docs"], C.B6)
+    kv("Estado",       ("✓ instalado" if st == "installed" else "no instalado"),
+       C.GRN if st == "installed" else C.G4)
+
+    if data and data.get("installed_at"):
+        kv("Instalado",    data["installed_at"][:10], C.G3)
+
+    section("Campos requeridos")
+    for field, label, secret in s["fields"]:
+        val = ""
+        if data and data.get(field):
+            v = data[field]
+            val = q(C.GRN, ("*" * 8) if secret else v[:32])
+        else:
+            val = q(C.G4, "no configurado")
+        kv("  " + field, val if val else label)
+
+    print()
+    if st != "installed":
+        info("Instalar:  " + q(C.B7, "nova skill add " + name))
+    else:
+        info("Reconfigurar:  " + q(C.B7, "nova skill add " + name + " --reconfigure"))
+    print()
+
+
+# ── nova skill add ───────────────────────────────────────────────
+def cmd_skill_add(args):
+    raw = getattr(args, "third", "") or args.subcommand or args.agent or ""
+    if raw in ("add", "remove", "list", "info", "install", ""):
+        raw = getattr(args, "third", "") or args.agent or ""
+    name = raw.lower().strip()
+
+    if not name:
+        # Interactive picker
+        print()
+        print("  " + q(C.W, "¿Qué skill quieres agregar?", bold=True))
+        print()
+        for i, (k, s) in enumerate(SKILLS.items()):
+            sc = _skill_color(s)
+            st = "  " + q(C.GRN, "✓") if skill_status(k) == "installed" else ""
+            print("  " + q(C.G3, str(i+1).rjust(2) + ".") + "  " +
+                  q(sc, s["icon"] + " " + s["name"], bold=True) + st +
+                  "  " + q(C.G3, s["desc"][:48]))
+        print()
+        print("  ", end="")
+        try:
+            choice = input(q(C.B6, "Número o nombre: ")).strip()
+        except (EOFError, KeyboardInterrupt):
+            print(); return
+
+        if choice.isdigit():
+            idx = int(choice) - 1
+            keys = list(SKILLS.keys())
+            if 0 <= idx < len(keys):
+                name = keys[idx]
+        else:
+            name = choice.lower()
+
+    if name not in SKILLS:
+        fail("Skill '" + name + "' no existe.")
+        info("Skills disponibles: " + ", ".join(SKILLS.keys()))
+        return
+
+    s   = SKILLS[name]
+    sc  = _skill_color(s)
+    st  = skill_status(name)
+    existing = load_skill(name) or {}
+    reconfigure = getattr(args, "reconfigure", False) or st == "installed"
+
+    # ── HEADER
+    print()
+    print("  " + q(sc, s["icon"] + "  " + s["name"], bold=True) + "  " + q(C.G4, "skill"))
+    print("  " + q(C.G4, "─" * 40))
+    print()
+    print("  " + q(C.G2, s["what"]))
+    print()
+
+    if st == "installed" and not reconfigure:
+        ok("Ya instalado.")
+        info("Para reconfigurar:  " + q(C.B7, "nova skill add " + name + " --reconfigure"))
+        print()
+        return
+
+    # ── STEP 1: docs
+    print("  " + q(C.B6, "✦") + "  " + q(C.W, "Paso 1 de 2 — Obtén tus credenciales", bold=True))
+    print()
+    print("  " + q(C.G2, "Necesitas configurar el acceso en:"))
+    print("  " + q(C.B7, "  " + s["docs"]))
+    print()
+    if not confirm("¿Ya tienes las credenciales listas?", default=False):
+        print()
+        info("Cuando las tengas, vuelve con:  " + q(C.B7, "nova skill add " + name))
+        print()
+        return
+
+    # ── STEP 2: fields
+    print()
+    print("  " + q(C.B6, "✦") + "  " + q(C.W, "Paso 2 de 2 — Configura el skill", bold=True))
+    print()
+
+    data = dict(existing)
+
+    for field, label, secret in s["fields"]:
+        current = existing.get(field, "")
+        display_current = ("***" if secret and current else current[:20] if current else "")
+        hint = display_current or ""
+        print("  " + q(C.B6, "?") + "  " + q(C.G1, label) +
+              ("  " + q(C.G4, "(" + hint + ")") if hint else "") + "  ", end="", flush=True)
+        try:
+            if secret:
+                import getpass
+                val = getpass.getpass("").strip()
+            else:
+                val = input().strip()
+        except (EOFError, KeyboardInterrupt):
+            val = ""
+        data[field] = val or current
+
+    # ── TEST
+    print()
+    loading("Verificando skill...")
+    time.sleep(0.6)
+    clear_line()
+
+    # Basic validation — check required fields are filled
+    missing = [f for f, _, _ in s["fields"] if not data.get(f)]
+    if missing:
+        warn("Faltan campos: " + ", ".join(missing))
+        warn("Guardado como incompleto. Reconfigura con:  nova skill add " + name)
+        data["status"] = "incomplete"
+    else:
+        ok(s["name"] + " skill configurado")
+        data["status"] = "installed"
+
+    data["installed_at"] = datetime.now().isoformat()
+    data["version"] = "1.0.0"
+    save_skill(name, data)
+
+    # ── SUMMARY
+    print()
+    box([
+        "  " + s["icon"] + "  " + s["name"] + " conectado a nova",
+        "",
+        "  " + s["what"],
+    ], sc, title=s["category"])
+    print()
+    info("Ver detalles:  " + q(C.B7, "nova skill info " + name))
+    print()
+
+
+# ── nova skill remove ────────────────────────────────────────────
+def cmd_skill_remove(args):
+    name = (args.subcommand or args.agent or "").lower()
+    if name in ("remove", ""):
+        name = args.agent or ""
+
+    if not name or name not in SKILLS:
+        fail("Especifica un skill válido.")
+        return
+
+    if skill_status(name) != "installed":
+        warn(name + " no está instalado.")
+        return
+
+    warn("Esto eliminará las credenciales de " + SKILLS[name]["name"] + " de este equipo.")
+    if not confirm("¿Continuar?", default=False):
+        return
+
+    path = os.path.join(SKILLS_DIR, name + ".json")
+    if os.path.exists(path):
+        os.remove(path)
+    ok(SKILLS[name]["name"] + " desinstalado.")
+    print()
+
+
+# ══════════════════════════════════════════════════════════════════
 # ROUTER
 # ══════════════════════════════════════════════════════════════════
 
@@ -736,6 +1189,7 @@ def main():
     p = argparse.ArgumentParser(prog="nova", add_help=False)
     p.add_argument("command",     nargs="?", default="help")
     p.add_argument("subcommand",  nargs="?", default="")
+    p.add_argument("third",       nargs="?", default="")
     p.add_argument("--token",  "-t", default="")
     p.add_argument("--action", "-a", default="")
     p.add_argument("--context","-c", default="")
@@ -745,6 +1199,7 @@ def main():
     p.add_argument("--importance",   default="5")
     p.add_argument("--limit",  type=int, default=10)
     p.add_argument("--verdict",      default="")
+    p.add_argument("--reconfigure",  action="store_true")
     p.add_argument("--help",   "-h", action="store_true")
     args = p.parse_args()
 
@@ -767,6 +1222,15 @@ def main():
         ("alerts",   ""):        cmd_alerts,
         ("seed",     ""):        cmd_seed,
         ("config",   ""):        cmd_config,
+        # Skills
+        ("skill",    ""):        cmd_skill_list,
+        ("skill",    "list"):    cmd_skill_list,
+        ("skills",   ""):        cmd_skill_list,
+        ("skill",    "add"):     cmd_skill_add,
+        ("skill",    "install"): cmd_skill_add,
+        ("skill",    "info"):    cmd_skill_info,
+        ("skill",    "remove"):  cmd_skill_remove,
+        ("skill",    "delete"):  cmd_skill_remove,
     }
 
     fn = routes.get((args.command, args.subcommand)) or routes.get((args.command, ""))
