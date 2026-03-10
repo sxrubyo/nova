@@ -64,27 +64,8 @@ def q(color, text, bold=False):
 
 
 # ══════════════════════════════════════════════════════════════════
-# LOGO — NOVA azul + CLI blanco, side by side
+# IDENTITY — ✦ nova  (the star IS the mark)
 # ══════════════════════════════════════════════════════════════════
-
-_NOVA = [
-    "  ███╗   ██╗  ██████╗  ██╗   ██╗  █████╗  ",
-    "  ████╗  ██║ ██╔═══██╗ ██║   ██║ ██╔══██╗ ",
-    "  ██╔██╗ ██║ ██║   ██║ ██║   ██║ ███████║ ",
-    "  ██║╚██╗██║ ██║   ██║ ╚██╗ ██╔╝ ██╔══██║ ",
-    "  ██║ ╚████║ ╚██████╔╝  ╚████╔╝  ██║  ██║ ",
-    "  ╚═╝  ╚═══╝  ╚═════╝    ╚═══╝   ╚═╝  ╚═╝ ",
-]
-_NOVA_COLORS = [C.B0, C.B2, C.B4, C.B5, C.B6, C.B7]
-
-_CLI = [
-    " ██████╗██╗     ██╗",
-    "██╔════╝██║     ██║",
-    "██║     ██║     ██║",
-    "██║     ██║     ██║",
-    "╚██████╗███████╗██║",
-    " ╚═════╝╚══════╝╚═╝",
-]
 
 _TAGLINES = [
     "Agents that answer for themselves.",
@@ -96,18 +77,40 @@ _TAGLINES = [
 ]
 _tagline = random.choice(_TAGLINES)
 
+NOVA_VERSION = "2.1.0"
 
-def print_logo(tagline=True):
+
+def print_logo(tagline=True, compact=False):
+    """The star IS the mark."""
     print()
-    for i in range(6):
-        nova_part = _NOVA_COLORS[i] + C.BOLD + _NOVA[i] + C.R
-        cli_part  = C.W + C.BOLD + _CLI[i] + C.R
-        print(nova_part + cli_part)
-    if tagline:
+    if compact:
+        print("  " + q(C.B6, "✦", bold=True) + "  " + q(C.W, "nova", bold=True))
+    else:
+        print("  " + q(C.B5, "✦", bold=True) + "  " +
+              q(C.W, "n", bold=True) + q(C.B7, "o", bold=True) +
+              q(C.W, "v", bold=True) + q(C.B6, "a", bold=True) +
+              q(C.G3, "  ·  " + NOVA_VERSION))
+        if tagline:
+            print()
+            print("  " + q(C.G3, "     " + _tagline))
+            print("  " + q(C.G4, "     " + "─" * 42))
+    print()
+
+
+def _step_header(n, total, title):
+    progress = q(C.G4, "  [") + q(C.B6, str(n) + "/" + str(total), bold=True) + q(C.G4, "]")
+    print()
+    print(progress + "  " + q(C.W, title, bold=True))
+    print("  " + q(C.G4, "     " + "─" * 42))
+    print()
+
+
+def _pause(label="continuar"):
+    print("  " + q(C.G4, "     → ") + q(C.G4, "Enter para " + label + " "), end="", flush=True)
+    try:
+        input()
+    except (EOFError, KeyboardInterrupt):
         print()
-        print("  " + q(C.G3, _tagline))
-        print("  " + q(C.G4, "─" * 54))
-    print()
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -272,33 +275,147 @@ def print_error(r):
 # ══════════════════════════════════════════════════════════════════
 
 def cmd_init(args):
-    print_logo()
-    print("  " + q(C.W, "Conecta Nova CLI con tu servidor.", bold=True))
-    print("  " + q(C.G3, "Tarda 30 segundos."))
-    print()
-
     cfg = load_config()
-    url = prompt("URL del servidor", cfg.get("api_url", "http://localhost:8000"))
-    key = prompt("API Key", cfg.get("api_key", ""))
+
+    # ── SPLASH ────────────────────────────────────────────────────
+    print()
+    print()
+    print("  " + q(C.B5, "✦", bold=True))
+    print()
+    print("  " + q(C.W, "Welcome to nova.", bold=True))
+    print()
+    print("  " + q(C.G2, "The governance layer for AI agents."))
+    print()
+    print("  " + q(C.G4, "     " + "─" * 42))
+    print()
+    print("  " + q(C.G3, "  nova sits between your agents and the real world."))
+    print("  " + q(C.G3, "  Before anything executes, nova asks one question:"))
+    print()
+    print("  " + q(C.B6, "       Should this happen?", bold=True))
+    print()
+    _pause()
+
+    # ── [1/5] HOW IT WORKS ────────────────────────────────────────
+    _step_header(1, 5, "How nova works")
+    print("  " + q(C.G4, "  ┌─  Your agent wants to do something"))
+    print("  " + q(C.G4, "  │"))
+    print("  " + q(C.G4, "  │   ") + q(C.G2, "nova evaluates the action in <5ms"))
+    print("  " + q(C.G4, "  │"))
+    print("  " + q(C.G4, "  ├─  ") + q(C.GRN, "Score ≥ 70", bold=True) + q(C.G3, "   →  ✓  Approved  ·  runs"))
+    print("  " + q(C.G4, "  ├─  ") + q(C.YLW, "Score 40-70", bold=True) + q(C.G3, "  →  ⚠  Escalated  ·  you decide"))
+    print("  " + q(C.G4, "  └─  ") + q(C.RED, "Score < 40", bold=True) + q(C.G3, "   →  ✗  Blocked   ·  logged forever"))
+    print()
+    print("  " + q(C.G3, "  Every decision lands in the") + " " +
+          q(C.B7, "Intent Ledger", bold=True) + q(C.G3, "."))
+    print("  " + q(C.G3, "  Cryptographic. Auditable. Permanent."))
+    print()
+    _pause()
+
+    # ── [2/5] RISKS + T&C ─────────────────────────────────────────
+    _step_header(2, 5, "Before we continue")
+    print("  " + q(C.YLW, "  !") + "  " + q(C.G1, "nova is not a sandbox.", bold=True))
+    print("  " + q(C.G3, "     It makes real decisions about real actions in production."))
+    print()
+    print("  " + q(C.G2, "  You should know:"))
     print()
 
-    loading("Verificando conexión...")
+    risks = [
+        "nova may block actions your agents try to execute",
+        "every validation is recorded permanently in the ledger",
+        "you define the rules — you own the consequences",
+        "misconfigured rules can block legitimate work",
+        "the ledger cannot be deleted or modified",
+    ]
+    for r in risks:
+        print("  " + q(C.G4, "     ◦  ") + q(C.G2, r))
+    print()
+    print("  " + q(C.G4, "     ") + q(C.G4, "Terms:  ") + q(C.B6, "https://nova-os.com/terms"))
+    print()
+
+    try:
+        accepted = confirm("  I understand and accept these terms", default=False)
+    except (EOFError, KeyboardInterrupt):
+        print(); return
+    if not accepted:
+        print()
+        warn("Setup cancelled. Run " + q(C.B7, "nova init") + " when ready.")
+        print()
+        return
+
+    # ── [3/5] PERSONALIZATION ─────────────────────────────────────
+    _step_header(3, 5, "Tell us who you are")
+    print("  " + q(C.G3, "  This personalizes your nova experience."))
+    print()
+    try:
+        name = prompt("  Your name or organization", cfg.get("user_name", ""))
+        if not name:
+            name = "Explorer"
+    except (EOFError, KeyboardInterrupt):
+        print(); name = "Explorer"
+
+    # ── [4/5] SERVER CONFIG ───────────────────────────────────────
+    _step_header(4, 5, "Connect to your nova server")
+    print("  " + q(C.G3, "  nova CLI communicates with a nova server."))
+    print("  " + q(C.G3, "  Self-hosted or an existing instance."))
+    print()
+    print("  " + q(C.G4, "  Docs: ") + q(C.B6, "https://github.com/Santiagorubioads/nova-os"))
+    print()
+
+    try:
+        url = prompt("  Server URL", cfg.get("api_url", "http://localhost:8000"))
+        print()
+        import getpass
+        print("  " + q(C.B6, "?") + "  " + q(C.G1, "API Key") + "  ", end="", flush=True)
+        key = getpass.getpass("").strip() or cfg.get("api_key", "")
+    except (EOFError, KeyboardInterrupt):
+        print(); url = cfg.get("api_url", "http://localhost:8000"); key = cfg.get("api_key", "")
+
+    # ── [5/5] TEST + SUCCESS ──────────────────────────────────────
+    _step_header(5, 5, "Connecting")
+
+    loading("  Reaching " + url + " ...")
     api    = NovaAPI(url, key)
     health = api.get("/health")
     clear_line()
 
-    if "error" in health:
-        fail(health["error"])
-        warn("Guardando config de todas formas.")
-    else:
-        ok("Conectado")
+    connected = "error" not in health
+    server_ver = health.get("version", "online") if connected else "—"
 
-    cfg.update({"api_url": url, "api_key": key})
+    if connected:
+        ok("  Server responding  ·  " + q(C.G4, server_ver))
+        ok("  API key accepted")
+    else:
+        fail("  " + health.get("error", "Could not connect"))
+        print()
+        warn("  Saving config anyway. Fix the server and run " + q(C.B7, "nova status") + ".")
+
+    cfg.update({"api_url": url, "api_key": key, "user_name": name})
     save_config(cfg)
+
+    # ── SUCCESS SCREEN ────────────────────────────────────────────
     print()
-    ok("Config guardada → " + q(C.G3, CONFIG_FILE))
+    print("  " + q(C.G4, "     " + "─" * 42))
     print()
-    info("Siguiente: " + q(C.B7, "nova agent create"))
+    print("  " + q(C.B5, "  ✦", bold=True))
+    print()
+    print("  " + q(C.W, "  You're in" + (", " + name.split()[0] + "." if name and name != "Explorer" else "."), bold=True))
+    print()
+    print("  " + q(C.G2, "  nova CLI is ready."))
+    print()
+    print("  " + q(C.G4, "     " + "─" * 42))
+    print()
+
+    # ── NEXT STEPS ────────────────────────────────────────────────
+    print("  " + q(C.G3, "  What to do next:"))
+    print()
+    nexts = [
+        ("nova agent create",  "Create your first agent"),
+        ("nova status",        "System health & metrics"),
+        ("nova config",        "Skills, preferences, settings"),
+        ("nova help",          "See all commands"),
+    ]
+    for cmd, desc in nexts:
+        print("  " + q(C.B7, "  " + cmd.ljust(22), bold=True) + "  " + q(C.G3, desc))
     print()
 
 
@@ -672,62 +789,276 @@ def cmd_seed(args):
 
 
 def cmd_config(args):
-    cfg = load_config()
-    section("Configuración")
-    api_key = cfg.get("api_key", "")
-    tok     = cfg.get("default_token", "")
-    kv("Servidor",      cfg.get("api_url", ""),                    C.B6)
-    kv("API Key",       (api_key[:12] + "...") if api_key else q(C.G4, "no configurada"))
-    kv("Token default", (tok[:16] + "...")     if tok     else q(C.G4, "ninguno"))
-    kv("Config",        CONFIG_FILE,                                C.G3)
-    print()
+    """Interactive configuration hub — the power center of nova."""
+    while True:
+        cfg        = load_config()
+        api_url    = cfg.get("api_url", "http://localhost:8000")
+        api_key    = cfg.get("api_key", "")
+        user_name  = cfg.get("user_name", "")
+
+        # Count installed skills
+        installed = [k for k in SKILLS if skill_status(k) == "installed"]
+        total     = len(SKILLS)
+
+        # Connection badge
+        connected = False
+        try:
+            api    = NovaAPI(api_url, api_key)
+            health = api.get("/health")
+            connected = "error" not in health
+        except Exception:
+            pass
+
+        conn_badge = q(C.GRN, "✓  connected", bold=True) if connected else q(C.YLW, "!  check server")
+        key_display = ("*" * 8 + api_key[-4:]) if len(api_key) >= 4 else (q(C.G4, "not set") if not api_key else api_key)
+        skill_badge = (q(C.GRN, str(len(installed)) + " active") if installed else q(C.G4, "none installed")) + q(C.G3, "  /  " + str(total) + " available")
+
+        print_logo(compact=True)
+        print("  " + q(C.G4, "     " + "─" * 42))
+        print()
+
+        # Menu entries
+        menu = [
+            ("1", "Server",           api_url[:38],                conn_badge),
+            ("2", "API Key",          key_display,                 ""),
+            ("3", "Skills  ✦",        "connect nova to the world", skill_badge),
+            ("4", "Preferences",      "color · language · output", ""),
+            ("5", "About nova",       "version · docs · support",  ""),
+            ("6", "Reset",            "clear all settings",        ""),
+        ]
+
+        for num, title, sub, badge in menu:
+            b = "  " + badge if badge else ""
+            print("  " + q(C.G4, "  [") + q(C.B6, num, bold=True) + q(C.G4, "]") +
+                  "  " + q(C.W, title.ljust(16), bold=True) +
+                  q(C.G3, sub[:36]) + b)
+
+        print()
+        print("  " + q(C.G4, "     " + "─" * 42))
+        print()
+        print("  " + q(C.B6, "?") + "  " + q(C.G3, "  Select") + "  " + q(C.G4, "[1-6]  or Enter to exit:") + "  ", end="", flush=True)
+
+        try:
+            choice = input().strip()
+        except (EOFError, KeyboardInterrupt):
+            print(); break
+
+        if not choice:
+            break
+
+        # ── [1] Server ─────────────────────────────────────────────
+        if choice == "1":
+            print()
+            print("  " + q(C.W, "  Server & Connection", bold=True))
+            print()
+            kv("  Current URL", api_url, C.B6)
+            kv("  Status",      "Connected" if connected else "Unreachable",
+               C.GRN if connected else C.RED)
+            print()
+            try:
+                new_url = prompt("  New URL (Enter to keep)", api_url)
+                if new_url and new_url != api_url:
+                    cfg["api_url"] = new_url
+                    save_config(cfg)
+                    ok("  Server URL updated.")
+            except (EOFError, KeyboardInterrupt):
+                pass
+
+        # ── [2] API Key ────────────────────────────────────────────
+        elif choice == "2":
+            print()
+            print("  " + q(C.W, "  API Key", bold=True))
+            print()
+            kv("  Current", key_display, C.G3)
+            print()
+            try:
+                import getpass
+                print("  " + q(C.B6, "?") + "  " + q(C.G1, "  New API Key (Enter to keep)") + "  ", end="", flush=True)
+                new_key = getpass.getpass("").strip()
+                if new_key:
+                    cfg["api_key"] = new_key
+                    save_config(cfg)
+                    ok("  API Key updated.")
+            except (EOFError, KeyboardInterrupt):
+                pass
+
+        # ── [3] Skills ─────────────────────────────────────────────
+        elif choice == "3":
+            _config_skills_hub()
+
+        # ── [4] Preferences ────────────────────────────────────────
+        elif choice == "4":
+            print()
+            print("  " + q(C.W, "  Preferences", bold=True))
+            print()
+            prefs = cfg.get("prefs", {})
+            lang  = prefs.get("lang", "es")
+            print("  " + q(C.G3, "  Language:  ") + q(C.W, lang))
+            print("  " + q(C.G3, "  Color:     ") + q(C.W, "auto"))
+            print()
+            try:
+                new_lang = prompt("  Language [es/en]", lang)
+                if new_lang in ("es", "en"):
+                    cfg.setdefault("prefs", {})["lang"] = new_lang
+                    save_config(cfg)
+                    ok("  Preference saved.")
+            except (EOFError, KeyboardInterrupt):
+                pass
+
+        # ── [5] About ──────────────────────────────────────────────
+        elif choice == "5":
+            print()
+            print("  " + q(C.B5, "✦", bold=True) + "  " + q(C.W, "nova", bold=True) + q(C.G3, "  ·  " + NOVA_VERSION))
+            print()
+            kv("  Build",   NOVA_VERSION,                     C.B6)
+            kv("  Config",  CONFIG_FILE,                      C.G3)
+            kv("  Skills",  str(len(installed)) + " installed", C.G3)
+            kv("  Docs",    "https://github.com/Santiagorubioads/nova-os", C.B6)
+            kv("  Support", "https://nova-os.com/support",    C.B6)
+            print()
+            try:
+                input("  " + q(C.G4, "  Enter to go back  "))
+            except (EOFError, KeyboardInterrupt):
+                pass
+
+        # ── [6] Reset ──────────────────────────────────────────────
+        elif choice == "6":
+            print()
+            warn("  This will erase all local nova config and skills.")
+            try:
+                if confirm("  Continue?", default=False):
+                    import shutil
+                    shutil.rmtree(NOVA_DIR, ignore_errors=True)
+                    ok("  nova reset. Run " + q(C.B7, "nova init") + " to start fresh.")
+                    print()
+                    break
+            except (EOFError, KeyboardInterrupt):
+                pass
+
+        print()
+
+
+def _config_skills_hub():
+    """Skills section within nova config."""
+    while True:
+        installed = [k for k in SKILLS if skill_status(k) == "installed"]
+        available = [k for k in SKILLS if skill_status(k) != "installed"]
+
+        print()
+        print("  " + q(C.B5, "✦", bold=True) + "  " + q(C.W, "Skills — The Constellation", bold=True))
+        print("  " + q(C.G4, "     " + "─" * 42))
+        print()
+        print("  " + q(C.G3, "  Skills give nova access to real data before deciding."))
+        print("  " + q(C.G3, "  Install what you need. Nothing else runs."))
+        print()
+
+        if installed:
+            print("  " + q(C.GRN, "  ● Installed  ", bold=True) + q(C.G4, str(len(installed)) + " active"))
+            print()
+            for k in installed:
+                s  = SKILLS[k]
+                sc = _skill_color(s)
+                print("  " + q(C.GRN, "  ✓") + "  " + q(sc, s["icon"] + "  " + s["name"].ljust(16), bold=True) +
+                      q(C.G3, s["desc"][:40]))
+            print()
+
+        if available:
+            print("  " + q(C.G3, "  ○ Available  ") + q(C.G4, str(len(available)) + " skills"))
+            print()
+            for k in available:
+                s  = SKILLS[k]
+                sc = _skill_color(s)
+                print("  " + q(C.G4, "     ") + q(sc, s["icon"] + "  " + s["name"].ljust(16)) +
+                      q(C.G4, s["desc"][:40]))
+            print()
+
+        print("  " + q(C.G4, "     " + "─" * 42))
+        print()
+        print("  " + q(C.B6, "?") + "  " + q(C.G3, "  Skill name to configure  ") +
+              q(C.G4, "(Enter to go back):") + "  ", end="", flush=True)
+
+        try:
+            choice = input().strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print(); break
+
+        if not choice:
+            break
+
+        if choice in SKILLS:
+            fake_args = type("A", (), {"third": choice, "subcommand": "add", "agent": "", "reconfigure": False})()
+            cmd_skill_add(fake_args)
+        else:
+            # Try partial match
+            matches = [k for k in SKILLS if k.startswith(choice) or choice in SKILLS[k]["name"].lower()]
+            if len(matches) == 1:
+                fake_args = type("A", (), {"third": matches[0], "subcommand": "add", "agent": "", "reconfigure": False})()
+                cmd_skill_add(fake_args)
+            elif matches:
+                print()
+                info("  Did you mean: " + ", ".join(matches))
+            else:
+                warn("  Skill '" + choice + "' not found. Available: " + ", ".join(SKILLS.keys()))
 
 
 def cmd_help(args=None):
     print_logo()
 
-    cmds = [
-        ("init",          "Conecta Nova CLI con tu servidor"),
-        ("status",        "Estado del sistema y métricas"),
-        ("agent create",  "Crea un agente con sus reglas de comportamiento"),
-        ("agent list",    "Lista todos los agentes activos"),
-        ("validate",      "Valida una acción — veredicto + respuesta generada"),
-        ("memory save",   "Guarda un dato en la memoria de un agente"),
-        ("memory list",   "Muestra las memorias de un agente"),
-        ("ledger",        "Historial criptográfico de acciones"),
-        ("ledger verify", "Verifica la integridad de la cadena"),
-        ("alerts",        "Alertas de acciones bloqueadas o escaladas"),
-        ("skill",         "Catálogo de skills — conecta nova con el mundo"),
-        ("skill add",     "Instala y configura un skill paso a paso"),
-        ("skill info",    "Detalles y estado de un skill"),
-        ("seed",          "Carga datos de demostración"),
-        ("config",        "Configuración actual"),
+    print("  " + q(C.G3, "  Governance infrastructure for AI agents."))
+    print()
+    print("  " + q(C.G4, "     " + "─" * 42))
+    print()
+
+    sections_data = [
+        ("Getting started", [
+            ("nova init",            "First-run setup · T&C · server connection"),
+            ("nova status",          "System health, metrics, active agents"),
+            ("nova config",          "Skills, server, preferences — everything"),
+        ]),
+        ("Agents", [
+            ("nova agent create",    "Create an agent with intent rules"),
+            ("nova agent list",      "List all active agents"),
+        ]),
+        ("Validation", [
+            ("nova validate",        "Validate an action — verdict + response"),
+        ]),
+        ("Memory", [
+            ("nova memory save",     "Store context in an agent's memory"),
+            ("nova memory list",     "Read an agent's memories"),
+        ]),
+        ("Ledger", [
+            ("nova ledger",          "Full cryptographic action history"),
+            ("nova ledger verify",   "Verify chain integrity"),
+            ("nova alerts",          "Blocked & escalated action alerts"),
+        ]),
+        ("Skills", [
+            ("nova skill",           "Skill catalog — all available integrations"),
+            ("nova skill add",       "Install a skill step by step"),
+            ("nova skill info",      "Details & status of a skill"),
+        ]),
     ]
 
-    section("Comandos")
-    for cmd, desc in cmds:
-        print("  " + q(C.B7, ("nova " + cmd).ljust(22), bold=True) + "  " + q(C.G2, desc))
+    for title, cmds in sections_data:
+        print("  " + q(C.G3, "  " + title.upper()))
+        print()
+        for cmd, desc in cmds:
+            print("  " + q(C.B7, "  " + cmd.ljust(26), bold=True) + "  " + q(C.G3, desc))
+        print()
 
-    section("Flags")
-    flags = [
-        ("--token  <id>",     "Token ID para validate"),
-        ("--action <texto>",  "Acción sin prompt interactivo"),
-        ("--agent  <nombre>", "Agente para memory list/save"),
-        ("--limit  <n>",      "Entradas en ledger (default 10)"),
-        ("--verdict <v>",     "Filtrar: APPROVED / BLOCKED"),
-    ]
-    for flag, desc in flags:
-        print("  " + q(C.B5, flag.ljust(22)) + "  " + q(C.G3, desc))
-
-    section("Ejemplos")
+    print("  " + q(C.G4, "     " + "─" * 42))
+    print()
+    print("  " + q(C.G4, "  Examples:"))
+    print()
     examples = [
-        ("nova init",                                 "primera vez"),
-        ("nova agent create",                         "crear agente"),
-        ('nova validate --action "Enviar email"',     "validar acción"),
-        ("nova ledger --limit 20 --verdict BLOCKED",  "ver bloqueados"),
+        ('nova validate --action "Send email to john@x.com"', ""),
+        ("nova ledger --limit 20 --verdict BLOCKED",          ""),
+        ("nova config",                                        "→ then select [3] for Skills"),
     ]
     for ex, note in examples:
-        print("  " + q(C.G4, "$") + " " + q(C.W, ex) + "  " + q(C.G4, "# " + note))
+        line = "  " + q(C.G4, "  $ ") + q(C.W, ex)
+        if note:
+            line += "  " + q(C.G4, note)
+        print(line)
     print()
 
 
@@ -1204,6 +1535,22 @@ def main():
     args = p.parse_args()
 
     if args.help or args.command in ("help", "--help", "-h"):
+        cmd_help(args)
+        return
+
+    # First-run detection — no config file yet
+    if args.command not in ("init", "help", "--help", "-h") and not os.path.exists(CONFIG_FILE):
+        print()
+        print("  " + q(C.B5, "✦", bold=True) + "  " + q(C.W, "nova", bold=True))
+        print()
+        print("  " + q(C.G2, "  nova isn't configured yet."))
+        print()
+        print("  " + q(C.B7, "  nova init", bold=True) + q(C.G3, "  — run setup to get started"))
+        print()
+        return
+
+    # No command — show mark + status hint
+    if args.command == "help" or (not args.command):
         cmd_help(args)
         return
 
