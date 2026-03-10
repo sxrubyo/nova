@@ -146,7 +146,8 @@ def _select(options, title="", default=0):
     Returns the chosen index, or default if not interactive.
     Up/Down to move  ·  Enter to confirm  ·  j/k also work
     """
-    is_tty = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+    is_tty = (hasattr(sys.stdin, "isatty") and sys.stdin.isatty() and
+              hasattr(sys.stdout, "isatty") and sys.stdout.isatty())
 
     # Non-interactive fallback
     if not is_tty:
