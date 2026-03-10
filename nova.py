@@ -8,6 +8,13 @@ import sys, os, json, time, urllib.request, urllib.error
 import urllib.parse, hashlib, argparse, textwrap, random
 from datetime import datetime
 
+# Force UTF-8 on Windows (PowerShell uses cp1252 by default)
+if sys.platform == "win32":
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+    os.system("chcp 65001 >nul 2>&1")
+
 # ══════════════════════════════════════════════════════════════════
 # COLOR SYSTEM
 # ══════════════════════════════════════════════════════════════════
