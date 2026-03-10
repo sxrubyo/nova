@@ -1,14 +1,8 @@
-# <p align="center">██╗  ██╗ ██████╗ ██╗   ██╗ █████╗</p>
-# <p align="center">██║  ██║ ██╔═══██╗██║   ██║██╔══██╗</p>
-# <p align="center">███████║ ██║   ██║██║   ██║███████║</p>
-# <p align="center">██╔══██║ ██║   ██║╚██╗ ██╔╝██╔══██║</p>
-# <p align="center">██║  ██║ ╚██████╔╝ ╚████╔╝ ██║  ██║</p>
-# <p align="center">**N  O  V  A**</p>
-
-<p align="center">
-  <i>Control absoluto sobre tus automatizaciones.</i><br>
-  <b>El filtro de seguridad entre tus flujos y tus clientes.</b>
-</p>
+<div align="center">
+  <h1>⬛ N O V A 🟦</h1>
+  <h3>Control absoluto sobre tus automatizaciones.</h3>
+  <p><i>El filtro de seguridad entre tus flujos y tus clientes.</i></p>
+</div>
 
 ---
 
