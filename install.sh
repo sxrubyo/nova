@@ -47,4 +47,4 @@ export PATH="$HOME/.nova:$PATH"
 echo ""; printf "  ${D}──────────────────────────────────────────────────────${RST}\n"
 printf "  ${W}nova CLI installed.${RST}\n"
 printf "  ${D}──────────────────────────────────────────────────────${RST}\n\n"
-exec "$PYTHON" "$NOVA_PY" init
+exec "$PYTHON" "$NOVA_PY" init </dev/tty
