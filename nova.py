@@ -6,7 +6,7 @@ Zero dependencies. Python 3.8+.
 
 Copyright (c) 2024 Nova OS. All rights reserved.
 https://nova-os.com
-Maintained by @sxrubyo
+Maintained by Nova Governance
 """
 
 import sys
@@ -139,10 +139,10 @@ class C:
     B8 = _e("38;5;109")
 
     # Text hierarchy (NEVER darker than G3 for body text)
-    W   = _e("38;5;255")  # Pure white — titles, emphasis
-    G0  = _e("38;5;253")  # Near-white — primary text
-    G1  = _e("38;5;250")  # Light gray — secondary text
-    G2  = _e("38;5;246")  # Medium gray — tertiary, hints
+    W   = _e("38;5;15")   # Pure white — titles, emphasis
+    G0  = _e("38;5;252")  # Near-white — primary text
+    G1  = _e("38;5;248")  # Light gray — secondary text
+    G2  = _e("38;5;244")  # Ash gray — technical details
     G3  = _e("38;5;240")  # Dark gray — MINIMUM for visible text
     
     # Semantic colors
@@ -154,14 +154,16 @@ class C:
     CYN  = _e("38;5;109")  # Muted info
     PNK  = _e("38;5;174")  # Muted accent
     GLD  = _e("38;5;179")  # Muted gold
-    GLD_BRIGHT = _e("93")  # Bright gold (ANSI)
+    GLD_BRIGHT = _e("38;5;180")  # Champagne gold
+    GLD_MATTE = _e("38;5;137")   # Matte gold
+    SAND = _e("38;5;180")        # Sand gold
     
-    # Backgrounds (use sparingly)
-    BG_RED = _e("48;5;167")
-    BG_GRN = _e("48;5;108")
-    BG_BLU = _e("48;5;67")
-    BG_YLW = _e("48;5;179")
-    BG_GRY = _e("48;5;236")
+    # Backgrounds removed for minimal black aesthetic
+    BG_RED = ""
+    BG_GRN = ""
+    BG_BLU = ""
+    BG_YLW = ""
+    BG_GRY = ""
 
 
 def q(color, text, bold=False, dim=False, italic=False, underline=False):
@@ -199,7 +201,14 @@ _NOVA_BLOCK = [
     "  ██║ ╚████║ ╚██████╔╝  ╚████╔╝  ██║  ██║ ",
     "  ╚═╝  ╚═══╝  ╚═════╝    ╚═══╝   ╚═╝  ╚═╝ ",
 ]
-_NOVA_COLORS = [C.GLD_BRIGHT, C.GLD_BRIGHT, C.GLD_BRIGHT, C.GLD_BRIGHT, C.GLD_BRIGHT, C.GLD_BRIGHT]
+_NOVA_COLORS = [
+    _e("38;5;15"),
+    _e("38;5;15"),
+    _e("38;5;180"),
+    _e("38;5;180"),
+    _e("38;5;137"),
+    _e("38;5;137"),
+]
 
 _CLI_BLOCK = [
     " ██████╗██╗     ██╗",
@@ -520,7 +529,7 @@ def print_logo(tagline=True, compact=False, animated=False, minimal=False):
     
     if compact:
         # Single line compact version
-        banner = f"✦ nova · v{NOVA_VERSION} · @sxrubyo"
+        banner = f"✦ nova · v{NOVA_VERSION} · Nova Governance"
         print("  " + q(C.GLD_BRIGHT, banner, bold=True))
         print()
         return
@@ -548,7 +557,7 @@ def print_logo(tagline=True, compact=False, animated=False, minimal=False):
             ghost_write(tl, color=C.G2, delay=0.01)
         else:
             print("  " + q(C.G2, tl))
-        print("  " + q(C.GLD_BRIGHT, "@sxrubyo"))
+        print("  " + q(C.GLD_BRIGHT, "✦") + " " + q(C.G2, "Nova Constellation · Enterprise Edition"))
         print("  " + q(C.G3, "─" * 62))
     
     print()
@@ -633,14 +642,13 @@ def render_table(title, headers, rows, prefix="  "):
     print()
 
 
-def health_meter(score, width=28):
+def health_meter(score, width=8):
     """Visual health meter for status screens."""
     score = max(0, min(100, int(score)))
     filled = int((score / 100) * width)
     empty = width - filled
-    color = C.GRN if score >= 80 else C.YLW if score >= 55 else C.RED
-    bar = q(color, "█" * filled) + q(C.G3, "·" * empty)
-    return f"{bar}  {q(color, f'{score:3d}%')}"
+    bar = q(C.SAND, "·" * filled) + q(C.G3, "·" * empty)
+    return f"{bar}  {q(C.G2, f'{score:3d}%')}"
 
 def nl(count=1):
     """Print newlines."""
@@ -841,7 +849,7 @@ def box(lines, color=None, title="", padding=1):
 
 
 def table(headers, rows, colors=None, max_col_width=40):
-    """Render a formatted table."""
+    """Render a formatted table with thin Unicode borders."""
     if not rows:
         return
     
@@ -855,28 +863,26 @@ def table(headers, rows, colors=None, max_col_width=40):
                 max_w = max(max_w, len(str(row[i])))
         widths.append(min(max_w, max_col_width))
     
-    # Header
-    header_parts = []
-    for i, h in enumerate(headers):
-        header_parts.append(q(C.G3, str(h).ljust(widths[i])))
-    print("  " + "  ".join(header_parts))
-    
-    # Separator
-    print("  " + q(C.G3, "─" * (sum(widths) + (col_count - 1) * 2)))
-    
-    # Rows
-    for row in rows:
+    top = "┌" + "┬".join("─" * (w + 2) for w in widths) + "┐"
+    mid = "├" + "┼".join("─" * (w + 2) for w in widths) + "┤"
+    bot = "└" + "┴".join("─" * (w + 2) for w in widths) + "┘"
+
+    def _line(cells, header=False):
         parts = []
-        for i in range(col_count):
-            val = str(row[i]) if i < len(row) else ""
-            c = colors[i] if colors and i < len(colors) else C.G1
-            
-            # Truncate if needed
+        for i, cell in enumerate(cells):
+            val = str(cell)
             if len(val) > widths[i]:
                 val = val[:widths[i]-1] + "…"
-            
-            parts.append(q(c, val.ljust(widths[i])))
-        print("  " + "  ".join(parts))
+            c = C.W if header else (colors[i] if colors and i < len(colors) else C.G1)
+            parts.append(" " + q(c, val.ljust(widths[i]), bold=header) + " ")
+        return "│" + "│".join(parts) + "│"
+
+    print("  " + q(C.G3, top))
+    print("  " + _line(headers, header=True))
+    print("  " + q(C.G3, mid))
+    for row in rows:
+        print("  " + _line([row[i] if i < len(row) else "" for i in range(col_count)]))
+    print("  " + q(C.G3, bot))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1215,70 +1221,93 @@ def _select_windows(options, draw, current, get_filtered, page_size):
         time.sleep(0.01)
 
 
-def _select_unix(options, draw, current, get_filtered, page_size, allow_filter):
-    """Unix/Mac key handling with proper terminal restoration."""
+def _raw_input_unix():
+    """Context manager for raw ANSI input on Unix-like systems."""
     import termios
     import tty
-    
-    fd = sys.stdin.fileno()
-    old_settings = termios.tcgetattr(fd)
-    
-    filter_text = ""
-    
-    def read_key():
-        """Read single keypress."""
-        tty.setraw(fd)
-        try:
-            ch = sys.stdin.read(1)
-            
-            if ch == "\x1b":  # Escape sequence
-                ch2 = sys.stdin.read(1)
-                if ch2 == "[":
-                    ch3 = sys.stdin.read(1)
-                    if ch3 == "A": return "UP"
-                    if ch3 == "B": return "DOWN"
-                    if ch3 == "C": return "RIGHT"
-                    if ch3 == "D": return "LEFT"
-                    return ch3
-                return ch2
-            return ch
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-    
+    import select
+
+    class _RawInput:
+        def __init__(self):
+            self.fd = sys.stdin.fileno()
+            self.old = termios.tcgetattr(self.fd)
+            tty.setraw(self.fd)
+            new = termios.tcgetattr(self.fd)
+            new[6][termios.VMIN] = 1
+            new[6][termios.VTIME] = 0
+            termios.tcsetattr(self.fd, termios.TCSADRAIN, new)
+
+        def read_key(self):
+            ch = os.read(self.fd, 1)
+            if not ch:
+                return ""
+            if ch == b"\x1b":
+                if select.select([self.fd], [], [], 0.001)[0]:
+                    ch2 = os.read(self.fd, 1)
+                    if ch2 == b"[":
+                        if select.select([self.fd], [], [], 0.001)[0]:
+                            ch3 = os.read(self.fd, 1)
+                            if ch3 == b"A": return "UP"
+                            if ch3 == b"B": return "DOWN"
+                            if ch3 == b"C": return "RIGHT"
+                            if ch3 == b"D": return "LEFT"
+                            return ch3.decode(errors="ignore")
+                        return "ESC"
+                    return ch2.decode(errors="ignore")
+                return "ESC"
+            try:
+                return ch.decode(errors="ignore")
+            except Exception:
+                return ""
+
+        def close(self):
+            termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            self.close()
+
+    return _RawInput()
+
+
+def _select_unix(options, draw, current, get_filtered, page_size, allow_filter):
+    """Unix/Mac key handling with proper terminal restoration."""
     draw(first=True)
-    
-    while True:
-        key = read_key()
-        filtered = get_filtered()
-        
-        if key in ("\r", "\n"):
-            return current
-        
-        if key == "\x03":  # Ctrl+C
-            raise KeyboardInterrupt
-        
-        if key == "UP" or key in ("k", "K"):
-            if current in filtered:
-                idx = filtered.index(current)
-                if idx > 0:
-                    current = filtered[idx - 1]
-            draw()
-        
-        elif key == "DOWN" or key in ("j", "J"):
-            if current in filtered:
-                idx = filtered.index(current)
-                if idx < len(filtered) - 1:
-                    current = filtered[idx + 1]
-            draw()
-        
-        elif key.isdigit():
-            idx = int(key) - 1
-            if 0 <= idx < len(options):
-                return idx
-        
-        # For vim users
-        elif key == "q":
-            raise KeyboardInterrupt
+
+    with _raw_input_unix() as raw:
+        while True:
+            key = raw.read_key()
+            filtered = get_filtered()
+
+            if key in ("\r", "\n"):
+                return current
+
+            if key == "\x03":  # Ctrl+C
+                raise KeyboardInterrupt
+
+            if key == "UP" or key in ("k", "K"):
+                if current in filtered:
+                    idx = filtered.index(current)
+                    if idx > 0:
+                        current = filtered[idx - 1]
+                draw()
+
+            elif key == "DOWN" or key in ("j", "J"):
+                if current in filtered:
+                    idx = filtered.index(current)
+                    if idx < len(filtered) - 1:
+                        current = filtered[idx + 1]
+                draw()
+
+            elif key.isdigit():
+                idx = int(key) - 1
+                if 0 <= idx < len(options):
+                    return idx
+
+            elif key == "q":
+                raise KeyboardInterrupt
 
 
 def _select_multi(options, title="", selected=None, descriptions=None):
@@ -1354,44 +1383,26 @@ def _select_multi(options, title="", selected=None, descriptions=None):
             draw()
     
     else:
-        import termios, tty
-        fd = sys.stdin.fileno()
-        old = termios.tcgetattr(fd)
-        
-        def read():
-            tty.setraw(fd)
-            try:
-                ch = sys.stdin.read(1)
-                if ch == "\x1b":
-                    ch2 = sys.stdin.read(1)
-                    if ch2 == "[":
-                        ch3 = sys.stdin.read(1)
-                        if ch3 == "A": return "UP"
-                        if ch3 == "B": return "DOWN"
-                return ch
-            finally:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old)
-        
         draw(first=True)
-        
-        while True:
-            key = read()
-            
-            if key in ("\r", "\n"):
-                return list(selected)
-            if key == "\x03":
-                raise KeyboardInterrupt
-            if key == " ":
-                if current in selected:
-                    selected.remove(current)
-                else:
-                    selected.add(current)
-            elif key == "UP":
-                current = (current - 1) % len(options)
-            elif key == "DOWN":
-                current = (current + 1) % len(options)
-            
-            draw()
+        with _raw_input_unix() as raw:
+            while True:
+                key = raw.read_key()
+
+                if key in ("\r", "\n"):
+                    return list(selected)
+                if key == "\x03":
+                    raise KeyboardInterrupt
+                if key == " ":
+                    if current in selected:
+                        selected.remove(current)
+                    else:
+                        selected.add(current)
+                elif key == "UP":
+                    current = (current - 1) % len(options)
+                elif key == "DOWN":
+                    current = (current + 1) % len(options)
+
+                draw()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2064,7 +2075,7 @@ def check_for_updates(force=False):
     
     try:
         req = urllib.request.Request(
-            "https://api.github.com/repos/sxrubyo/nova-os/releases/latest",
+            "https://api.github.com/repos/Nova/nova-os/releases/latest",
             headers={
                 "User-Agent": f"nova-cli/{NOVA_VERSION}",
                 "Accept": "application/vnd.github.v3+json",
@@ -2805,7 +2816,7 @@ def _build_skills():
             {
                 "key": "bot_token",
                 "label": "Bot Token",
-                "description": "Token from @BotFather",
+                "description": "Token from Nova Governance",
                 "secret": True,
                 "required": True,
             },
@@ -2819,10 +2830,10 @@ def _build_skills():
         ],
         "docs_url": "https://core.telegram.org/bots",
         "setup_guide": [
-            "1. Message @BotFather on Telegram",
+            "1. Message Nova Governance on Telegram",
             "2. Create a new bot with /newbot",
             "3. Copy the bot token",
-            "4. Get your chat ID from @userinfobot",
+            "4. Get your chat ID from Nova Governance",
         ],
         "mcp": "telegram-mcp",
     },
@@ -3118,7 +3129,7 @@ def cmd_init(args):
     print("  " + q(C.G1, f"  {L['apikey_sub']}"))
     print()
     print("  " + q(C.G3, "  Docs: ") +
-          q(C.B7, "https://github.com/sxrubyo/nova-os", underline=True))
+          q(C.B7, "https://github.com/Nova/nova-os", underline=True))
     print()
     
     existing_key = cfg.get("api_key", "") or get_active_key()
@@ -3312,7 +3323,7 @@ def cmd_init(args):
     print("     " + q(C.G1, f"nova CLI {NOVA_VERSION} {L['ready']}"))
     if org:
         print("     " + q(C.G2, org))
-    print("     " + q(C.B7, "@sxrubyo"))
+    print("     " + q(C.B7, "Nova Governance"))
     print()
     hr_bold()
     print()
@@ -5629,7 +5640,7 @@ def _config_about():
     kv("Config", str(CONFIG_FILE), C.G3)
     
     print()
-    kv("Documentation", "https://github.com/sxrubyo/nova-os", C.B7)
+    kv("Documentation", "https://github.com/Nova/nova-os", C.B7)
     kv("Support", "https://nova-os.com/support", C.B7)
     kv("Terms", "https://nova-os.com/terms", C.G3)
     
@@ -5788,7 +5799,7 @@ def cmd_help(args=None):
     
     # Links
     print("  " + q(C.G3, "Docs: ") + 
-          q(C.B7, "https://github.com/sxrubyo/nova-os", underline=True))
+          q(C.B7, "https://github.com/Nova/nova-os", underline=True))
     print()
 
 

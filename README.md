@@ -1,5 +1,5 @@
 # ✦ Nova OS — Enterprise Governance for AI Agents
-**Maintained by @sxrubyo**
+**Maintained by Nova Governance**
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-3.1.5-black?style=for-the-badge" alt="Version">
@@ -39,20 +39,20 @@ AI agents are powerful—but without oversight, they're a **liability**. Nova OS
 
 ```bash
 # Linux / macOS
-curl -sSL https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/Nova/nova-os/main/install.sh | bash
 
 # Windows (PowerShell)
-irm https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/Nova/nova-os/main/install.ps1 | iex
 
 # Docker (Recommended for production)
-docker-compose -f https://raw.githubusercontent.com/sxrubyo/nova-os/main/docker-compose.yml up -d
+docker-compose -f https://raw.githubusercontent.com/Nova/nova-os/main/docker-compose.yml up -d
 ```
 
 ### **Manual Installation**
 
 ```bash
 # Clone repository
-git clone https://github.com/sxrubyo/nova-os.git
+git clone https://github.com/Nova/nova-os.git
 cd nova-os
 
 # Install CLI
@@ -264,7 +264,7 @@ docker-compose up -d
 - **DigitalOcean**: 1-click deploy available
 
 ### **Managed Cloud**
-Contact us for Nova Cloud: `sxrubyo@gmail.com`
+Contact us for Nova Cloud: `Nova Governance`
 
 ---
 
@@ -283,7 +283,7 @@ We love contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ```bash
 # Development setup
-git clone https://github.com/sxrubyo/nova-os.git
+git clone https://github.com/Nova/nova-os.git
 cd nova-os
 pip install -r requirements-dev.txt
 pytest tests/
@@ -308,7 +308,7 @@ pytest tests/
 | **Team** | Cloud hosting, 5 agents, email support | $49/mo |
 | **Enterprise** | On-premise, unlimited agents, 24/7 support | Contact us |
 
-**Contact:** `sxrubyo@gmail.com` | **Discord:** [discord.gg/nova](https://discord.gg/nova)
+**Contact:** `Nova Governance` | **Discord:** [discord.gg/nova](https://discord.gg/nova)
 
 ---
 

@@ -1,5 +1,5 @@
 # 🏛️ Nova OS Architecture
-**Maintained by @sxrubyo**
+**Maintained by Nova Governance**
 
 Nova OS is a high-performance, low-latency governance layer for autonomous systems. The architecture follows a Security-by-Design principle: no action is executed without cryptographic verification, and every decision is traceable end-to-end.
 

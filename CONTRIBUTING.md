@@ -1,5 +1,5 @@
 # 🤝 Contributing to Nova OS
-**Maintained by @sxrubyo**
+**Maintained by Nova Governance**
 
 Thank you for your interest in strengthening Nova. We are building industry-grade infrastructure for AI agent governance, and we value contributions that advance security, performance, and clarity.
 
@@ -32,5 +32,5 @@ If you encounter a flaw, please open an **Issue** including:
 Do you have an idea for a new CRM integration or a payment gateway "Skill"? Suggestions for expanding the **Constellation** are always welcome.
 
 ---
-**Executive Contact:** `sxrubyo@gmail.com`  
+**Executive Contact:** `Nova Governance`  
 *Building the nervous system of AI together.*

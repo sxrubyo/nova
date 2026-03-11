@@ -1,12 +1,12 @@
 # nova CLI — Windows Installer
-# Maintained by @sxrubyo
-# irm https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.ps1 | iex
+# Maintained by Nova Governance
+# irm https://raw.githubusercontent.com/Nova/nova-os/main/install.ps1 | iex
 $ErrorActionPreference = "Stop"
 $NOVA_VERSION = "3.1.5"
 $NOVA_DIR = "$env:USERPROFILE\.nova"
 $NOVA_PY  = "$NOVA_DIR\nova.py"
 $NOVA_CMD = "$NOVA_DIR\nova.cmd"
-$NOVA_PY_URL = "https://raw.githubusercontent.com/sxrubyo/nova-os/main/nova.py"
+$NOVA_PY_URL = "https://raw.githubusercontent.com/Nova/nova-os/main/nova.py"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8

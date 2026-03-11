@@ -2,7 +2,7 @@
 # ═══════════════════════════════════════════════════════════════
 #  Sube y sirve los installers de Nova CLI desde tu AWS
 #  Ejecutar en tu servidor: bash setup_server.sh
-#  Maintained by @sxrubyo
+#  Maintained by Nova Governance
 # ═══════════════════════════════════════════════════════════════
 set -e
 
@@ -80,6 +80,6 @@ echo "  Windows PowerShell:"
 echo "    irm http://$IP:3005/install.ps1 | iex"
 echo ""
 echo "  GitHub (después de hacer push):"
-echo "    curl -sSL https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh | bash"
-echo "    irm https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.ps1 | iex"
+echo "    curl -sSL https://raw.githubusercontent.com/Nova/nova-os/main/install.sh | bash"
+echo "    irm https://raw.githubusercontent.com/Nova/nova-os/main/install.ps1 | iex"
 echo ""

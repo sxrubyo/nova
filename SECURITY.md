@@ -1,5 +1,5 @@
 # 🛡️ Security Policy
-**Maintained by @sxrubyo**
+**Maintained by Nova Governance**
 
 At Nova OS, security is a first-class requirement. This document outlines our security principles and how to report vulnerabilities.
 
@@ -11,7 +11,7 @@ At Nova OS, security is a first-class requirement. This document outlines our se
 
 ## 🚨 Reporting a Vulnerability
 We take security issues seriously. If you discover a vulnerability, please do not open a public issue. Instead, follow this process:
-1. **Report**: Send an encrypted email to `sxrubyo@gmail.com`.
+1. **Report**: Send an encrypted email to `Nova Governance`.
 2. **Verification**: Our team will acknowledge the receipt within 24 hours.
 3. **Disclosure**: We will work with you to patch the issue before a public disclosure is made.
 

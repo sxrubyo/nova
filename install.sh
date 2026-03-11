@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # nova CLI — Linux / macOS Installer
-# Maintained by @sxrubyo
-# curl -sSL https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh | bash
+# Maintained by Nova Governance
+# curl -sSL https://raw.githubusercontent.com/Nova/nova-os/main/install.sh | bash
 set -euo pipefail
 
 NOVA_VERSION="3.1.5"
 NOVA_DIR="$HOME/.nova"
 NOVA_PY="$NOVA_DIR/nova.py"
 NOVA_BIN="$NOVA_DIR/nova"
-NOVA_PY_URL="https://raw.githubusercontent.com/sxrubyo/nova-os/main/nova.py"
+NOVA_PY_URL="https://raw.githubusercontent.com/Nova/nova-os/main/nova.py"
 
 R='\033[38;5;196m'; G='\033[38;5;84m'; B='\033[38;5;39m'
 D='\033[38;5;238m'; W='\033[38;5;255m'; Y='\033[38;5;244m'

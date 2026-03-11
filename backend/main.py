@@ -24,7 +24,7 @@
 ║                                                                              ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
-Maintained by @sxrubyo
+Maintained by Nova Governance
 """
 
 from __future__ import annotations
