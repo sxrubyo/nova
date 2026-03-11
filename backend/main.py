@@ -23,6 +23,8 @@
 ║    https://nova-os.com                                                       ║
 ║                                                                              ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
+
+Maintained by @sxrubyo
 """
 
 from __future__ import annotations
@@ -51,13 +53,14 @@ from typing import (
 import httpx
 import databases
 from fastapi import (
-    FastAPI, HTTPException, Header, Depends, 
+    FastAPI, HTTPException, Header, Depends,
     Request, Response, BackgroundTasks, Query, Path, Body
 )
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, validator, root_validator
+from pydantic import BaseModel, Field, ValidationError, validator, root_validator
 from starlette.middleware.base import BaseHTTPMiddleware
 
 
@@ -868,6 +871,18 @@ class ErrorResponse(BaseModel):
     request_id: Optional[str]
 
 
+def _error_payload(
+    error: str,
+    code: str,
+    request_id: Optional[str],
+    detail: Optional[Any] = None
+) -> Dict[str, Any]:
+    payload = {"error": error, "code": code, "request_id": request_id}
+    if detail is not None:
+        payload["detail"] = detail
+    return payload
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # MIDDLEWARE
 # ══════════════════════════════════════════════════════════════════════════════
@@ -924,15 +939,20 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         
         # Check rate limit
         if len(self.requests[client_id]) >= self.requests_per_minute:
-            return JSONResponse(
+            request_id = getattr(request.state, "request_id", None) or Crypto.generate_request_id()
+            response = JSONResponse(
                 status_code=429,
                 content={
                     "error": "Rate limit exceeded",
                     "code": "RATE_LIMIT",
                     "detail": f"Maximum {self.requests_per_minute} requests per minute",
-                    "retry_after": 60
+                    "retry_after": 60,
+                    "request_id": request_id
                 }
             )
+            response.headers["X-Request-ID"] = request_id
+            response.headers["X-Nova-Version"] = settings.VERSION
+            return response
         
         # Track request
         self.requests[client_id].append(now)
@@ -1734,29 +1754,70 @@ app.add_middleware(
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     request_id = getattr(request.state, "request_id", None)
+    error_message = exc.detail if isinstance(exc.detail, str) else "Request error"
+    detail = None if isinstance(exc.detail, str) else exc.detail
     return JSONResponse(
         status_code=exc.status_code,
-        content={
-            "error": exc.detail,
-            "code": f"HTTP_{exc.status_code}",
-            "request_id": request_id
-        }
+        content=_error_payload(
+            error_message,
+            f"HTTP_{exc.status_code}",
+            request_id,
+            detail=detail if settings.DEBUG else None
+        )
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(
+    request: Request,
+    exc: RequestValidationError
+):
+    request_id = getattr(request.state, "request_id", None)
+    detail = exc.errors()
+    return JSONResponse(
+        status_code=422,
+        content=_error_payload(
+            "Validation error",
+            "VALIDATION_ERROR",
+            request_id,
+            detail=detail if settings.DEBUG else "Invalid request payload"
+        )
+    )
+
+
+@app.exception_handler(ValidationError)
+async def pydantic_validation_exception_handler(
+    request: Request,
+    exc: ValidationError
+):
+    request_id = getattr(request.state, "request_id", None)
+    detail = exc.errors()
+    return JSONResponse(
+        status_code=422,
+        content=_error_payload(
+            "Validation error",
+            "VALIDATION_ERROR",
+            request_id,
+            detail=detail if settings.DEBUG else "Invalid response data"
+        )
     )
 
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
     request_id = getattr(request.state, "request_id", None)
-    log.exception(f"Unhandled exception: {exc}")
+    log.exception(
+        f"Unhandled exception: {exc} | path={request.url.path} | request_id={request_id}"
+    )
     
     return JSONResponse(
         status_code=500,
-        content={
-            "error": "Internal server error",
-            "code": "INTERNAL_ERROR",
-            "detail": str(exc) if settings.DEBUG else None,
-            "request_id": request_id
-        }
+        content=_error_payload(
+            "Internal server error",
+            "INTERNAL_ERROR",
+            request_id,
+            detail=str(exc) if settings.DEBUG else None
+        )
     )
 
 
@@ -2627,7 +2688,7 @@ async def verify_chain(ws: Dict = Depends(get_workspace)):
         })
         
         # Check both own_hash and chain continuity
-        if row["own_hash"] != expected and row["prev_hash"] != prev_hash:
+        if row["own_hash"] != expected or row["prev_hash"] != prev_hash:
             broken_at = row["id"]
             break
         

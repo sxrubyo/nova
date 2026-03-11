@@ -1,4 +1,5 @@
 # 🤝 Contributing to Nova OS
+**Maintained by @sxrubyo**
 
 Thank you for your interest in strengthening Nova! We are building the industry-standard infrastructure for AI agent governance. We value every contribution that aligns with our vision of absolute security and high-performance execution.
 
@@ -6,6 +7,7 @@ Thank you for your interest in strengthening Nova! We are building the industry-
 - **Zero Dependencies**: Nova's core must remain lightweight. We strictly use standard Python 3.8+. Do not introduce external libraries without a critical, high-level justification.
 - **Extreme Speed**: If a validation cycle exceeds 50ms, the code is not production-ready. Performance is a feature.
 - **Cryptographic Integrity**: The Ledger is the heart of Nova. Any changes to signature or hashing logic must be discussed with maximum priority.
+- **v3.0.0 Compatibility**: Update CLI help strings, error payloads, and documentation when behavior changes.
 
 ## 🛠️ How to Get Started
 
@@ -18,7 +20,7 @@ Thank you for your interest in strengthening Nova! We are building the industry-
 ## 📝 Code Standards
 - **Full Compatibility**: Code must run flawlessly across Windows (PowerShell), macOS, and Linux.
 - **User Experience (UX)**: If modifying the CLI, respect the "Ghost Writing" animations and arrow-key navigation system.
-- **Documentation**: If you add a feature, you must update the internal manuals and help strings.
+- **Documentation**: If you add a feature, update the internal manuals, help strings, and any v3.0.0 references.
 
 ## 🐛 Bug Reporting
 If you encounter a flaw, please open an **Issue** including:

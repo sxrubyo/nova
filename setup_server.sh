@@ -2,6 +2,7 @@
 # ═══════════════════════════════════════════════════════════════
 #  Sube y sirve los installers de Nova CLI desde tu AWS
 #  Ejecutar en tu servidor: bash setup_server.sh
+#  Maintained by @sxrubyo
 # ═══════════════════════════════════════════════════════════════
 set -e
 
@@ -11,6 +12,17 @@ NGINX_CONF="/etc/nginx/sites-available/nova-installer"
 echo ""
 echo "  Setting up Nova CLI installer server..."
 echo ""
+
+# Validaciones básicas
+if [ "$EUID" -ne 0 ]; then
+    echo "  ✗ Debes ejecutar como root (sudo)."
+    exit 1
+fi
+
+if [ ! -f "$HOME/nova-os/install.sh" ] || [ ! -f "$HOME/nova-os/install.ps1" ]; then
+    echo "  ✗ No se encontraron installers en ~/nova-os/"
+    exit 1
+fi
 
 # 1. Crear directorio de installers
 mkdir -p "$INSTALL_DIR"
@@ -68,6 +80,6 @@ echo "  Windows PowerShell:"
 echo "    irm http://$IP:3005/install.ps1 | iex"
 echo ""
 echo "  GitHub (después de hacer push):"
-echo "    curl -sSL https://raw.githubusercontent.com/TU_USER/nova-os/main/install.sh | bash"
-echo "    irm https://raw.githubusercontent.com/TU_USER/nova-os/main/install.ps1 | iex"
+echo "    curl -sSL https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh | bash"
+echo "    irm https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.ps1 | iex"
 echo ""

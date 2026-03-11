@@ -6,6 +6,7 @@ Zero dependencies. Python 3.8+.
 
 Copyright (c) 2024 Nova OS. All rights reserved.
 https://nova-os.com
+Maintained by @sxrubyo
 """
 
 import sys
@@ -22,7 +23,6 @@ import random
 import threading
 import uuid
 import secrets
-import base64
 import re
 import shutil
 import platform
@@ -520,7 +520,8 @@ def print_logo(tagline=True, compact=False, animated=False, minimal=False):
         # Single line compact version
         print("  " + q(C.GLD, "✦", bold=True) + "  " + q(C.W, "nova", bold=True) +
               q(C.G2, f"  ·  v{NOVA_VERSION}") + 
-              q(C.G3, f"  ·  {NOVA_CODENAME}"))
+              q(C.G3, f"  ·  {NOVA_CODENAME}") +
+              q(C.G3, "  ·  @sxrubyo"))
         print()
         return
     
@@ -547,6 +548,7 @@ def print_logo(tagline=True, compact=False, animated=False, minimal=False):
             ghost_write(tl, color=C.G2, delay=0.01)
         else:
             print("  " + q(C.G2, tl))
+        print("  " + q(C.B7, "@sxrubyo"))
         print("  " + q(C.G3, "─" * 62))
     
     print()
@@ -1430,6 +1432,21 @@ DEFAULT_CONFIG = {
     "last_updated": "",
 }
 
+def _harden_file_permissions(path, mode=0o600):
+    """Best-effort file permission hardening (POSIX only)."""
+    if os.name == "nt":
+        return
+    try:
+        os.chmod(path, mode)
+    except Exception:
+        pass
+
+
+def _write_json(path, data, mode=0o600):
+    """Write JSON and apply restrictive permissions when possible."""
+    path.write_text(json.dumps(data, indent=2))
+    _harden_file_permissions(path, mode)
+
 
 def ensure_dirs():
     """Ensure all nova directories exist."""
@@ -1455,7 +1472,7 @@ def save_config(cfg):
     """Save configuration to disk."""
     ensure_dirs()
     cfg["last_updated"] = datetime.now().isoformat()
-    CONFIG_FILE.write_text(json.dumps(cfg, indent=2))
+    _write_json(CONFIG_FILE, cfg)
 
 
 def validate_config(cfg):
@@ -1501,7 +1518,7 @@ def load_keys():
 def save_keys(data):
     """Save API keys to keychain."""
     ensure_dirs()
-    KEYS_FILE.write_text(json.dumps(data, indent=2))
+    _write_json(KEYS_FILE, data)
 
 
 def add_api_key(key, name="", server_url="", description=""):
@@ -1596,7 +1613,7 @@ def load_profiles():
 def save_profiles(data):
     """Save configuration profiles."""
     ensure_dirs()
-    PROFILES_FILE.write_text(json.dumps(data, indent=2))
+    _write_json(PROFILES_FILE, data)
 
 
 def get_active_profile():
@@ -1647,7 +1664,7 @@ def queue_action(action_data):
     }
     queue.append(entry)
     
-    QUEUE_FILE.write_text(json.dumps(queue, indent=2))
+    _write_json(QUEUE_FILE, queue)
     return len(queue)
 
 
@@ -1673,7 +1690,7 @@ def remove_from_queue(action_id):
     queue = [a for a in queue if a.get("id") != action_id]
     
     if queue:
-        QUEUE_FILE.write_text(json.dumps(queue, indent=2))
+        _write_json(QUEUE_FILE, queue)
     else:
         clear_queue()
 
@@ -1706,7 +1723,7 @@ def add_to_history(command, args=None, result=None):
     if len(history) > 1000:
         history = history[-1000:]
     
-    HISTORY_FILE.write_text(json.dumps(history, indent=2))
+    _write_json(HISTORY_FILE, history)
 
 
 def get_history(limit=50):
@@ -1774,36 +1791,59 @@ class NovaAPI:
                 
                 with urllib.request.urlopen(req, timeout=self.timeout) as response:
                     self.last_response_time = time.time()
-                    result = json.loads(response.read().decode())
+                    raw = response.read().decode()
+                    try:
+                        result = json.loads(raw)
+                    except Exception:
+                        result = {
+                            "error": "Invalid JSON response",
+                            "code": "INVALID_JSON",
+                            "detail": raw[:200],
+                            "status": response.status,
+                            "type": "decode_error",
+                        }
+                        return result
                     debug(f"OK ({response.status})")
                     return result
             
             except urllib.error.HTTPError as e:
                 self.last_response_time = time.time()
-                
+                error_body = {}
+                raw_text = ""
                 try:
-                    error_body = json.loads(e.read().decode())
-                    detail = error_body.get("detail", str(e))
+                    raw_text = e.read().decode()
+                    error_body = json.loads(raw_text) if raw_text else {}
                 except Exception:
-                    detail = f"HTTP {e.code}"
+                    error_body = {}
                 
+                error_message = (
+                    error_body.get("error")
+                    or raw_text.strip()
+                    or f"HTTP {e.code}"
+                )
                 last_error = {
-                    "error": detail,
+                    "error": error_message,
+                    "code": error_body.get("code", f"HTTP_{e.code}"),
+                    "detail": error_body.get("detail"),
+                    "request_id": error_body.get("request_id"),
                     "status": e.code,
                     "type": "http_error",
                 }
+                if "retry_after" in error_body:
+                    last_error["retry_after"] = error_body.get("retry_after")
                 
                 # Don't retry client errors
                 if 400 <= e.code < 500:
-                    debug(f"Client error {e.code}: {detail}")
+                    debug(f"Client error {e.code}: {error_message}")
                     return last_error
                 
-                debug(f"Server error {e.code}: {detail}")
+                debug(f"Server error {e.code}: {error_message}")
             
             except urllib.error.URLError as e:
                 self.last_response_time = time.time()
                 last_error = {
                     "error": f"Cannot connect to {self.url}",
+                    "code": "CONNECTION_ERROR",
                     "type": "connection_error",
                     "detail": str(e.reason),
                 }
@@ -1813,6 +1853,7 @@ class NovaAPI:
                 self.last_response_time = time.time()
                 last_error = {
                     "error": f"Request timed out after {self.timeout}s",
+                    "code": "TIMEOUT",
                     "type": "timeout",
                 }
                 debug("Request timed out")
@@ -1821,6 +1862,7 @@ class NovaAPI:
                 self.last_response_time = time.time()
                 last_error = {
                     "error": str(e),
+                    "code": "UNKNOWN_ERROR",
                     "type": "unknown",
                 }
                 debug(f"Unknown error: {e}")
@@ -1865,6 +1907,20 @@ def get_api(cfg=None):
     """Get API client from configuration."""
     cfg = cfg or load_config()
     return NovaAPI(cfg["api_url"], cfg["api_key"]), cfg
+
+
+def format_api_error(result, fallback="Unknown error"):
+    """Normalize API error payloads into a single user-facing string."""
+    if not isinstance(result, dict):
+        return fallback
+    message = result.get("error") or fallback
+    code = result.get("code")
+    request_id = result.get("request_id")
+    if code:
+        message = f"{message} ({code})"
+    if request_id:
+        message = f"{message} · req {request_id}"
+    return message
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1988,6 +2044,9 @@ def get_strings(lang="en"):
             "key_accepted": "API key accepted",
             "connection_failed": "Could not connect",
             "config_saved": "Configuration saved",
+            "offline_title": "Modo Offline",
+            "offline_sub": "We couldn't reach the server. Setup will finish locally.",
+            "offline_hint": "Actions can be queued and synced when you're back online.",
             
             # Success
             "youre_in": "You're in",
@@ -2063,6 +2122,9 @@ def get_strings(lang="en"):
             "key_accepted": "API key aceptada",
             "connection_failed": "No se pudo conectar",
             "config_saved": "Configuración guardada",
+            "offline_title": "Modo Offline",
+            "offline_sub": "No pudimos conectar al servidor. Terminaremos localmente.",
+            "offline_hint": "Las acciones se pueden encolar y sincronizar al volver en línea.",
             
             "youre_in": "Estás dentro",
             "ready": "está listo.",
@@ -2255,7 +2317,44 @@ RULE_TEMPLATES = {
 # SKILLS CATALOG — Integration definitions
 # ══════════════════════════════════════════════════════════════════════════════
 
-SKILLS = {
+class LazySkills:
+    """Lazy-loading wrapper to avoid upfront cost on fast commands like `status`."""
+    def __init__(self, builder):
+        self._builder = builder
+        self._data = None
+    
+    def _load(self):
+        if self._data is None:
+            self._data = self._builder()
+        return self._data
+    
+    def __getitem__(self, key):
+        return self._load()[key]
+    
+    def get(self, key, default=None):
+        return self._load().get(key, default)
+    
+    def keys(self):
+        return self._load().keys()
+    
+    def items(self):
+        return self._load().items()
+    
+    def values(self):
+        return self._load().values()
+    
+    def __iter__(self):
+        return iter(self._load())
+    
+    def __len__(self):
+        return len(self._load())
+    
+    def __contains__(self, key):
+        return key in self._load()
+
+
+def _build_skills():
+    return {
     "gmail": {
         "name": "Gmail",
         "category": "Communication",
@@ -2638,6 +2737,9 @@ SKILLS = {
     },
 }
 
+
+SKILLS = LazySkills(_build_skills)
+
 SKILL_CATEGORIES = [
     "Communication",
     "Data",
@@ -2664,7 +2766,7 @@ def save_skill(name, data):
     """Save skill configuration."""
     ensure_dirs()
     path = SKILLS_DIR / f"{name}.json"
-    path.write_text(json.dumps(data, indent=2))
+    _write_json(path, data)
 
 
 def skill_status(name):
@@ -2890,6 +2992,9 @@ def cmd_init(args):
     
     print("  " + q(C.G1, f"  {L['apikey_sub']}"))
     print()
+    print("  " + q(C.G3, "  Docs: ") +
+          q(C.B7, "https://github.com/sxrubyo/nova-os", underline=True))
+    print()
     
     existing_key = cfg.get("api_key", "") or get_active_key()
     
@@ -2968,9 +3073,6 @@ def cmd_init(args):
     
     print("  " + q(C.G1, f"  {L['server_sub']}"))
     print()
-    print("  " + q(C.G3, "  Docs: ") + 
-          q(C.B7, "https://github.com/sxrubyo/nova-os", underline=True))
-    print()
     
     srv_opts = [
         L["server_local"],
@@ -3025,9 +3127,15 @@ def cmd_init(args):
         ok(f"{L['server_online']}  " + q(C.G3, f"v{server_version}" if server_version else ""))
         ok(L["key_accepted"])
     else:
-        fail(health.get("error", L["connection_failed"]))
+        fail(format_api_error(health, L["connection_failed"]))
         print()
         warn(f"{L['config_saved']}. Fix server and run " + q(C.B7, "nova status"))
+        print()
+        hr_bold()
+        print("  " + q(C.ORG, "✦", bold=True) + "  " + q(C.W, L["offline_title"], bold=True))
+        print("  " + q(C.G1, f"  {L['offline_sub']}"))
+        print("  " + q(C.G2, f"  {L['offline_hint']}"))
+        hr_bold()
     
     # Save configuration
     cfg.update({
@@ -3079,6 +3187,7 @@ def cmd_init(args):
     print("     " + q(C.G1, f"nova CLI {NOVA_VERSION} {L['ready']}"))
     if org:
         print("     " + q(C.G2, org))
+    print("     " + q(C.B7, "@sxrubyo"))
     print()
     hr_bold()
     print()
@@ -3117,6 +3226,7 @@ def cmd_status(args):
     # Connection status
     if "error" in health:
         fail(f"Nova not responding at {q(C.G3, cfg['api_url'])}")
+        print("  " + q(C.G2, format_api_error(health)))
         print()
         dim("Check: docker compose up -d")
         
@@ -3373,7 +3483,7 @@ def cmd_agent_create(args):
         })
     
     if "error" in result:
-        fail(result.get("error", "Unknown error"))
+        fail(format_api_error(result))
         return
     
     token_id = result.get("token_id", "")
@@ -3412,7 +3522,7 @@ def cmd_agent_list(args):
         result = api.get("/tokens")
     
     if "error" in result:
-        fail(result.get("error", "Unknown error"))
+        fail(format_api_error(result))
         return
     
     if not result:
@@ -3508,7 +3618,7 @@ def cmd_validate(args):
                 hint("Run  nova sync  when server is back")
             return
         
-        fail(result.get("error", "Unknown error"))
+        fail(format_api_error(result))
         return
     
     # Show dry run warning
@@ -3603,7 +3713,7 @@ def cmd_ledger(args):
         result = api.get(url)
     
     if "error" in result:
-        fail(result.get("error", "Unknown error"))
+        fail(format_api_error(result))
         return
     
     if not result:
@@ -3644,7 +3754,7 @@ def cmd_verify(args):
         result = api.get("/ledger/verify")
     
     if "error" in result:
-        fail(result.get("error", "Unknown error"))
+        fail(format_api_error(result))
         return
     
     print()
@@ -3723,7 +3833,7 @@ def cmd_alerts(args):
         result = api.get("/alerts")
     
     if "error" in result:
-        fail(result.get("error", "Unknown error"))
+        fail(format_api_error(result))
         return
     
     pending = [a for a in result if not a.get("resolved")]
@@ -3775,7 +3885,7 @@ def cmd_memory_save(args):
         })
     
     if "error" in result:
-        fail(result.get("error", "Unknown error"))
+        fail(format_api_error(result))
         return
     
     memory_id = result.get("id", "")
@@ -3793,7 +3903,7 @@ def cmd_memory_list(args):
         result = api.get(f"/memory/{urllib.parse.quote(agent)}")
     
     if "error" in result:
-        fail(result.get("error", "Unknown error"))
+        fail(format_api_error(result))
         return
     
     if not result:
@@ -3834,7 +3944,7 @@ def cmd_export(args):
         entries = api.get(f"/ledger?limit={limit}")
     
     if "error" in entries:
-        fail(entries.get("error", "Unknown error"))
+        fail(format_api_error(entries))
         return
     
     if not entries:
@@ -3926,7 +4036,7 @@ def cmd_audit(args):
         recent = api.get("/ledger?limit=10")
     
     if "error" in stats:
-        fail(stats.get("error", "Unknown error"))
+        fail(format_api_error(stats))
         return
     
     # Build report
@@ -3984,7 +4094,7 @@ def cmd_seed(args):
         result = api.post("/demo/seed", {})
     
     if "error" in result:
-        fail(result.get("error", "Unknown error"))
+        fail(format_api_error(result))
         return
     
     ok("Demo data loaded.")

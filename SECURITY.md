@@ -1,4 +1,5 @@
 # 🛡️ Security Policy
+**Maintained by @sxrubyo**
 
 At Nova OS, security is not a feature—it is our core identity. This document outlines our security protocols and how to report vulnerabilities.
 
@@ -6,6 +7,7 @@ At Nova OS, security is not a feature—it is our core identity. This document o
 - **Least Privilege**: Agents are granted only the minimum access required for their specific intent.
 - **Auditability**: Every action is cryptographically signed and stored in an immutable ledger.
 - **Zero Trust**: No internal or external action is considered safe until it is scored and validated.
+- **Deterministic Accountability**: Each API error includes a stable error code and optional request ID for traceability.
 
 ## 🚨 Reporting a Vulnerability
 We take security issues seriously. If you discover a vulnerability, please do not open a public issue. Instead, follow this process:
@@ -16,7 +18,14 @@ We take security issues seriously. If you discover a vulnerability, please do no
 ## 🔒 API Key Management
 - Keys are generated locally using `secrets.token_hex(16)`.
 - The CLI implements key masking (`nova_xxxx••••xxxx`) to prevent accidental exposure in logs or screenshots.
-- Keys are stored in a local encrypted keychain at `~/.nova/keys.json`.
+- Keys are stored in a local keychain at `~/.nova/keys.json` with restrictive file permissions on POSIX systems.
+- Config, profiles, and offline queue files are stored locally; treat the `~/.nova/` directory as sensitive.
+
+## 🔍 Error Traceability (v3.0.0)
+Nova v3.0.0 standardizes API error payloads with:
+- `error`: human-readable message
+- `code`: stable error code (e.g., `HTTP_401`, `RATE_LIMIT`)
+- `request_id`: optional request identifier for support and audits
 
 ---
 **Nova OS Security Team** *Building a safer future for autonomous agents.*

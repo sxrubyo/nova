@@ -1,4 +1,5 @@
 # ✦ Nova OS — Enterprise Governance for AI Agents
+**Maintained by @sxrubyo**
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-3.0.0-black?style=for-the-badge" alt="Version">
@@ -13,7 +14,7 @@
 
 ---
 
-## 🎯 Why Nova OS?
+## 🎯 Why Nova OS v3.0.0?
 
 AI agents are powerful—but without oversight, they're a **liability**. Nova OS is the enterprise-grade governance layer that ensures your agents do exactly what you intend, with **immutable cryptographic proof** of every decision.
 
@@ -69,11 +70,14 @@ python nova.py --help
 ```bash
 nova init
 ```
-Follow the interactive wizard (7 steps, ~2 minutes). Nova will:
-- Generate secure API keys
-- Connect to your server
-- Set up your first agent
-- Configure optional skills
+Follow the interactive wizard (7 steps, ~2 minutes). You will see:
+1. How Nova works (validation, ledger, scoring)
+2. Risks & terms (safety guardrails)
+3. Identity (name and org)
+4. API key setup + documentation link
+5. Server selection (local or custom)
+6. Connection test
+7. Skills setup (optional)
 
 ### **2. Create Your First Agent**
 ```bash
@@ -230,7 +234,9 @@ All configuration stored in `~/.nova/`:
 ├── profiles.json     # Multi-env profiles
 ├── history.json      # Command history
 ├── offline_queue.json # Sync queue
-└── skills/           # Skill configs
+├── sessions/         # Session artifacts (future-proofed)
+├── skills/           # Skill configs
+└── logs/             # CLI logs (when enabled)
 ```
 
 **Environment Variables:**
