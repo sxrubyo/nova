@@ -118,7 +118,13 @@ class C:
     - High contrast for accessibility
     - Consistent semantic meaning
     """
-    R    = _e("0")       # Reset
+    # Core palette (256-color exact values)
+    W = "\033[38;5;15m"    # Blanco Puro
+    G1 = "\033[38;5;180m"  # Champaña
+    G2 = "\033[38;5;137m"  # Oro Mate
+    ASH = "\033[38;5;244m" # Gris
+    R = "\033[0m"          # Reset
+
     BOLD = _e("1")       # Bold
     DIM  = _e("2")       # Dim
     ITALIC = _e("3")     # Italic (not all terminals)
@@ -139,10 +145,7 @@ class C:
     B8 = _e("38;5;109")
 
     # Text hierarchy (NEVER darker than G3 for body text)
-    W   = _e("38;5;15")   # Pure white — titles, emphasis
     G0  = _e("38;5;252")  # Near-white — primary text
-    G1  = _e("38;5;248")  # Light gray — secondary text
-    G2  = _e("38;5;244")  # Ash gray — technical details
     G3  = _e("38;5;240")  # Dark gray — MINIMUM for visible text
     
     # Semantic colors
@@ -536,20 +539,19 @@ def print_logo(tagline=True, compact=False, animated=False, minimal=False):
         sys.stdout.write(C.R)
         return
     
-    # Full logo (true gradient)
-    line_colors = [C.W, C.W, C.GLD_BRIGHT, C.GLD_BRIGHT, C.GLD_MATTE, C.GLD_MATTE]
+    # Full logo (imperial gradient by line)
+    line_colors = [C.W, C.W, C.G1, C.G1, C.G2, C.G2]
     for i in range(6):
         line_color = line_colors[i]
-        nova_part = line_color + C.BOLD + _NOVA_BLOCK[i] + C.R
-        cli_part = line_color + C.BOLD + _CLI_BLOCK[i] + C.R
-        
+        line = line_color + C.BOLD + _NOVA_BLOCK[i] + _CLI_BLOCK[i]
+
         # Premium star on designated line
         if i == _STAR_LINE:
-            star = "  " + q(C.GLD_BRIGHT, "✦", bold=True)
+            line += "  " + line_color + "✦"
         else:
-            star = "   "
-        
-        print(nova_part + cli_part + star)
+            line += "   "
+
+        print(line + C.R)
         
         if animated:
             time.sleep(0.04)
@@ -1086,8 +1088,20 @@ def _select(options, title="", default=0, descriptions=None, show_index=False,
         # Calculate lines to clear
         lines_per_opt = 2 if descriptions else 1
         visible_opts = min(len(filtered), page_size)
-        header_lines = (1 if title else 0) + (1 if allow_filter else 0) + 1
-        total_lines = header_lines + (visible_opts * lines_per_opt) + 2
+        scroll_lines = 0
+        if scroll_offset > 0:
+            scroll_lines += 1
+        if scroll_offset + page_size < len(filtered):
+            scroll_lines += 1
+        
+        total_lines = (
+            (1 if title else 0) +
+            (1 if allow_filter else 0) +
+            1 +  # spacer line after title/filter
+            (visible_opts * lines_per_opt) +
+            scroll_lines +
+            1    # trailing spacer line
+        )
         
         out = []
         
@@ -1118,7 +1132,7 @@ def _select(options, title="", default=0, descriptions=None, show_index=False,
                 idx_str = q(C.W, f"[{opt_idx + 1}]") + "  "
             
             if is_selected:
-                out.append("  " + q(C.GLD_BRIGHT, ">", bold=True) + "  " + idx_str +
+                out.append("  " + q(C.G1, ">", bold=True) + "  " + idx_str +
                            q(C.W, opt, bold=True) + "\n")
             else:
                 out.append("     " + idx_str + q(C.W, opt) + "\n")
@@ -1155,7 +1169,7 @@ def _select_fallback(options, title, default, descriptions, show_index):
     print()
     
     for i, opt in enumerate(options):
-        marker = q(C.GLD_BRIGHT, ">", bold=True) if i == default else "  "
+        marker = q(C.G1, ">", bold=True) if i == default else "  "
         idx = f"[{i + 1}]  " if show_index else ""
         label = q(C.W, opt, bold=True) if i == default else q(C.W, opt)
         print("  " + marker + " " + idx + label)
@@ -1185,94 +1199,89 @@ def _select_windows(options, draw, current, get_filtered, page_size):
     draw(first=True)
     
     while True:
-        if msvcrt.kbhit():
-            ch = msvcrt.getwch()
-            
-            if ch in ("\r", "\n"):
-                return current
-            
-            if ch == "\x03":  # Ctrl+C
-                raise KeyboardInterrupt
-            
-            if ch in ("\x00", "\xe0"):  # Special keys
-                ch2 = msvcrt.getwch()
-                filtered = get_filtered()
-                
-                if ch2 == "H":  # Up
-                    if current in filtered:
-                        idx = filtered.index(current)
-                        if idx > 0:
-                            current = filtered[idx - 1]
-                elif ch2 == "P":  # Down
-                    if current in filtered:
-                        idx = filtered.index(current)
-                        if idx < len(filtered) - 1:
-                            current = filtered[idx + 1]
-                
-                draw()
-            
-            elif ch.isdigit():  # Number selection
-                idx = int(ch) - 1
-                if 0 <= idx < len(options):
-                    return idx
-            
-            elif ch in ("k", "K"):  # Vim up
-                filtered = get_filtered()
+        ch = msvcrt.getch()
+
+        if ch in (b"\r", b"\n"):
+            return current
+
+        if ch == b"\x03":  # Ctrl+C
+            raise KeyboardInterrupt
+
+        if ch in (b"\x00", b"\xe0"):  # Special keys
+            ch2 = msvcrt.getch()
+            filtered = get_filtered()
+
+            if ch2 == b"H":  # Up
                 if current in filtered:
                     idx = filtered.index(current)
                     if idx > 0:
                         current = filtered[idx - 1]
-                draw()
-            
-            elif ch in ("j", "J"):  # Vim down
-                filtered = get_filtered()
+            elif ch2 == b"P":  # Down
                 if current in filtered:
                     idx = filtered.index(current)
                     if idx < len(filtered) - 1:
                         current = filtered[idx + 1]
-                draw()
-        
-        time.sleep(0.01)
+
+            draw()
+            continue
+
+        try:
+            key = ch.decode(errors="ignore")
+        except Exception:
+            continue
+
+        if key.isdigit():  # Number selection
+            idx = int(key) - 1
+            if 0 <= idx < len(options):
+                return idx
+
+        elif key in ("k", "K"):  # Vim up
+            filtered = get_filtered()
+            if current in filtered:
+                idx = filtered.index(current)
+                if idx > 0:
+                    current = filtered[idx - 1]
+            draw()
+
+        elif key in ("j", "J"):  # Vim down
+            filtered = get_filtered()
+            if current in filtered:
+                idx = filtered.index(current)
+                if idx < len(filtered) - 1:
+                    current = filtered[idx + 1]
+            draw()
 
 
 def _raw_input_unix():
     """Context manager for raw ANSI input on Unix-like systems."""
     import termios
     import tty
-    import select
 
     class _RawInput:
         def __init__(self):
             self.fd = sys.stdin.fileno()
             self.old = termios.tcgetattr(self.fd)
-            tty.setraw(sys.stdin.fileno())
+            tty.setraw(self.fd)
             new = termios.tcgetattr(self.fd)
-            new[6][termios.VMIN] = 1
-            new[6][termios.VTIME] = 0
+            new[6][termios.VMIN] = 0
+            new[6][termios.VTIME] = 1
             termios.tcsetattr(self.fd, termios.TCSADRAIN, new)
 
         def read_key(self):
-            ch = os.read(self.fd, 1)
-            if not ch:
+            data = sys.stdin.read(3)
+            if not data:
                 return ""
-            if ch == b"\x1b":
-                if select.select([self.fd], [], [], 0)[0]:
-                    ch2 = os.read(self.fd, 1)
-                    if ch2 == b"[":
-                        if select.select([self.fd], [], [], 0)[0]:
-                            ch3 = os.read(self.fd, 1)
-                            if ch3 == b"A": return "UP"
-                            if ch3 == b"B": return "DOWN"
-                            if ch3 == b"C": return "RIGHT"
-                            if ch3 == b"D": return "LEFT"
-                            return ch3.decode(errors="ignore")
-                        return "ESC"
-                    return ch2.decode(errors="ignore")
+            if data == "\x1b[A":
+                return "UP"
+            if data == "\x1b[B":
+                return "DOWN"
+            if data == "\x1b[C":
+                return "RIGHT"
+            if data == "\x1b[D":
+                return "LEFT"
+            if data.startswith("\x1b"):
                 return "ESC"
-            try:
-                return ch.decode(errors="ignore")
-            except Exception:
-                return ""
+            return data[0]
 
         def close(self):
             termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old)
@@ -1293,6 +1302,8 @@ def _select_unix(options, draw, current, get_filtered, page_size, allow_filter):
     with _raw_input_unix() as raw:
         while True:
             key = raw.read_key()
+            if not key:
+                continue
             filtered = get_filtered()
 
             if key in ("\r", "\n"):
@@ -1366,7 +1377,7 @@ def _select_multi(options, title="", selected=None, descriptions=None):
         for i, opt in enumerate(options):
             check = q(C.W, "●") if i in selected else q(C.W, "○")
             if i == current:
-                out.append("  " + q(C.GLD_BRIGHT, ">", bold=True) + " " + check + "  " +
+                out.append("  " + q(C.G1, ">", bold=True) + " " + check + "  " +
                            q(C.W, opt, bold=True) + "\n")
             else:
                 out.append("    " + check + "  " + q(C.W, opt) + "\n")
@@ -1380,20 +1391,20 @@ def _select_multi(options, title="", selected=None, descriptions=None):
         draw(first=True)
         
         while True:
-            ch = msvcrt.getwch()
+            ch = msvcrt.getch()
             
-            if ch in ("\r", "\n"):
+            if ch in (b"\r", b"\n"):
                 return list(selected)
-            if ch == " ":
+            if ch == b" ":
                 if current in selected:
                     selected.remove(current)
                 else:
                     selected.add(current)
-            elif ch in ("\x00", "\xe0"):
-                ch2 = msvcrt.getwch()
-                if ch2 == "H": current = (current - 1) % len(options)
-                elif ch2 == "P": current = (current + 1) % len(options)
-            elif ch == "\x03":
+            elif ch in (b"\x00", b"\xe0"):
+                ch2 = msvcrt.getch()
+                if ch2 == b"H": current = (current - 1) % len(options)
+                elif ch2 == b"P": current = (current + 1) % len(options)
+            elif ch == b"\x03":
                 raise KeyboardInterrupt
             
             draw()
@@ -1403,6 +1414,8 @@ def _select_multi(options, title="", selected=None, descriptions=None):
         with _raw_input_unix() as raw:
             while True:
                 key = raw.read_key()
+                if not key:
+                    continue
 
                 if key in ("\r", "\n"):
                     return list(selected)
@@ -3031,7 +3044,7 @@ def cmd_init(args):
         print()
         print()
         print("  " + q(C.W, "Select your language", bold=True) + "  " + 
-              q(C.G3, "/ Selecciona tu idioma"))
+              q(C.W, "/ Selecciona tu idioma"))
         print()
         
         try:
@@ -3055,7 +3068,7 @@ def cmd_init(args):
     
     # Tagline with ghost effect
     tagline = random.choice(_TAGLINES)
-    ghost_write(tagline, color=C.G2, delay=0.01)
+    ghost_write(tagline, color=C.W, delay=0.01)
     hr()
     print()
     time.sleep(0.2)
@@ -3063,12 +3076,12 @@ def cmd_init(args):
     # Welcome message
     ghost_write(L["welcome"], color=C.W, delay=0.02, bold=True)
     print()
-    ghost_write(L["intro_1"], color=C.G1, delay=0.015)
-    ghost_write(L["intro_2"], color=C.G1, delay=0.015)
+    ghost_write(L["intro_1"], color=C.ASH, delay=0.015)
+    ghost_write(L["intro_2"], color=C.W, delay=0.015)
     print()
     time.sleep(0.1)
     
-    print("  " + q(C.B7, f"  {L['intro_question']}", bold=True))
+    print("  " + q(C.ASH, f"  {L['intro_question']}", bold=True))
     print()
     
     pause(L["continue"])
@@ -3076,19 +3089,19 @@ def cmd_init(args):
     # ── [1/7] How It Works ────────────────────────────────────────────────────
     step_header(1, 7, L["how_it_works"])
     
-    print("  " + q(C.G2, "  ┌─  " + L["how_step_1"]))
-    print("  " + q(C.G3, "  │"))
-    print("  " + q(C.G1, "  │   " + L["how_step_2"]))
-    print("  " + q(C.G3, "  │"))
-    print("  " + q(C.G3, "  ├─  ") + q(C.GRN, "Score ≥ 70", bold=True) + 
-          q(C.G2, f"  →  ✓  {L['how_approved']}"))
-    print("  " + q(C.G3, "  ├─  ") + q(C.YLW, "Score 40-70", bold=True) + 
-          q(C.G2, f"  →  ⚠  {L['how_escalated']}"))
-    print("  " + q(C.G3, "  └─  ") + q(C.RED, "Score < 40", bold=True) + 
-          q(C.G2, f"   →  ✗  {L['how_blocked']}"))
+    print("  " + q(C.W, "  ┌─  " + L["how_step_1"]))
+    print("  " + q(C.W, "  │"))
+    print("  " + q(C.W, "  │   " + L["how_step_2"]))
+    print("  " + q(C.W, "  │"))
+    print("  " + q(C.W, "  ├─  ") + q(C.GRN, "Score ≥ 70", bold=True) + 
+          q(C.W, f"  →  ✓  {L['how_approved']}"))
+    print("  " + q(C.W, "  ├─  ") + q(C.YLW, "Score 40-70", bold=True) + 
+          q(C.W, f"  →  ⚠  {L['how_escalated']}"))
+    print("  " + q(C.W, "  └─  ") + q(C.RED, "Score < 40", bold=True) + 
+          q(C.W, f"   →  ✗  {L['how_blocked']}"))
     print()
-    print("  " + q(C.G1, f"  {L['ledger_desc']}"))
-    print("  " + q(C.G2, f"  {L['ledger_sub']}"))
+    print("  " + q(C.W, f"  {L['ledger_desc']}"))
+    print("  " + q(C.W, f"  {L['ledger_sub']}"))
     print()
     
     pause(L["continue"])
@@ -3097,19 +3110,19 @@ def cmd_init(args):
     step_header(2, 7, L["risks_title"])
     
     print("  " + q(C.YLW, "  !") + "  " + q(C.W, L["risks_warning"], bold=True))
-    print("       " + q(C.G1, L["risks_sub"]))
+    print("       " + q(C.W, L["risks_sub"]))
     print()
     
     risks = [L["risk_1"], L["risk_2"], L["risk_3"], L["risk_4"], L["risk_5"]]
     for risk in risks:
-        print("  " + q(C.G3, "     ◦  ") + q(C.G1, risk))
+        print("  " + q(C.W, "     ◦  ") + q(C.W, risk))
     
     print()
-    print("  " + q(C.G3, f"     {L['terms_label']}  ") + 
+    print("  " + q(C.W, f"     {L['terms_label']}  ") + 
           q(C.B7, "https://nova-os.com/terms", underline=True))
     print()
     
-    print("  " + q(C.G2, f"  {L['terms_question']}"))
+    print("  " + q(C.W, f"  {L['terms_question']}"))
     print()
     
     try:
@@ -3128,7 +3141,7 @@ def cmd_init(args):
     # ── [3/7] Identity ────────────────────────────────────────────────────────
     step_header(3, 7, L["identity_title"])
     
-    print("  " + q(C.G1, f"  {L['identity_sub']}"))
+    print("  " + q(C.W, f"  {L['identity_sub']}"))
     print()
     
     try:
@@ -3143,9 +3156,9 @@ def cmd_init(args):
     # ── [4/7] API Key Setup ───────────────────────────────────────────────────
     step_header(4, 7, L["apikey_title"])
     
-    print("  " + q(C.G1, f"  {L['apikey_sub']}"))
+    print("  " + q(C.W, f"  {L['apikey_sub']}"))
     print()
-    print("  " + q(C.G3, "  Docs: ") +
+    print("  " + q(C.W, "  Docs: ") +
           q(C.B7, "https://github.com/Nova/nova-os", underline=True))
     print()
     
@@ -3181,7 +3194,7 @@ def cmd_init(args):
         print()
         ok(L["apikey_generated"])
         print()
-        print("  " + q(C.G2, "Your API key:"))
+        print("  " + q(C.W, "Your API key:"))
         print()
         print("    " + q(C.B7, api_key, bold=True))
         print()
@@ -3224,7 +3237,7 @@ def cmd_init(args):
     # ── [5/7] Server Connection ───────────────────────────────────────────────
     step_header(5, 7, L["server_title"])
     
-    print("  " + q(C.G1, f"  {L['server_sub']}"))
+    print("  " + q(C.W, f"  {L['server_sub']}"))
     print()
     
     srv_opts = [
@@ -3277,7 +3290,7 @@ def cmd_init(args):
     server_version = health.get("version", "") if connected else ""
     
     if connected:
-        ok(f"{L['server_online']}  " + q(C.G3, f"v{server_version}" if server_version else ""))
+        ok(f"{L['server_online']}  " + q(C.W, f"v{server_version}" if server_version else ""))
         ok(L["key_accepted"])
     else:
         fail(format_api_error(health, L["connection_failed"]))
@@ -3286,8 +3299,8 @@ def cmd_init(args):
         print()
         hr_bold()
         print("  " + q(C.ORG, "✦", bold=True) + "  " + q(C.W, L["offline_title"], bold=True))
-        print("  " + q(C.G1, f"  {L['offline_sub']}"))
-        print("  " + q(C.G2, f"  {L['offline_hint']}"))
+        print("  " + q(C.W, f"  {L['offline_sub']}"))
+        print("  " + q(C.W, f"  {L['offline_hint']}"))
         hr_bold()
     
     # Save configuration
@@ -3306,11 +3319,11 @@ def cmd_init(args):
     # ── [7/7] Skills Setup (Optional) ─────────────────────────────────────────
     step_header(7, 7, L["skills_title"])
     
-    print("  " + q(C.G1, f"  {L['skills_sub']}"))
-    print("  " + q(C.G2, "  Skills connect nova to external systems like Gmail, Slack, GitHub."))
+    print("  " + q(C.W, f"  {L['skills_sub']}"))
+    print("  " + q(C.W, "  Skills connect nova to external systems like Gmail, Slack, GitHub."))
     print()
     
-    print("  " + q(C.G2, f"  {L['skills_now']}"))
+    print("  " + q(C.W, f"  {L['skills_now']}"))
     print()
     
     try:
@@ -3337,16 +3350,16 @@ def cmd_init(args):
     
     print("  " + q(C.GRN, "✦", bold=True) + "  " + q(C.W, greeting, bold=True))
     print()
-    print("     " + q(C.G1, f"nova CLI {NOVA_VERSION} {L['ready']}"))
+    print("     " + q(C.W, f"nova CLI {NOVA_VERSION} {L['ready']}"))
     if org:
-        print("     " + q(C.G2, org))
-    print("     " + q(C.B7, "Nova Governance"))
+        print("     " + q(C.W, org))
+    print("     " + q(C.W, "Nova Governance"))
     print()
     hr_bold()
     print()
     
     # Next steps
-    print("  " + q(C.G2, L["next_steps"]))
+    print("  " + q(C.W, L["next_steps"]))
     print()
     
     next_cmds = [
@@ -3357,7 +3370,7 @@ def cmd_init(args):
     ]
     
     for cmd, desc in next_cmds:
-        print("    " + q(C.B7, cmd.ljust(22), bold=True) + q(C.G2, desc))
+        print("    " + q(C.B7, cmd.ljust(22), bold=True) + q(C.W, desc))
     
     print()
     
@@ -3377,10 +3390,10 @@ def cmd_status(args):
     
     # Connection status
     if "error" in health:
-        fail(f"Nova not responding at {q(C.G3, cfg['api_url'])}")
-        print("  " + q(C.G2, format_api_error(health)))
+        fail(f"Nova not responding at {q(C.W, cfg['api_url'])}")
+        print("  " + q(C.W, format_api_error(health)))
         print()
-        dim("Check: docker compose up -d")
+        print("  " + q(C.W, "Check: docker compose up -d"))
         
         queue = get_queue()
         if queue:
@@ -3402,21 +3415,21 @@ def cmd_status(args):
         ["Status", status_label],
     ]
     if health.get("version"):
-        server_rows.append(["Version", q(C.G2, health["version"])])
+        server_rows.append(["Version", q(C.W, health["version"])])
     if health.get("build"):
-        server_rows.append(["Build", q(C.G2, health["build"])])
+        server_rows.append(["Build", q(C.W, health["build"])])
     if health.get("environment"):
-        server_rows.append(["Environment", q(C.G2, str(health["environment"]))])
+        server_rows.append(["Environment", q(C.W, str(health["environment"]))])
     if health.get("database"):
         db_color = C.GRN if health["database"] == "connected" else C.RED
         server_rows.append(["Database", q(db_color, health["database"])])
     if health.get("llm_available") is not None:
-        llm_color = C.GRN if health["llm_available"] else C.G2
+        llm_color = C.GRN if health["llm_available"] else C.W
         server_rows.append(["LLM", q(llm_color, "available" if health["llm_available"] else "disabled")])
     if api.last_latency:
-        server_rows.append(["Latency", q(C.G2, f"{api.last_latency}ms")])
+        server_rows.append(["Latency", q(C.W, f"{api.last_latency}ms")])
     if health.get("uptime_seconds") is not None:
-        server_rows.append(["Uptime", q(C.G2, f"{int(health['uptime_seconds'])}s")])
+        server_rows.append(["Uptime", q(C.W, f"{int(health['uptime_seconds'])}s")])
     
     render_table("Server", ["Field", "Value"], server_rows)
     
@@ -3432,9 +3445,9 @@ def cmd_status(args):
         activity_rows = [
             ["Total actions", f"{total:,}"],
             ["Approved", q(C.GRN, f"{approved:,}")],
-            ["Blocked", q(C.RED if blocked > 0 else C.G2, f"{blocked:,}")],
-            ["Escalated", q(C.YLW if escalated > 0 else C.G2, f"{escalated:,}")],
-            ["Duplicates blocked", q(C.ORG if duplicates > 0 else C.G2, f"{duplicates:,}")],
+            ["Blocked", q(C.RED if blocked > 0 else C.W, f"{blocked:,}")],
+            ["Escalated", q(C.YLW if escalated > 0 else C.W, f"{escalated:,}")],
+            ["Duplicates blocked", q(C.ORG if duplicates > 0 else C.W, f"{duplicates:,}")],
             ["Approval rate", f"{rate}%"],
         ]
         
@@ -3450,14 +3463,14 @@ def cmd_status(args):
             ["Active agents", q(C.B7, str(agents))],
             ["Memories stored", q(C.B6, f"{memories:,}")],
             ["Avg score", str(avg_score)],
-            ["Pending alerts", q(C.YLW if alerts > 0 else C.G2, str(alerts))],
+            ["Pending alerts", q(C.YLW if alerts > 0 else C.W, str(alerts))],
         ]
         
         render_table("Resources", ["Metric", "Value"], resource_rows)
         
         trend = stats.get("score_trend")
         if trend and isinstance(trend, list) and len(trend) > 1:
-            print("  " + q(C.G2, "Score trend (7d)") + "  " + sparkline(trend))
+            print("  " + q(C.W, "Score trend (7d)") + "  " + sparkline(trend))
             print()
         
         # Health meter
@@ -3472,7 +3485,7 @@ def cmd_status(args):
             health_score -= min(20, alerts * 3)
         health_score = max(0, min(100, health_score))
         
-        print("  " + q(C.G2, "Health Meter") + "  " + health_meter(health_score))
+        print("  " + q(C.W, "Health Meter") + "  " + health_meter(health_score))
         print()
     
     # Queue status
@@ -3480,7 +3493,7 @@ def cmd_status(args):
     if queue:
         print()
         warn(f"{len(queue)} actions queued offline")
-        dim("Run  nova sync  to process")
+        print("  " + q(C.W, "Run  nova sync  to process"))
     
     # Update check
     cfg_check = cfg.get("auto_update_check", True)
@@ -5724,7 +5737,7 @@ def cmd_help(args=None):
     """Display comprehensive help."""
     print_logo()
     
-    print("  " + q(C.G1, "Enterprise-grade governance infrastructure for AI agents."))
+    print("  " + q(C.W, "Enterprise-grade governance infrastructure for AI agents."))
     print()
     hr()
     print()
@@ -5783,11 +5796,11 @@ def cmd_help(args=None):
     ]
     
     for section_title, commands in sections:
-        print("  " + q(C.G2, section_title.upper()))
+        print("  " + q(C.W, section_title.upper()))
         print()
         
         for cmd, desc in commands:
-            print("    " + q(C.B7, cmd.ljust(20), bold=True) + q(C.G2, desc))
+            print("    " + q(C.B7, cmd.ljust(20), bold=True) + q(C.W, desc))
         
         print()
     
@@ -5795,12 +5808,12 @@ def cmd_help(args=None):
     print()
     
     # Aliases
-    print("  " + q(C.G2, "Aliases") + "  " + 
-          q(C.G3, "s=status  v=validate  a=agent  c=config  l=ledger  w=watch"))
+    print("  " + q(C.W, "Aliases") + "  " + 
+          q(C.W, "s=status  v=validate  a=agent  c=config  l=ledger  w=watch"))
     print()
     
     # Examples
-    print("  " + q(C.G2, "Examples"))
+    print("  " + q(C.W, "Examples"))
     print()
     
     examples = [
@@ -5812,16 +5825,16 @@ def cmd_help(args=None):
     ]
     
     for ex in examples:
-        print("    " + q(C.G3, "$ ") + q(C.W, ex))
+        print("    " + q(C.W, "$ ") + q(C.W, ex))
     
     print()
     
     # Debug mode
-    print("  " + q(C.G2, "Debug mode") + "  " + q(C.G3, "NOVA_DEBUG=1 nova status"))
+    print("  " + q(C.W, "Debug mode") + "  " + q(C.W, "NOVA_DEBUG=1 nova status"))
     print()
     
     # Links
-    print("  " + q(C.G3, "Docs: ") + 
+    print("  " + q(C.W, "Docs: ") + 
           q(C.B7, "https://github.com/Nova/nova-os", underline=True))
     print()
 
