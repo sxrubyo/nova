@@ -1,83 +1,195 @@
 #!/usr/bin/env python3
 """
 Nova CLI — Agents that answer for themselves.
+Enterprise-grade governance infrastructure for AI agents.
 Zero dependencies. Python 3.8+.
+
+Copyright (c) 2024 Nova OS. All rights reserved.
+https://nova-os.com
 """
 
-import sys, os, json, time, urllib.request, urllib.error
-import urllib.parse, hashlib, argparse, textwrap, random
-import threading, re
+import sys
+import os
+import json
+import time
+import urllib.request
+import urllib.error
+import urllib.parse
+import hashlib
+import argparse
+import textwrap
+import random
+import threading
+import uuid
+import secrets
+import base64
+import re
+import shutil
+import platform
+import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
 
-# Force UTF-8 on Windows (PowerShell uses cp1252 by default)
-if sys.platform == "win32":
-    import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
-    os.system("chcp 65001 >nul 2>&1")
+# ══════════════════════════════════════════════════════════════════════════════
+# PLATFORM COMPATIBILITY — Works on ANY terminal
+# ══════════════════════════════════════════════════════════════════════════════
 
-# ══════════════════════════════════════════════════════════════════
-# COLOR SYSTEM
-# ══════════════════════════════════════════════════════════════════
+PLATFORM = platform.system().lower()
+IS_WINDOWS = PLATFORM == "windows"
+IS_MAC = PLATFORM == "darwin"
+IS_LINUX = PLATFORM == "linux"
 
-USE_COLOR = (
-    not os.environ.get("NO_COLOR") and
-    (os.environ.get("FORCE_COLOR") or
-     (hasattr(sys.stdout, "isatty") and sys.stdout.isatty()))
-)
+# Force UTF-8 on Windows
+if IS_WINDOWS:
+    try:
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+        os.system("chcp 65001 >nul 2>&1")
+        # Enable ANSI on Windows 10+
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+    except Exception:
+        pass
+
+# Terminal dimensions
+def get_terminal_size():
+    try:
+        columns, rows = shutil.get_terminal_size()
+        return columns, rows
+    except Exception:
+        return 80, 24
+
+TERM_WIDTH, TERM_HEIGHT = get_terminal_size()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# COLOR SYSTEM — Adaptive to terminal capabilities
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _detect_color_support():
+    """Detect terminal color capabilities."""
+    if os.environ.get("NO_COLOR"):
+        return 0
+    if os.environ.get("FORCE_COLOR"):
+        return 256
+    if not hasattr(sys.stdout, "isatty") or not sys.stdout.isatty():
+        return 0
+    
+    term = os.environ.get("TERM", "").lower()
+    colorterm = os.environ.get("COLORTERM", "").lower()
+    
+    if colorterm in ("truecolor", "24bit"):
+        return 16777216  # 24-bit
+    if "256" in term or colorterm:
+        return 256
+    if term in ("xterm", "screen", "vt100", "ansi"):
+        return 16
+    if IS_WINDOWS:
+        return 256  # Modern Windows supports 256
+    return 16
+
+COLOR_DEPTH = _detect_color_support()
+USE_COLOR = COLOR_DEPTH > 0
 DEBUG = os.environ.get("NOVA_DEBUG", "").lower() in ("1", "true", "yes")
+VERBOSE = os.environ.get("NOVA_VERBOSE", "").lower() in ("1", "true", "yes")
 
-def _e(code): return "\033[" + code + "m" if USE_COLOR else ""
+
+def _e(code):
+    """Generate ANSI escape code."""
+    return "\033[" + code + "m" if USE_COLOR else ""
+
+
+def _rgb(r, g, b):
+    """24-bit color if supported, fallback to 256."""
+    if COLOR_DEPTH >= 16777216:
+        return f"\033[38;2;{r};{g};{b}m"
+    # Fallback to closest 256 color
+    return _e(f"38;5;{16 + 36*(r//51) + 6*(g//51) + (b//51)}")
 
 
 class C:
     """
-    Color palette for nova CLI.
-    Rule: G3 (240) is the ABSOLUTE DARKEST for any visible text.
+    Enterprise color palette for nova CLI.
+    
+    Design principles:
+    - G3 (240) is the ABSOLUTE DARKEST for visible text
+    - High contrast for accessibility
+    - Consistent semantic meaning
     """
-    R    = _e("0")
-    BOLD = _e("1")
-    DIM  = _e("2")
+    R    = _e("0")       # Reset
+    BOLD = _e("1")       # Bold
+    DIM  = _e("2")       # Dim
+    ITALIC = _e("3")     # Italic (not all terminals)
+    UNDER = _e("4")      # Underline
+    BLINK = _e("5")      # Blink (rare)
+    REVERSE = _e("7")    # Reverse video
+    HIDDEN = _e("8")     # Hidden
+    STRIKE = _e("9")     # Strikethrough
 
-    # Blues — midnight to electric (LOGO gradient B1→B7)
-    B1 = _e("38;5;18")
-    B2 = _e("38;5;19")
-    B4 = _e("38;5;21")
-    B5 = _e("38;5;27")
-    B6 = _e("38;5;33")   # nova accent — interactive elements
-    B7 = _e("38;5;39")   # bright blue — commands, links
+    # Blues — logo gradient (midnight → electric)
+    B1 = _e("38;5;18")   # Darkest blue (logo only)
+    B2 = _e("38;5;19")   # Dark blue (logo only)
+    B3 = _e("38;5;20")   # Medium-dark blue
+    B4 = _e("38;5;21")   # Medium blue
+    B5 = _e("38;5;27")   # Bright blue
+    B6 = _e("38;5;33")   # Nova accent blue — interactive
+    B7 = _e("38;5;39")   # Electric blue — commands/links
+    B8 = _e("38;5;45")   # Cyan-blue — highlights
 
-    # Text hierarchy (NEVER darker than G3)
-    W  = _e("38;5;255")  # primary — titles, values
-    G1 = _e("38;5;252")  # secondary — descriptions
-    G2 = _e("38;5;246")  # tertiary — hints, labels
-    G3 = _e("38;5;240")  # subtle — separators (MINIMUM)
+    # Text hierarchy (NEVER darker than G3 for body text)
+    W   = _e("38;5;255")  # Pure white — titles, emphasis
+    G0  = _e("38;5;253")  # Near-white — primary text
+    G1  = _e("38;5;250")  # Light gray — secondary text
+    G2  = _e("38;5;246")  # Medium gray — tertiary, hints
+    G3  = _e("38;5;240")  # Dark gray — MINIMUM for visible text
+    
+    # Semantic colors
+    GRN  = _e("38;5;84")   # Success, approved, positive
+    YLW  = _e("38;5;220")  # Warning, caution, pending
+    RED  = _e("38;5;196")  # Error, blocked, danger
+    ORG  = _e("38;5;208")  # Duplicate, attention
+    MGN  = _e("38;5;141")  # Special, magic
+    CYN  = _e("38;5;87")   # Info, neutral highlight
+    PNK  = _e("38;5;213")  # Accent, premium
+    GLD  = _e("38;5;220")  # Gold — premium, star
+    
+    # Backgrounds (use sparingly)
+    BG_RED = _e("48;5;196")
+    BG_GRN = _e("48;5;84")
+    BG_BLU = _e("48;5;33")
+    BG_YLW = _e("48;5;220")
+    BG_GRY = _e("48;5;236")
 
-    # Semantic
-    GRN = _e("38;5;84")
-    YLW = _e("38;5;220")
-    RED = _e("38;5;196")
-    ORG = _e("38;5;208")
-    MGN = _e("38;5;141")  # magenta — special accents
-    CYN = _e("38;5;87")   # cyan — informational
 
-
-def q(color, text, bold=False):
-    b = C.BOLD if bold else ""
-    return b + color + str(text) + C.R
+def q(color, text, bold=False, dim=False, italic=False, underline=False):
+    """Wrap text in color codes with optional styles."""
+    styles = ""
+    if bold: styles += C.BOLD
+    if dim: styles += C.DIM
+    if italic: styles += C.ITALIC
+    if underline: styles += C.UNDER
+    return styles + color + str(text) + C.R
 
 
 def debug(msg):
+    """Print debug message if DEBUG mode is enabled."""
     if DEBUG:
         ts = datetime.now().strftime("%H:%M:%S.%f")[:12]
-        print("  " + q(C.G3, "[" + ts + "]") + " " + q(C.G2, msg))
+        print("  " + q(C.G3, f"[{ts}]") + " " + q(C.G2, str(msg)))
 
 
-# ══════════════════════════════════════════════════════════════════
-# LOGO + BRANDING
-# ══════════════════════════════════════════════════════════════════
+def verbose(msg):
+    """Print verbose message if VERBOSE mode is enabled."""
+    if VERBOSE or DEBUG:
+        print("  " + q(C.G3, "[verbose]") + " " + q(C.G2, str(msg)))
 
-_NOVA = [
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LOGO + BRANDING — Enterprise identity
+# ══════════════════════════════════════════════════════════════════════════════
+
+_NOVA_BLOCK = [
     "  ███╗   ██╗  ██████╗  ██╗   ██╗  █████╗  ",
     "  ████╗  ██║ ██╔═══██╗ ██║   ██║ ██╔══██╗ ",
     "  ██╔██╗ ██║ ██║   ██║ ██║   ██║ ███████║ ",
@@ -87,7 +199,7 @@ _NOVA = [
 ]
 _NOVA_COLORS = [C.B1, C.B2, C.B4, C.B5, C.B6, C.B7]
 
-_CLI = [
+_CLI_BLOCK = [
     " ██████╗██╗     ██╗",
     "██╔════╝██║     ██║",
     "██║     ██║     ██║",
@@ -96,6 +208,10 @@ _CLI = [
     " ╚═════╝╚══════╝╚═╝",
 ]
 
+# Premium star placement
+_STAR_LINE = 1  # Line index where star appears
+
+# Enterprise taglines — rotating
 _TAGLINES = [
     "Agents that answer for themselves.",
     "The layer between intent and chaos.",
@@ -113,435 +229,471 @@ _TAGLINES = [
     "Actions speak. nova listens.",
     "Because 'it seemed like a good idea' isn't an audit trail.",
     "Sleep well. Your agents are supervised.",
+    "Enterprise-grade governance. Zero friction.",
+    "Built for scale. Designed for trust.",
+    "The missing layer in your AI stack.",
+    "From intent to execution. Safely.",
+    "Autonomous, not unaccountable.",
+    "Your agents' conscience.",
 ]
-_tagline = random.choice(_TAGLINES)
+
+# Agent personality messages for ghost writing
+_AGENT_GREETINGS = [
+    "Hello. I've been waiting for you.",
+    "Ready when you are.",
+    "Systems initialized. Let's build something safe.",
+    "I'm here to help your agents stay accountable.",
+    "All systems nominal. What's our first move?",
+    "Connected and watching. Your agents are in good hands.",
+    "Nova online. Let's make AI trustworthy.",
+]
+
+_AGENT_WAKE_MESSAGES = [
+    "Initializing governance protocols...",
+    "Establishing secure connection...",
+    "Loading intent validation engine...",
+    "Preparing cryptographic ledger...",
+    "Systems coming online...",
+]
 
 NOVA_VERSION = "3.0.0"
+NOVA_BUILD = "2024.01.enterprise"
+NOVA_CODENAME = "Constellation"
 
-# Command aliases
+# Command aliases for power users
 ALIASES = {
-    "s": "status", "v": "validate", "a": "agent",
-    "c": "config", "l": "ledger",   "m": "memory",
-    "w": "watch",  "i": "init",     "h": "help",
-    "t": "test",   "sk": "skill",   "e": "export",
+    "s": "status",
+    "v": "validate",
+    "a": "agent",
+    "c": "config",
+    "l": "ledger",
+    "m": "memory",
+    "w": "watch",
+    "i": "init",
+    "h": "help",
+    "t": "test",
+    "sk": "skill",
+    "e": "export",
+    "k": "keys",
+    "?": "help",
 }
 
 
-def print_logo(tagline=True, compact=False):
-    print()
-    if compact:
-        print("  " + q(C.B6, "✦", bold=True) + "  " + q(C.W, "nova", bold=True) +
-              q(C.G2, "  ·  CLI " + NOVA_VERSION))
-    else:
-        for i in range(6):
-            nova_part = _NOVA_COLORS[i] + C.BOLD + _NOVA[i] + C.R
-            cli_part  = C.W + C.BOLD + _CLI[i] + C.R
-            print(nova_part + cli_part)
-        if tagline:
-            print()
-            print("  " + q(C.G2, _tagline))
-            print("  " + q(C.G3, "─" * 54))
-    print()
+# ══════════════════════════════════════════════════════════════════════════════
+# ANIMATION UTILITIES — Ghost writing, spinners, progress
+# ══════════════════════════════════════════════════════════════════════════════
 
-
-def _step_header(n, total, title):
-    bar = q(C.B6, "█" * n, bold=True) + q(C.G3, "░" * (total - n))
-    print()
-    print("  " + bar + "  " + q(C.G2, str(n) + "/" + str(total)) +
-          "  " + q(C.W, title, bold=True))
-    print("  " + q(C.G3, "─" * 54))
-    print()
-
-
-def _pause(label="continue"):
-    print()
-    print("  " + q(C.W, "Press Enter to " + label) + "  " + q(C.G2, "↵"), end="", flush=True)
-    try:
-        input()
-    except (EOFError, KeyboardInterrupt):
+def ghost_write(text, color=None, delay=0.02, bold=False, newline=True, prefix="  "):
+    """
+    Ghost writing effect — text appears character by character.
+    Enterprise-grade typing animation.
+    """
+    c = color or C.G1
+    if prefix:
+        sys.stdout.write(prefix)
+    
+    # Apply styles
+    if bold:
+        sys.stdout.write(C.BOLD)
+    sys.stdout.write(c)
+    
+    for char in text:
+        sys.stdout.write(char)
+        sys.stdout.flush()
+        # Variable delay for natural feel
+        if char in ".!?":
+            time.sleep(delay * 8)
+        elif char in ",;:":
+            time.sleep(delay * 4)
+        elif char == " ":
+            time.sleep(delay * 1.5)
+        else:
+            time.sleep(delay + random.uniform(-0.005, 0.01))
+    
+    sys.stdout.write(C.R)
+    if newline:
         print()
-    print()
 
 
-# ══════════════════════════════════════════════════════════════════
-# ANIMATED SPINNER (threaded, zero deps)
-# ══════════════════════════════════════════════════════════════════
+def ghost_write_lines(lines, color=None, delay=0.015, line_delay=0.1, prefix="  "):
+    """Ghost write multiple lines."""
+    for line in lines:
+        ghost_write(line, color=color, delay=delay, prefix=prefix)
+        time.sleep(line_delay)
 
-_SPIN_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+def typewriter(text, delay=0.03):
+    """Simple typewriter effect."""
+    for char in text:
+        sys.stdout.write(char)
+        sys.stdout.flush()
+        time.sleep(delay)
+
+
+def fade_in_text(text, color=None, steps=5):
+    """Fade in text effect (simulated with delays)."""
+    c = color or C.W
+    for i in range(steps):
+        sys.stdout.write(f"\r  {q(C.G3, text)}")
+        sys.stdout.flush()
+        time.sleep(0.05)
+    sys.stdout.write(f"\r  {q(c, text)}\n")
+
+
+def pulse_text(text, color=None, pulses=3, prefix="  "):
+    """Pulsing text effect."""
+    c = color or C.B6
+    for _ in range(pulses):
+        sys.stdout.write(f"\r{prefix}{q(c, text, bold=True)}")
+        sys.stdout.flush()
+        time.sleep(0.15)
+        sys.stdout.write(f"\r{prefix}{q(c, text)}")
+        sys.stdout.flush()
+        time.sleep(0.15)
+    sys.stdout.write(f"\r{prefix}{q(c, text, bold=True)}\n")
+
+
+_SPINNER_FRAMES = {
+    "dots": ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
+    "line": ["-", "\\", "|", "/"],
+    "circle": ["◐", "◓", "◑", "◒"],
+    "box": ["▖", "▘", "▝", "▗"],
+    "arrows": ["←", "↖", "↑", "↗", "→", "↘", "↓", "↙"],
+    "pulse": ["○", "◔", "◑", "◕", "●", "◕", "◑", "◔"],
+    "nova": ["✦", "✧", "✦", "✧"],
+    "blocks": ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█", "▇", "▆", "▅", "▄", "▃", "▂"],
+}
+
 
 class Spinner:
-    """Threaded animated spinner. Usage:
+    """
+    Threaded animated spinner with multiple styles.
+    
+    Usage:
         with Spinner("Loading..."):
             do_work()
+        
+        # Or manually:
+        spinner = Spinner("Processing...")
+        spinner.start()
+        # ... work ...
+        spinner.finish("Done!")
     """
-    def __init__(self, msg, color=None):
-        self.msg   = msg
+    
+    def __init__(self, message, style="dots", color=None):
+        self.message = message
+        self.frames = _SPINNER_FRAMES.get(style, _SPINNER_FRAMES["dots"])
         self.color = color or C.B5
-        self.stop  = threading.Event()
+        self.stop_event = threading.Event()
         self.thread = None
-
+        self.start_time = None
+        self._finished = False
+    
     def __enter__(self):
         self.start()
         return self
-
-    def __exit__(self, *_):
-        self.finish()
-
+    
+    def __exit__(self, *args):
+        if not self._finished:
+            self.finish()
+    
     def start(self):
+        """Start the spinner animation."""
+        self.start_time = time.time()
+        self.stop_event.clear()
+        
         def run():
             i = 0
-            while not self.stop.is_set():
-                frame = _SPIN_FRAMES[i % len(_SPIN_FRAMES)]
-                sys.stdout.write("\r  " + q(self.color, frame) + "  " + q(C.G1, self.msg))
+            while not self.stop_event.is_set():
+                frame = self.frames[i % len(self.frames)]
+                elapsed = time.time() - self.start_time
+                elapsed_str = f" ({elapsed:.1f}s)" if elapsed > 2 else ""
+                
+                line = f"\r  {q(self.color, frame)}  {q(C.G1, self.message)}{q(C.G3, elapsed_str)}   "
+                sys.stdout.write(line)
                 sys.stdout.flush()
                 time.sleep(0.08)
                 i += 1
+        
         self.thread = threading.Thread(target=run, daemon=True)
         self.thread.start()
-
-    def finish(self, final_msg=None):
-        self.stop.set()
+    
+    def update(self, message):
+        """Update the spinner message."""
+        self.message = message
+    
+    def finish(self, final_message=None, success=True):
+        """Stop the spinner with optional final message."""
+        self._finished = True
+        self.stop_event.set()
         if self.thread:
             self.thread.join(timeout=1)
-        clear_line()
-        if final_msg:
-            print("  " + final_msg)
-
-    def update(self, msg):
-        self.msg = msg
-
-
-# ══════════════════════════════════════════════════════════════════
-# ARROW-KEY SELECTOR  (zero deps, cross-platform)
-# ══════════════════════════════════════════════════════════════════
-
-def _select(options, title="", default=0):
-    """
-    Arrow-key selector. Zero deps. Cross-platform.
-    Options must be plain strings — no ANSI codes.
-    """
-    is_tty = False
-    try:
-        is_tty = sys.stdin.isatty() and sys.stdout.isatty()
-    except Exception:
-        pass
-
-    if not is_tty:
-        if title:
-            print("  " + q(C.G2, title))
-        print()
-        for i, opt in enumerate(options):
-            marker = q(C.B6, "▸", bold=True) if i == default else "  "
-            label  = q(C.W, opt, bold=True) if i == default else q(C.G2, opt)
-            print("  " + marker + "  " + label)
-        print()
-        print("  " + q(C.G2, "Select [1-" + str(len(options)) + "]:") + "  ",
-              end="", flush=True)
-        try:
-            v = input().strip()
-            if v.isdigit():
-                idx = int(v) - 1
-                if 0 <= idx < len(options):
-                    return idx
-        except (EOFError, KeyboardInterrupt):
-            pass
-        return default
-
-    def _draw(current, first=False):
-        out = []
-        if not first:
-            n = (1 if title else 0) + 1 + len(options) + 1
-            out.append("\033[" + str(n) + "A\033[J")
-        if title:
-            out.append("  " + q(C.G2, title) + "\n")
-        out.append("\n")
-        for i, opt in enumerate(options):
-            if i == current:
-                out.append("  " + q(C.B6, "▸", bold=True) + "  " +
-                           q(C.W, opt, bold=True) + "\n")
+        
+        # Clear line
+        sys.stdout.write("\r\033[K")
+        sys.stdout.flush()
+        
+        if final_message:
+            if success:
+                ok(final_message)
             else:
-                out.append("     " + q(C.G2, opt) + "\n")
-        out.append("\n")
-        sys.stdout.write("".join(out))
+                fail(final_message)
+
+
+class ProgressBar:
+    """
+    Animated progress bar for long operations.
+    
+    Usage:
+        with ProgressBar(total=100, label="Downloading") as pb:
+            for i in range(100):
+                do_work()
+                pb.update(i + 1)
+    """
+    
+    def __init__(self, total, label="", width=30, color=None):
+        self.total = max(total, 1)
+        self.label = label
+        self.width = width
+        self.color = color or C.B6
+        self.current = 0
+        self.start_time = None
+    
+    def __enter__(self):
+        self.start_time = time.time()
+        self._draw()
+        return self
+    
+    def __exit__(self, *args):
+        print()  # Newline after progress bar
+    
+    def update(self, current, label=None):
+        """Update progress."""
+        self.current = min(current, self.total)
+        if label:
+            self.label = label
+        self._draw()
+    
+    def _draw(self):
+        """Render the progress bar."""
+        pct = self.current / self.total
+        filled = int(self.width * pct)
+        empty = self.width - filled
+        
+        bar = q(self.color, "█" * filled) + q(C.G3, "░" * empty)
+        pct_str = f"{int(pct * 100):3d}%"
+        
+        # ETA calculation
+        elapsed = time.time() - self.start_time if self.start_time else 0
+        if pct > 0 and elapsed > 0.5:
+            eta = (elapsed / pct) * (1 - pct)
+            eta_str = f" ETA {eta:.0f}s" if eta > 1 else ""
+        else:
+            eta_str = ""
+        
+        line = f"\r  {bar}  {q(C.W, pct_str)}{q(C.G3, eta_str)}  {q(C.G2, self.label[:30])}"
+        sys.stdout.write(line)
         sys.stdout.flush()
 
-    # Windows
-    if sys.platform == "win32":
-        import msvcrt
-        current = default
-        _draw(current, first=True)
-        while True:
-            ch = msvcrt.getwch()
-            if ch in ("\r", "\n"):
-                return current
-            if ch in ("\x00", "\xe0"):
-                ch2 = msvcrt.getwch()
-                if   ch2 == "H": current = (current - 1) % len(options)
-                elif ch2 == "P": current = (current + 1) % len(options)
-            elif ch == "\x03":
-                raise KeyboardInterrupt
-            _draw(current)
-        return current
 
-    # Unix
-    import termios, tty
-    fd  = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
+# ══════════════════════════════════════════════════════════════════════════════
+# LOGO RENDERING — Premium visual identity
+# ══════════════════════════════════════════════════════════════════════════════
 
-    def _read_key():
-        tty.setraw(fd)
-        try:
-            ch = sys.stdin.read(1)
-            if ch == "\x1b":
-                ch2 = sys.stdin.read(1)
-                if ch2 == "[":
-                    ch3 = sys.stdin.read(1)
-                    if   ch3 == "A": return "UP"
-                    elif ch3 == "B": return "DOWN"
-                    return ch3
-                return ch2
-            return ch
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old)
-
-    current = default
-    _draw(current, first=True)
-
-    while True:
-        key = _read_key()
-        if key in ("\r", "\n"):
-            return current
-        elif key == "\x03":
-            raise KeyboardInterrupt
-        elif key in ("UP",   "k", "K"):
-            current = (current - 1) % len(options)
-        elif key in ("DOWN", "j", "J"):
-            current = (current + 1) % len(options)
-        _draw(current)
-
-
-def _select_lang():
+def print_logo(tagline=True, compact=False, animated=False, minimal=False):
+    """
+    Print the nova logo with premium star.
+    
+    Args:
+        tagline: Show rotating tagline below logo
+        compact: Show single-line minimal version
+        animated: Animate the logo reveal
+        minimal: Just the ✦ mark
+    """
     print()
-    print()
-    print("  " + q(C.W, "Select your language", bold=True) +
-          "  " + q(C.G3, "/ Selecciona tu idioma"))
-    print()
-    idx = _select(["English", "Español"], default=0)
-    return "en" if idx == 0 else "es"
-
-
-# ══════════════════════════════════════════════════════════════════
-# CONNECT ANIMATION
-# ══════════════════════════════════════════════════════════════════
-
-def _animate_connect(url):
-    host = url.replace("http://", "").replace("https://", "").split(":")[0][:20]
-    pad  = max(0, 20 - len(host))
-    srv  = host + " " * pad
-
-    frames = [
-        ("  CLI                    " + srv,      C.G3),
-        ("   ○                          ○",      C.G2),
-        ("   │                          │",      C.G2),
-        ("   │  ──── identify ────────► │",      C.G2),
-        ("   │                          │",      C.G2),
-        ("   │  ◄─── challenge ───────  │",      C.B5),
-        ("   │                          │",      C.G2),
-        ("   │  ──── intent token ────► │",      C.G2),
-        ("   │                          │",      C.G2),
-        ("   │  ◄─── access granted ──  │",      C.B6),
-        ("   │                          │",      C.G2),
-        ("   ●                          ●",      C.GRN),
-    ]
-
-    delays = [0.05, 0.08, 0.04, 0.18, 0.04, 0.22,
-              0.04, 0.20, 0.04, 0.24, 0.04, 0.10]
-
-    print()
-    for (line, color), delay in zip(frames, delays):
-        print("  " + q(color, line))
-        time.sleep(delay)
+    
+    if minimal:
+        print("  " + q(C.GLD, "✦", bold=True))
+        return
+    
+    if compact:
+        # Single line compact version
+        print("  " + q(C.GLD, "✦", bold=True) + "  " + q(C.W, "nova", bold=True) +
+              q(C.G2, f"  ·  v{NOVA_VERSION}") + 
+              q(C.G3, f"  ·  {NOVA_CODENAME}"))
+        print()
+        return
+    
+    # Full logo
+    for i in range(6):
+        nova_part = _NOVA_COLORS[i] + C.BOLD + _NOVA_BLOCK[i] + C.R
+        cli_part = C.W + C.BOLD + _CLI_BLOCK[i] + C.R
+        
+        # Premium star on designated line
+        if i == _STAR_LINE:
+            star = "  " + q(C.GLD, "✦", bold=True)
+        else:
+            star = "   "
+        
+        print(nova_part + cli_part + star)
+        
+        if animated:
+            time.sleep(0.04)
+    
+    if tagline:
+        print()
+        tl = random.choice(_TAGLINES)
+        if animated:
+            ghost_write(tl, color=C.G2, delay=0.01)
+        else:
+            print("  " + q(C.G2, tl))
+        print("  " + q(C.G3, "─" * 62))
+    
     print()
 
 
-# ══════════════════════════════════════════════════════════════════
-# CONFIG — ~/.nova/config.json
-# ══════════════════════════════════════════════════════════════════
-
-NOVA_DIR    = os.path.expanduser("~/.nova")
-CONFIG_FILE = os.path.join(NOVA_DIR, "config.json")
-QUEUE_FILE  = os.path.join(NOVA_DIR, "offline_queue.json")
-
-DEFAULTS = {
-    "api_url":       "http://localhost:8000",
-    "api_key":       "",
-    "default_token": "",
-    "version":       NOVA_VERSION,
-    "lang":          "",
-    "user_name":     "",
-}
-
-
-def load_config():
-    os.makedirs(NOVA_DIR, exist_ok=True)
-    if os.path.exists(CONFIG_FILE):
-        try:
-            return dict(DEFAULTS, **json.load(open(CONFIG_FILE)))
-        except Exception:
-            pass
-    return dict(DEFAULTS)
-
-
-def save_config(cfg):
-    os.makedirs(NOVA_DIR, exist_ok=True)
-    json.dump(cfg, open(CONFIG_FILE, "w"), indent=2)
-
-
-def validate_config(cfg):
-    """Check config integrity, return list of issues."""
-    issues = []
-    url = cfg.get("api_url", "")
-    if not url:
-        issues.append("api_url is not set")
-    elif not url.startswith(("http://", "https://")):
-        issues.append("api_url must start with http:// or https://")
-    key = cfg.get("api_key", "")
-    if key and len(key) < 8:
-        issues.append("api_key seems too short (less than 8 characters)")
-    return issues
-
-
-# ══════════════════════════════════════════════════════════════════
-# API CLIENT — pure urllib, zero deps, retry with backoff
-# ══════════════════════════════════════════════════════════════════
-
-class NovaAPI:
-    def __init__(self, url, key):
-        self.url = url.rstrip("/")
-        self.key = key
-
-    def _req(self, method, path, data=None, retries=0):
-        url  = self.url + path
-        hdrs = {"Content-Type": "application/json", "x-api-key": self.key}
-        body = json.dumps(data).encode() if data else None
-        debug(method + " " + url)
-        if data:
-            debug("Body: " + json.dumps(data)[:120])
-
-        last_err = None
-        attempts = 1 + retries
-        for attempt in range(attempts):
-            try:
-                req = urllib.request.Request(url, data=body, headers=hdrs, method=method)
-                with urllib.request.urlopen(req, timeout=15) as r:
-                    result = json.loads(r.read().decode())
-                    debug("Response OK")
-                    return result
-            except urllib.error.HTTPError as e:
-                try:
-                    detail = json.loads(e.read().decode()).get("detail", str(e))
-                except Exception:
-                    detail = "HTTP " + str(e.code)
-                last_err = {"error": detail}
-                # Don't retry client errors (4xx)
-                if 400 <= e.code < 500:
-                    return last_err
-            except urllib.error.URLError:
-                last_err = {"error": "Cannot connect to " + self.url + " — run: docker ps"}
-            except Exception as e:
-                last_err = {"error": str(e)}
-
-            if attempt < attempts - 1:
-                wait = (2 ** attempt) + random.random() * 0.5
-                debug("Retry " + str(attempt + 1) + "/" + str(retries) + " in " + str(round(wait, 1)) + "s")
-                time.sleep(wait)
-
-        return last_err or {"error": "Unknown error"}
-
-    def get(self, p, **kw):              return self._req("GET",    p, **kw)
-    def post(self, p, d, **kw):          return self._req("POST",   p, d, **kw)
-    def delete(self, p, **kw):           return self._req("DELETE", p, **kw)
-    def patch(self, p, d=None, **kw):    return self._req("PATCH",  p, d or {}, **kw)
-
-
-def _api(cfg=None):
-    """Shortcut to create API client from config."""
-    cfg = cfg or load_config()
-    return NovaAPI(cfg["api_url"], cfg["api_key"]), cfg
-
-
-# ══════════════════════════════════════════════════════════════════
-# UI PRIMITIVES
-# ══════════════════════════════════════════════════════════════════
-
-def ok(msg):   print("  " + q(C.GRN, "✓") + "  " + q(C.W,  msg))
-def fail(msg): print("  " + q(C.RED, "✗") + "  " + q(C.W,  msg))
-def warn(msg): print("  " + q(C.YLW, "!") + "  " + q(C.G1, msg))
-def info(msg): print("  " + q(C.B6,  "·") + "  " + q(C.G1, msg))
-def dim(msg):  print("       " + q(C.G2, msg))
-def nl():      print()
-
-
-def section(title, subtle=""):
-    sub = "  " + q(C.G2, subtle) if subtle else ""
+def print_mark():
+    """Print just the nova mark for sub-screens."""
     print()
-    print("  " + q(C.W, title, bold=True) + sub)
-    print("  " + q(C.G3, "─" * (len(title) + 2)))
+    print("  " + q(C.GLD, "✦", bold=True) + "  " + q(C.W, "nova", bold=True))
+    print()
 
 
-def kv(key, val, vc=None):
-    vc = vc or C.W
-    print("  " + q(C.G2, key.ljust(20)) + "  " + q(vc, str(val)))
+# ══════════════════════════════════════════════════════════════════════════════
+# UI PRIMITIVES — Building blocks for interface
+# ══════════════════════════════════════════════════════════════════════════════
 
+def ok(msg, prefix="  "):
+    """Success message."""
+    print(f"{prefix}" + q(C.GRN, "✓") + "  " + q(C.W, msg))
 
-def loading(msg):
-    print("  " + q(C.B5, "○") + "  " + q(C.G1, msg), end="", flush=True)
+def fail(msg, prefix="  "):
+    """Error message."""
+    print(f"{prefix}" + q(C.RED, "✗") + "  " + q(C.W, msg))
 
+def warn(msg, prefix="  "):
+    """Warning message."""
+    print(f"{prefix}" + q(C.YLW, "!") + "  " + q(C.G1, msg))
+
+def info(msg, prefix="  "):
+    """Info message."""
+    print(f"{prefix}" + q(C.B6, "·") + "  " + q(C.G1, msg))
+
+def hint(msg, prefix="  "):
+    """Hint/tip message."""
+    print(f"{prefix}" + q(C.MGN, "→") + "  " + q(C.G2, msg))
+
+def dim(msg, prefix="       "):
+    """Dimmed secondary text."""
+    print(f"{prefix}" + q(C.G2, msg))
+
+def nl(count=1):
+    """Print newlines."""
+    print("\n" * (count - 1))
+
+def hr(char="─", width=62, color=None):
+    """Horizontal rule."""
+    c = color or C.G3
+    print("  " + q(c, char * width))
+
+def hr_bold(width=62):
+    """Bold horizontal rule for important sections."""
+    print("  " + q(C.GLD, "━" * width, bold=True))
 
 def clear_line():
-    print("\r\033[K", end="", flush=True)
+    """Clear current line."""
+    sys.stdout.write("\r\033[K")
+    sys.stdout.flush()
 
+def clear_screen():
+    """Clear entire screen."""
+    os.system("cls" if IS_WINDOWS else "clear")
 
-def score_bar(score, width=18):
-    filled = max(0, int((score / 100) * width))
-    empty  = width - filled
-    c = C.GRN if score >= 70 else (C.YLW if score >= 40 else C.RED)
-    bar = c + C.BOLD + ("█" * filled) + C.R + q(C.G3, "░" * empty)
-    num = q(c, str(score), bold=True)
-    return q(C.G2, "[") + bar + q(C.G2, "]") + " " + num
-
-
-def progress_bar(current, total, width=30, label=""):
-    pct = current / max(total, 1)
-    filled = int(width * pct)
-    bar = q(C.B6, "█" * filled) + q(C.G3, "░" * (width - filled))
-    sys.stdout.write("\r  " + bar + "  " + q(C.W, str(int(pct*100)) + "%") +
-                     "  " + q(C.G2, label))
+def move_up(lines=1):
+    """Move cursor up N lines."""
+    sys.stdout.write(f"\033[{lines}A")
     sys.stdout.flush()
 
 
+def section(title, subtitle="", width=62):
+    """Section header with optional subtitle."""
+    print()
+    if subtitle:
+        print("  " + q(C.W, title, bold=True) + "  " + q(C.G2, subtitle))
+    else:
+        print("  " + q(C.W, title, bold=True))
+    print("  " + q(C.G3, "─" * min(len(title) + 4, width)))
+
+
+def kv(key, value, color=None, key_width=22, prefix="  "):
+    """Key-value line with aligned columns."""
+    c = color or C.W
+    print(f"{prefix}" + q(C.G2, key.ljust(key_width)) + q(c, str(value)))
+
+
+def kvb(key, value, color=None):
+    """Key-value with bold value."""
+    c = color or C.W
+    print("  " + q(C.G2, key.ljust(22)) + q(c, str(value), bold=True))
+
+
+def bullet(text, color=None, bullet_char="·", prefix="  "):
+    """Bulleted list item."""
+    c = color or C.G1
+    print(f"{prefix}" + q(C.G3, bullet_char) + "  " + q(c, text))
+
+
+def numbered(index, text, color=None, prefix="  "):
+    """Numbered list item."""
+    c = color or C.G1
+    print(f"{prefix}" + q(C.G3, f"{index}.") + " " + q(c, text))
+
+
+def score_bar(score, width=20):
+    """Visual score bar with semantic colors."""
+    score = max(0, min(100, score))
+    filled = int((score / 100) * width)
+    empty = width - filled
+    
+    # Color based on score
+    if score >= 70:
+        c = C.GRN
+    elif score >= 40:
+        c = C.YLW
+    else:
+        c = C.RED
+    
+    bar = q(c, "█" * filled, bold=True) + q(C.G3, "░" * empty)
+    num = q(c, str(score), bold=True)
+    return q(C.G3, "[") + bar + q(C.G3, "]") + " " + num
+
+
 def sparkline(values, width=None):
-    """Render a sparkline from a list of numbers."""
+    """Render a sparkline from values."""
     if not values:
         return q(C.G3, "no data")
+    
     blocks = "▁▂▃▄▅▆▇█"
     mn, mx = min(values), max(values)
     rng = mx - mn or 1
+    
     line = ""
     for v in values:
         idx = min(int((v - mn) / rng * (len(blocks) - 1)), len(blocks) - 1)
         line += blocks[idx]
+    
     return q(C.B6, line)
 
 
-def verdict_badge(v):
-    m = {
+def verdict_badge(verdict):
+    """Colored verdict badge."""
+    badges = {
         "APPROVED":  (C.GRN, "✓", "APPROVED"),
         "BLOCKED":   (C.RED, "✗", "BLOCKED"),
         "ESCALATED": (C.YLW, "⚠", "ESCALATED"),
         "DUPLICATE": (C.ORG, "⊘", "DUPLICATE"),
     }
-    c, sym, label = m.get(v, (C.G2, "·", v))
+    c, sym, label = badges.get(verdict.upper(), (C.G2, "·", verdict))
     return q(c, sym) + "  " + q(c, label, bold=True)
 
 
@@ -549,10 +701,11 @@ def time_ago(iso_str):
     """Convert ISO timestamp to human-readable relative time."""
     if not iso_str:
         return ""
+    
     try:
+        # Parse ISO format
         s = iso_str.replace("Z", "+00:00")
-        # Handle naive datetimes
-        if "+" not in s and s.count("-") <= 2:
+        if "+" not in s and "-" not in s[10:]:
             dt = datetime.fromisoformat(s)
             now = datetime.now()
         else:
@@ -560,49 +713,84 @@ def time_ago(iso_str):
             now = datetime.now(timezone.utc)
             if dt.tzinfo is None:
                 now = datetime.now()
+        
         delta = now - dt
         secs = int(delta.total_seconds())
+        
         if secs < 0:
             return "just now"
-        if secs < 60:
+        if secs < 10:
             return "just now"
+        if secs < 60:
+            return f"{secs}s ago"
         if secs < 3600:
-            m = secs // 60
-            return str(m) + "m ago"
+            return f"{secs // 60}m ago"
         if secs < 86400:
-            h = secs // 3600
-            return str(h) + "h ago"
+            return f"{secs // 3600}h ago"
+        
         days = delta.days
         if days < 7:
-            return str(days) + "d ago"
+            return f"{days}d ago"
         if days < 30:
-            return str(days // 7) + "w ago"
+            return f"{days // 7}w ago"
         if days < 365:
-            return str(days // 30) + "mo ago"
-        return str(days // 365) + "y ago"
+            return f"{days // 30}mo ago"
+        return f"{days // 365}y ago"
+    
     except Exception:
         return iso_str[:16] if len(iso_str) > 16 else iso_str
 
 
-def box(lines, color=None, title=""):
+def format_bytes(num_bytes):
+    """Format bytes to human readable."""
+    for unit in ["B", "KB", "MB", "GB"]:
+        if abs(num_bytes) < 1024.0:
+            return f"{num_bytes:3.1f} {unit}"
+        num_bytes /= 1024.0
+    return f"{num_bytes:.1f} TB"
+
+
+def mask_key(key, visible_start=4, visible_end=4):
+    """Mask API key for display."""
+    if not key:
+        return q(C.G3, "not set")
+    if len(key) < visible_start + visible_end + 4:
+        return "*" * len(key)
+    return key[:visible_start] + "•" * 8 + key[-visible_end:]
+
+
+def box(lines, color=None, title="", padding=1):
+    """Draw a box around content."""
     bc = color or C.G3
-    inner_w = max((len(l) for l in lines), default=30) + 4
-    w = max(inner_w, len(title) + 6)
+    
+    # Calculate width
+    max_len = max((len(line) for line in lines), default=30)
+    inner_w = max_len + (padding * 2) + 2
+    w = max(inner_w, len(title) + 6 if title else inner_w)
+    
+    # Top border
     if title:
         tpad = max(0, w - len(title) - 4)
         print("  " + q(bc, "┌─ ") + q(C.G1, title) + " " + q(bc, "─" * tpad + "┐"))
     else:
         print("  " + q(bc, "┌" + "─" * w + "┐"))
+    
+    # Content
     for line in lines:
-        pad = max(0, w - len(line) - 2)
-        print("  " + q(bc, "│") + " " + q(C.G1, line) + " " * pad + " " + q(bc, "│"))
+        pad = " " * padding
+        right_pad = " " * max(0, w - len(line) - (padding * 2) - 2)
+        print("  " + q(bc, "│") + pad + q(C.G1, line) + right_pad + pad + q(bc, "│"))
+    
+    # Bottom border
     print("  " + q(bc, "└" + "─" * w + "┘"))
 
 
-def table(headers, rows, colors=None):
-    """Formatted table with aligned columns."""
+def table(headers, rows, colors=None, max_col_width=40):
+    """Render a formatted table."""
     if not rows:
         return
+    
+    # Calculate column widths
     col_count = len(headers)
     widths = []
     for i in range(col_count):
@@ -610,288 +798,1367 @@ def table(headers, rows, colors=None):
         for row in rows:
             if i < len(row):
                 max_w = max(max_w, len(str(row[i])))
-        widths.append(min(max_w, 40))
-
-    header_line = "  "
+        widths.append(min(max_w, max_col_width))
+    
+    # Header
+    header_parts = []
     for i, h in enumerate(headers):
-        header_line += q(C.G3, str(h).ljust(widths[i])) + "  "
-    print(header_line)
-    print("  " + q(C.G3, "─" * (sum(widths) + col_count * 2)))
-
+        header_parts.append(q(C.G3, str(h).ljust(widths[i])))
+    print("  " + "  ".join(header_parts))
+    
+    # Separator
+    print("  " + q(C.G3, "─" * (sum(widths) + (col_count - 1) * 2)))
+    
+    # Rows
     for row in rows:
-        line = "  "
+        parts = []
         for i in range(col_count):
             val = str(row[i]) if i < len(row) else ""
             c = colors[i] if colors and i < len(colors) else C.G1
-            line += q(c, val[:widths[i]].ljust(widths[i])) + "  "
-        print(line)
+            
+            # Truncate if needed
+            if len(val) > widths[i]:
+                val = val[:widths[i]-1] + "…"
+            
+            parts.append(q(c, val.ljust(widths[i])))
+        print("  " + "  ".join(parts))
 
 
-def prompt(label, default=""):
-    hint = " " + q(C.G3, "(" + default + ")") if default else ""
-    print("  " + q(C.B6, "?") + "  " + q(C.G1, label) + hint + "  ", end="", flush=True)
-    val = input().strip()
-    return val or default
+# ══════════════════════════════════════════════════════════════════════════════
+# INPUT UTILITIES — Prompts, confirmations, selections
+# ══════════════════════════════════════════════════════════════════════════════
+
+def prompt(label, default="", secret=False, required=False, validator=None, prefix="  "):
+    """
+    Enhanced text input prompt.
+    
+    Args:
+        label: Prompt label
+        default: Default value if empty
+        secret: Hide input (for passwords/keys)
+        required: Require non-empty input
+        validator: Function(value) -> True or error message
+    """
+    while True:
+        hint_text = f" ({default})" if default and not secret else ""
+        print(f"{prefix}" + q(C.B6, "?") + "  " + q(C.G1, label) + 
+              q(C.G3, hint_text) + "  ", end="", flush=True)
+        
+        if secret:
+            try:
+                import getpass
+                value = getpass.getpass("").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return default
+        else:
+            try:
+                value = input().strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return default
+        
+        # Use default if empty
+        if not value:
+            value = default
+        
+        # Check required
+        if required and not value:
+            warn("This field is required.")
+            continue
+        
+        # Run validator
+        if validator and value:
+            result = validator(value)
+            if result is not True:
+                warn(result if isinstance(result, str) else "Invalid input.")
+                continue
+        
+        return value
 
 
-def prompt_list(label, hint="empty line to finish"):
-    print("  " + q(C.B6, "?") + "  " + q(C.G1, label) + "  " + q(C.G3, "(" + hint + ")"))
+def prompt_list(label, hint="empty line to finish", min_items=0, max_items=None):
+    """Multi-line list input."""
+    print("  " + q(C.B6, "?") + "  " + q(C.G1, label) + "  " + q(C.G3, f"({hint})"))
+    
     items = []
     while True:
-        print("    " + q(C.G3, "+  "), end="", flush=True)
-        v = input().strip()
-        if not v:
+        if max_items and len(items) >= max_items:
             break
+        
+        print("    " + q(C.G3, f"[{len(items) + 1}]  "), end="", flush=True)
+        try:
+            v = input().strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        
+        if not v:
+            if len(items) < min_items:
+                warn(f"At least {min_items} items required.")
+                continue
+            break
+        
         items.append(v)
+    
     return items
 
 
-def confirm(label, default=True):
+def confirm(label, default=True, prefix="  "):
+    """Yes/no confirmation with sensible defaults."""
     hint = q(C.G3, "Y/n" if default else "y/N")
-    print("  " + q(C.B6, "?") + "  " + q(C.G1, label) + "  " + hint + "  ", end="", flush=True)
-    v = input().strip().lower()
-    return default if not v else v in ("y", "yes", "s", "si", "sí")
+    print(f"{prefix}" + q(C.B6, "?") + "  " + q(C.G1, label) + "  " + hint + "  ", 
+          end="", flush=True)
+    
+    try:
+        v = input().strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return default
+    
+    if not v:
+        return default
+    return v in ("y", "yes", "s", "si", "sí", "1", "true")
 
 
-def print_error(r):
-    fail(r.get("error", "Unknown error"))
+def confirm_danger(label, confirm_text="DELETE", prefix="  "):
+    """
+    Dangerous action confirmation — requires typing specific text.
+    """
+    print(f"{prefix}" + q(C.RED, "!") + "  " + q(C.W, label))
+    print(f"{prefix}   " + q(C.G2, f"Type '{confirm_text}' to confirm:") + "  ", 
+          end="", flush=True)
+    
+    try:
+        v = input().strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    
+    return v == confirm_text
 
 
-# ══════════════════════════════════════════════════════════════════
-# OFFLINE QUEUE — actions queued when server is unreachable
-# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# ARROW-KEY SELECTOR — Claude Code / Gemini CLI style
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _is_tty():
+    """Check if we're in an interactive terminal."""
+    try:
+        return sys.stdin.isatty() and sys.stdout.isatty()
+    except Exception:
+        return False
+
+
+def _select(options, title="", default=0, descriptions=None, show_index=False, 
+            allow_filter=False, page_size=10):
+    """
+    Premium arrow-key selector with enterprise features.
+    
+    Features:
+        - Arrow key navigation (↑↓)
+        - Number keys for quick selection (1-9)
+        - j/k vim-style navigation
+        - Optional descriptions per item
+        - Filtering (type to search)
+        - Pagination for long lists
+        - Works on Windows, Mac, Linux
+        - Graceful fallback for non-TTY
+    
+    Args:
+        options: List of option strings (NO ANSI codes!)
+        title: Optional title above the list
+        default: Default selected index
+        descriptions: Optional list of descriptions per option
+        show_index: Show [1] [2] etc.
+        allow_filter: Enable type-to-filter
+        page_size: Max items shown at once
+    
+    Returns:
+        Selected index
+    """
+    if not options:
+        return 0
+    
+    # Fallback for non-interactive
+    if not _is_tty():
+        return _select_fallback(options, title, default, descriptions, show_index)
+    
+    current = default
+    filter_text = ""
+    scroll_offset = 0
+    
+    def get_filtered_indices():
+        """Get indices of options matching filter."""
+        if not filter_text:
+            return list(range(len(options)))
+        return [i for i, opt in enumerate(options) 
+                if filter_text.lower() in opt.lower()]
+    
+    def draw(first=False):
+        """Render the selector."""
+        nonlocal scroll_offset
+        filtered = get_filtered_indices()
+        
+        # Adjust scroll
+        if filtered:
+            vis_idx = filtered.index(current) if current in filtered else 0
+            if vis_idx < scroll_offset:
+                scroll_offset = vis_idx
+            elif vis_idx >= scroll_offset + page_size:
+                scroll_offset = vis_idx - page_size + 1
+        
+        # Calculate lines to clear
+        lines_per_opt = 2 if descriptions else 1
+        visible_opts = min(len(filtered), page_size)
+        header_lines = (1 if title else 0) + (1 if allow_filter else 0) + 1
+        total_lines = header_lines + (visible_opts * lines_per_opt) + 2
+        
+        out = []
+        
+        if not first:
+            out.append(f"\033[{total_lines}A\033[J")
+        
+        # Title
+        if title:
+            out.append("  " + q(C.G2, title) + "\n")
+        
+        # Filter input
+        if allow_filter:
+            filter_display = filter_text if filter_text else q(C.G3, "type to filter...")
+            out.append("  " + q(C.B6, "/") + " " + filter_display + "\n")
+        
+        out.append("\n")
+        
+        # Options
+        visible_items = filtered[scroll_offset:scroll_offset + page_size]
+        
+        for display_idx, opt_idx in enumerate(visible_items):
+            opt = options[opt_idx]
+            is_selected = (opt_idx == current)
+            
+            # Index prefix
+            idx_str = ""
+            if show_index:
+                idx_str = q(C.G3, f"[{opt_idx + 1}]") + "  "
+            
+            if is_selected:
+                out.append("  " + q(C.B6, "▸", bold=True) + "  " + idx_str +
+                           q(C.W, opt, bold=True) + "\n")
+            else:
+                out.append("     " + idx_str + q(C.G2, opt) + "\n")
+            
+            # Description
+            if descriptions and opt_idx < len(descriptions) and descriptions[opt_idx]:
+                desc = descriptions[opt_idx]
+                desc_color = C.G2 if is_selected else C.G3
+                out.append("       " + q(desc_color, desc) + "\n")
+        
+        # Scroll indicators
+        if scroll_offset > 0:
+            out.append("       " + q(C.G3, "↑ more above") + "\n")
+        if scroll_offset + page_size < len(filtered):
+            out.append("       " + q(C.G3, "↓ more below") + "\n")
+        
+        out.append("\n")
+        
+        sys.stdout.write("".join(out))
+        sys.stdout.flush()
+    
+    # Platform-specific key reading
+    if IS_WINDOWS:
+        return _select_windows(options, draw, current, get_filtered_indices, page_size)
+    else:
+        return _select_unix(options, draw, current, get_filtered_indices, page_size, 
+                           allow_filter)
+
+
+def _select_fallback(options, title, default, descriptions, show_index):
+    """Fallback selection for non-TTY environments."""
+    if title:
+        print("  " + q(C.G2, title))
+    print()
+    
+    for i, opt in enumerate(options):
+        marker = q(C.B6, "▸", bold=True) if i == default else "  "
+        idx = f"[{i + 1}]  " if show_index else ""
+        label = q(C.W, opt, bold=True) if i == default else q(C.G2, opt)
+        print("  " + marker + " " + idx + label)
+        
+        if descriptions and i < len(descriptions) and descriptions[i]:
+            print("       " + q(C.G3, descriptions[i]))
+    
+    print()
+    print("  " + q(C.G2, f"Select [1-{len(options)}]:") + "  ", end="", flush=True)
+    
+    try:
+        v = input().strip()
+        if v.isdigit():
+            idx = int(v) - 1
+            if 0 <= idx < len(options):
+                return idx
+    except (EOFError, KeyboardInterrupt):
+        pass
+    
+    return default
+
+
+def _select_windows(options, draw, current, get_filtered, page_size):
+    """Windows-specific key handling."""
+    import msvcrt
+    
+    draw(first=True)
+    
+    while True:
+        if msvcrt.kbhit():
+            ch = msvcrt.getwch()
+            
+            if ch in ("\r", "\n"):
+                return current
+            
+            if ch == "\x03":  # Ctrl+C
+                raise KeyboardInterrupt
+            
+            if ch in ("\x00", "\xe0"):  # Special keys
+                ch2 = msvcrt.getwch()
+                filtered = get_filtered()
+                
+                if ch2 == "H":  # Up
+                    if current in filtered:
+                        idx = filtered.index(current)
+                        if idx > 0:
+                            current = filtered[idx - 1]
+                elif ch2 == "P":  # Down
+                    if current in filtered:
+                        idx = filtered.index(current)
+                        if idx < len(filtered) - 1:
+                            current = filtered[idx + 1]
+                
+                draw()
+            
+            elif ch.isdigit():  # Number selection
+                idx = int(ch) - 1
+                if 0 <= idx < len(options):
+                    return idx
+            
+            elif ch in ("k", "K"):  # Vim up
+                filtered = get_filtered()
+                if current in filtered:
+                    idx = filtered.index(current)
+                    if idx > 0:
+                        current = filtered[idx - 1]
+                draw()
+            
+            elif ch in ("j", "J"):  # Vim down
+                filtered = get_filtered()
+                if current in filtered:
+                    idx = filtered.index(current)
+                    if idx < len(filtered) - 1:
+                        current = filtered[idx + 1]
+                draw()
+        
+        time.sleep(0.01)
+
+
+def _select_unix(options, draw, current, get_filtered, page_size, allow_filter):
+    """Unix/Mac key handling with proper terminal restoration."""
+    import termios
+    import tty
+    
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    
+    filter_text = ""
+    
+    def read_key():
+        """Read single keypress."""
+        tty.setraw(fd)
+        try:
+            ch = sys.stdin.read(1)
+            
+            if ch == "\x1b":  # Escape sequence
+                ch2 = sys.stdin.read(1)
+                if ch2 == "[":
+                    ch3 = sys.stdin.read(1)
+                    if ch3 == "A": return "UP"
+                    if ch3 == "B": return "DOWN"
+                    if ch3 == "C": return "RIGHT"
+                    if ch3 == "D": return "LEFT"
+                    return ch3
+                return ch2
+            return ch
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    
+    draw(first=True)
+    
+    while True:
+        key = read_key()
+        filtered = get_filtered()
+        
+        if key in ("\r", "\n"):
+            return current
+        
+        if key == "\x03":  # Ctrl+C
+            raise KeyboardInterrupt
+        
+        if key == "UP" or key in ("k", "K"):
+            if current in filtered:
+                idx = filtered.index(current)
+                if idx > 0:
+                    current = filtered[idx - 1]
+            draw()
+        
+        elif key == "DOWN" or key in ("j", "J"):
+            if current in filtered:
+                idx = filtered.index(current)
+                if idx < len(filtered) - 1:
+                    current = filtered[idx + 1]
+            draw()
+        
+        elif key.isdigit():
+            idx = int(key) - 1
+            if 0 <= idx < len(options):
+                return idx
+        
+        # For vim users
+        elif key == "q":
+            raise KeyboardInterrupt
+
+
+def _select_multi(options, title="", selected=None, descriptions=None):
+    """
+    Multi-select with space to toggle, enter to confirm.
+    
+    Returns:
+        List of selected indices
+    """
+    selected = set(selected or [])
+    current = 0
+    
+    if not _is_tty():
+        # Fallback
+        print("  " + q(C.G2, title or "Select options (comma-separated):"))
+        for i, opt in enumerate(options):
+            mark = "[x]" if i in selected else "[ ]"
+            print(f"  {i + 1}. {mark} {opt}")
+        
+        try:
+            v = input("  Numbers: ").strip()
+            return [int(x) - 1 for x in v.split(",") if x.strip().isdigit()]
+        except (EOFError, KeyboardInterrupt):
+            return list(selected)
+    
+    def draw(first=False):
+        lines = (1 if title else 0) + 2 + len(options) + 2
+        out = []
+        
+        if not first:
+            out.append(f"\033[{lines}A\033[J")
+        
+        if title:
+            out.append("  " + q(C.G2, title) + "\n")
+        
+        out.append("\n")
+        out.append("  " + q(C.G3, "↑↓ navigate · Space toggle · Enter confirm") + "\n")
+        out.append("\n")
+        
+        for i, opt in enumerate(options):
+            check = q(C.GRN, "●") if i in selected else q(C.G3, "○")
+            if i == current:
+                out.append("  " + q(C.B6, "▸", bold=True) + " " + check + "  " +
+                           q(C.W, opt, bold=True) + "\n")
+            else:
+                out.append("    " + check + "  " + q(C.G2, opt) + "\n")
+        
+        out.append("\n")
+        sys.stdout.write("".join(out))
+        sys.stdout.flush()
+    
+    if IS_WINDOWS:
+        import msvcrt
+        draw(first=True)
+        
+        while True:
+            ch = msvcrt.getwch()
+            
+            if ch in ("\r", "\n"):
+                return list(selected)
+            if ch == " ":
+                if current in selected:
+                    selected.remove(current)
+                else:
+                    selected.add(current)
+            elif ch in ("\x00", "\xe0"):
+                ch2 = msvcrt.getwch()
+                if ch2 == "H": current = (current - 1) % len(options)
+                elif ch2 == "P": current = (current + 1) % len(options)
+            elif ch == "\x03":
+                raise KeyboardInterrupt
+            
+            draw()
+    
+    else:
+        import termios, tty
+        fd = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+        
+        def read():
+            tty.setraw(fd)
+            try:
+                ch = sys.stdin.read(1)
+                if ch == "\x1b":
+                    ch2 = sys.stdin.read(1)
+                    if ch2 == "[":
+                        ch3 = sys.stdin.read(1)
+                        if ch3 == "A": return "UP"
+                        if ch3 == "B": return "DOWN"
+                return ch
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        
+        draw(first=True)
+        
+        while True:
+            key = read()
+            
+            if key in ("\r", "\n"):
+                return list(selected)
+            if key == "\x03":
+                raise KeyboardInterrupt
+            if key == " ":
+                if current in selected:
+                    selected.remove(current)
+                else:
+                    selected.add(current)
+            elif key == "UP":
+                current = (current - 1) % len(options)
+            elif key == "DOWN":
+                current = (current + 1) % len(options)
+            
+            draw()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP HEADER / WIZARD UI
+# ══════════════════════════════════════════════════════════════════════════════
+
+def step_header(current, total, title, subtitle=""):
+    """
+    Step progress header for multi-step wizards.
+    """
+    print()
+    
+    # Progress bar
+    filled = "█" * current
+    empty = "░" * (total - current)
+    bar = q(C.B6, filled, bold=True) + q(C.G3, empty)
+    
+    progress = q(C.G2, f"{current}/{total}")
+    
+    print(f"  {bar}  {progress}  " + q(C.W, title, bold=True))
+    
+    if subtitle:
+        print("  " + q(C.G3, " " * total) + "       " + q(C.G2, subtitle))
+    
+    hr()
+    print()
+
+
+def wizard_intro(title, lines, animated=True):
+    """
+    Wizard introduction screen with optional animation.
+    """
+    print()
+    print("  " + q(C.W, title, bold=True))
+    print()
+    
+    if animated:
+        for line in lines:
+            ghost_write(line, color=C.G1, delay=0.012)
+            time.sleep(0.05)
+    else:
+        for line in lines:
+            print("  " + q(C.G1, line))
+    
+    print()
+
+
+def pause(label="continue", prefix="  "):
+    """Pause for user to press Enter."""
+    print()
+    print(f"{prefix}" + q(C.W, f"Press Enter to {label}") + "  " + q(C.G2, "↵"), 
+          end="", flush=True)
+    
+    try:
+        input()
+    except (EOFError, KeyboardInterrupt):
+        print()
+    
+    print()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CONFIGURATION — ~/.nova/
+# ══════════════════════════════════════════════════════════════════════════════
+
+NOVA_DIR = Path.home() / ".nova"
+CONFIG_FILE = NOVA_DIR / "config.json"
+KEYS_FILE = NOVA_DIR / "keys.json"
+PROFILES_FILE = NOVA_DIR / "profiles.json"
+HISTORY_FILE = NOVA_DIR / "history.json"
+QUEUE_FILE = NOVA_DIR / "offline_queue.json"
+SESSIONS_DIR = NOVA_DIR / "sessions"
+SKILLS_DIR = NOVA_DIR / "skills"
+LOGS_DIR = NOVA_DIR / "logs"
+
+# Default configuration
+DEFAULT_CONFIG = {
+    "version": NOVA_VERSION,
+    "api_url": "http://localhost:8000",
+    "api_key": "",
+    "default_token": "",
+    "user_name": "",
+    "org_name": "",
+    "lang": "en",
+    "theme": "dark",
+    "telemetry": False,
+    "auto_update_check": True,
+    "session_timeout": 3600,
+    "default_profile": "default",
+    "created_at": "",
+    "last_updated": "",
+}
+
+
+def ensure_dirs():
+    """Ensure all nova directories exist."""
+    for d in [NOVA_DIR, SESSIONS_DIR, SKILLS_DIR, LOGS_DIR]:
+        d.mkdir(parents=True, exist_ok=True)
+
+
+def load_config():
+    """Load configuration from disk."""
+    ensure_dirs()
+    
+    if CONFIG_FILE.exists():
+        try:
+            data = json.loads(CONFIG_FILE.read_text())
+            return {**DEFAULT_CONFIG, **data}
+        except Exception as e:
+            debug(f"Config load error: {e}")
+    
+    return dict(DEFAULT_CONFIG)
+
+
+def save_config(cfg):
+    """Save configuration to disk."""
+    ensure_dirs()
+    cfg["last_updated"] = datetime.now().isoformat()
+    CONFIG_FILE.write_text(json.dumps(cfg, indent=2))
+
+
+def validate_config(cfg):
+    """Validate configuration, return list of issues."""
+    issues = []
+    
+    url = cfg.get("api_url", "")
+    if not url:
+        issues.append("Server URL is not configured")
+    elif not url.startswith(("http://", "https://")):
+        issues.append("Server URL must start with http:// or https://")
+    
+    key = cfg.get("api_key", "")
+    if not key:
+        issues.append("API key is not configured")
+    elif len(key) < 16:
+        issues.append("API key seems too short (security risk)")
+    
+    return issues
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# API KEY MANAGEMENT — Secure local keychain
+# ══════════════════════════════════════════════════════════════════════════════
+
+def generate_api_key(prefix="nova"):
+    """Generate a cryptographically secure API key."""
+    # Format: nova_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx (prefix + 32 hex chars)
+    random_part = secrets.token_hex(16)
+    return f"{prefix}_{random_part}"
+
+
+def load_keys():
+    """Load saved API keys from keychain."""
+    if KEYS_FILE.exists():
+        try:
+            return json.loads(KEYS_FILE.read_text())
+        except Exception:
+            pass
+    return {"keys": [], "active": None}
+
+
+def save_keys(data):
+    """Save API keys to keychain."""
+    ensure_dirs()
+    KEYS_FILE.write_text(json.dumps(data, indent=2))
+
+
+def add_api_key(key, name="", server_url="", description=""):
+    """Add a new API key to the keychain."""
+    data = load_keys()
+    
+    # Check for duplicates
+    for k in data["keys"]:
+        if k["key"] == key:
+            return k  # Already exists
+    
+    entry = {
+        "id": str(uuid.uuid4())[:8],
+        "key": key,
+        "name": name or f"Key {len(data['keys']) + 1}",
+        "server_url": server_url,
+        "description": description,
+        "created_at": datetime.now().isoformat(),
+        "last_used": None,
+    }
+    
+    data["keys"].append(entry)
+    
+    # Set as active if first key
+    if not data["active"]:
+        data["active"] = key
+    
+    save_keys(data)
+    return entry
+
+
+def get_active_key():
+    """Get the currently active API key."""
+    data = load_keys()
+    return data.get("active", "")
+
+
+def set_active_key(key):
+    """Set the active API key."""
+    data = load_keys()
+    data["active"] = key
+    
+    # Update last_used
+    for k in data["keys"]:
+        if k["key"] == key:
+            k["last_used"] = datetime.now().isoformat()
+            break
+    
+    save_keys(data)
+
+
+def delete_api_key(key_id):
+    """Delete an API key by ID."""
+    data = load_keys()
+    original_len = len(data["keys"])
+    data["keys"] = [k for k in data["keys"] if k.get("id") != key_id]
+    
+    if len(data["keys"]) < original_len:
+        # Update active if deleted
+        if data["active"] and not any(k["key"] == data["active"] for k in data["keys"]):
+            data["active"] = data["keys"][0]["key"] if data["keys"] else None
+        save_keys(data)
+        return True
+    
+    return False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PROFILES — Multiple environments (dev/staging/prod)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def load_profiles():
+    """Load configuration profiles."""
+    if PROFILES_FILE.exists():
+        try:
+            return json.loads(PROFILES_FILE.read_text())
+        except Exception:
+            pass
+    
+    return {
+        "profiles": {
+            "default": {
+                "name": "Default",
+                "api_url": "http://localhost:8000",
+                "description": "Local development server",
+            }
+        },
+        "active": "default"
+    }
+
+
+def save_profiles(data):
+    """Save configuration profiles."""
+    ensure_dirs()
+    PROFILES_FILE.write_text(json.dumps(data, indent=2))
+
+
+def get_active_profile():
+    """Get the active profile."""
+    data = load_profiles()
+    active = data.get("active", "default")
+    return data["profiles"].get(active, data["profiles"].get("default", {}))
+
+
+def switch_profile(name):
+    """Switch to a different profile."""
+    data = load_profiles()
+    if name in data["profiles"]:
+        data["active"] = name
+        save_profiles(data)
+        
+        # Update config with profile settings
+        cfg = load_config()
+        profile = data["profiles"][name]
+        if "api_url" in profile:
+            cfg["api_url"] = profile["api_url"]
+        save_config(cfg)
+        
+        return True
+    return False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# OFFLINE QUEUE — Actions queued when server is unreachable
+# ══════════════════════════════════════════════════════════════════════════════
 
 def queue_action(action_data):
     """Queue an action for later sync."""
+    ensure_dirs()
+    
     queue = []
-    if os.path.exists(QUEUE_FILE):
+    if QUEUE_FILE.exists():
         try:
-            queue = json.load(open(QUEUE_FILE))
+            queue = json.loads(QUEUE_FILE.read_text())
         except Exception:
             queue = []
-    queue.append({
+    
+    entry = {
+        "id": str(uuid.uuid4()),
         "data": action_data,
         "queued_at": datetime.now().isoformat(),
-    })
-    json.dump(queue, open(QUEUE_FILE, "w"), indent=2)
+        "attempts": 0,
+    }
+    queue.append(entry)
+    
+    QUEUE_FILE.write_text(json.dumps(queue, indent=2))
     return len(queue)
 
 
 def get_queue():
-    if os.path.exists(QUEUE_FILE):
+    """Get all queued actions."""
+    if QUEUE_FILE.exists():
         try:
-            return json.load(open(QUEUE_FILE))
+            return json.loads(QUEUE_FILE.read_text())
         except Exception:
             pass
     return []
 
 
 def clear_queue():
-    if os.path.exists(QUEUE_FILE):
-        os.remove(QUEUE_FILE)
+    """Clear the offline queue."""
+    if QUEUE_FILE.exists():
+        QUEUE_FILE.unlink()
 
 
-# ══════════════════════════════════════════════════════════════════
-# VERSION CHECK
-# ══════════════════════════════════════════════════════════════════
+def remove_from_queue(action_id):
+    """Remove specific action from queue."""
+    queue = get_queue()
+    queue = [a for a in queue if a.get("id") != action_id]
+    
+    if queue:
+        QUEUE_FILE.write_text(json.dumps(queue, indent=2))
+    else:
+        clear_queue()
 
-def check_version():
-    """Check for newer version (non-blocking, 2s timeout)."""
+
+# ══════════════════════════════════════════════════════════════════════════════
+# HISTORY — Command history tracking
+# ══════════════════════════════════════════════════════════════════════════════
+
+def add_to_history(command, args=None, result=None):
+    """Add command to history."""
+    ensure_dirs()
+    
+    history = []
+    if HISTORY_FILE.exists():
+        try:
+            history = json.loads(HISTORY_FILE.read_text())
+        except Exception:
+            history = []
+    
+    entry = {
+        "command": command,
+        "args": args,
+        "result": result,
+        "timestamp": datetime.now().isoformat(),
+    }
+    
+    history.append(entry)
+    
+    # Keep last 1000 entries
+    if len(history) > 1000:
+        history = history[-1000:]
+    
+    HISTORY_FILE.write_text(json.dumps(history, indent=2))
+
+
+def get_history(limit=50):
+    """Get command history."""
+    if HISTORY_FILE.exists():
+        try:
+            history = json.loads(HISTORY_FILE.read_text())
+            return history[-limit:]
+        except Exception:
+            pass
+    return []
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# API CLIENT — Enterprise-grade HTTP client
+# ══════════════════════════════════════════════════════════════════════════════
+
+class NovaAPI:
+    """
+    Nova API client with enterprise features:
+    - Automatic retry with exponential backoff
+    - Request/response logging
+    - Timeout handling
+    - Error normalization
+    - Offline queue integration
+    """
+    
+    def __init__(self, url, key, timeout=15, retries=2):
+        self.url = url.rstrip("/")
+        self.key = key
+        self.timeout = timeout
+        self.retries = retries
+        self.last_request_time = None
+        self.last_response_time = None
+    
+    def _request(self, method, path, data=None, extra_headers=None):
+        """Make an HTTP request with retry logic."""
+        url = self.url + path
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": self.key,
+            "User-Agent": f"nova-cli/{NOVA_VERSION}",
+            "X-Nova-Client": "cli",
+            "X-Nova-Version": NOVA_VERSION,
+        }
+        
+        if extra_headers:
+            headers.update(extra_headers)
+        
+        body = json.dumps(data).encode() if data else None
+        
+        debug(f"{method} {url}")
+        if data:
+            debug(f"Body: {json.dumps(data)[:200]}")
+        
+        last_error = None
+        
+        for attempt in range(1 + self.retries):
+            try:
+                self.last_request_time = time.time()
+                
+                req = urllib.request.Request(
+                    url, data=body, headers=headers, method=method
+                )
+                
+                with urllib.request.urlopen(req, timeout=self.timeout) as response:
+                    self.last_response_time = time.time()
+                    result = json.loads(response.read().decode())
+                    debug(f"OK ({response.status})")
+                    return result
+            
+            except urllib.error.HTTPError as e:
+                self.last_response_time = time.time()
+                
+                try:
+                    error_body = json.loads(e.read().decode())
+                    detail = error_body.get("detail", str(e))
+                except Exception:
+                    detail = f"HTTP {e.code}"
+                
+                last_error = {
+                    "error": detail,
+                    "status": e.code,
+                    "type": "http_error",
+                }
+                
+                # Don't retry client errors
+                if 400 <= e.code < 500:
+                    debug(f"Client error {e.code}: {detail}")
+                    return last_error
+                
+                debug(f"Server error {e.code}: {detail}")
+            
+            except urllib.error.URLError as e:
+                self.last_response_time = time.time()
+                last_error = {
+                    "error": f"Cannot connect to {self.url}",
+                    "type": "connection_error",
+                    "detail": str(e.reason),
+                }
+                debug(f"Connection error: {e.reason}")
+            
+            except TimeoutError:
+                self.last_response_time = time.time()
+                last_error = {
+                    "error": f"Request timed out after {self.timeout}s",
+                    "type": "timeout",
+                }
+                debug("Request timed out")
+            
+            except Exception as e:
+                self.last_response_time = time.time()
+                last_error = {
+                    "error": str(e),
+                    "type": "unknown",
+                }
+                debug(f"Unknown error: {e}")
+            
+            # Retry with backoff
+            if attempt < self.retries:
+                wait = (2 ** attempt) + random.uniform(0, 1)
+                debug(f"Retrying in {wait:.1f}s (attempt {attempt + 2}/{self.retries + 1})")
+                time.sleep(wait)
+        
+        return last_error or {"error": "Unknown error", "type": "unknown"}
+    
+    def get(self, path, **kwargs):
+        return self._request("GET", path, **kwargs)
+    
+    def post(self, path, data, **kwargs):
+        return self._request("POST", path, data, **kwargs)
+    
+    def put(self, path, data, **kwargs):
+        return self._request("PUT", path, data, **kwargs)
+    
+    def patch(self, path, data=None, **kwargs):
+        return self._request("PATCH", path, data or {}, **kwargs)
+    
+    def delete(self, path, **kwargs):
+        return self._request("DELETE", path, **kwargs)
+    
+    def health_check(self):
+        """Quick health check."""
+        result = self.get("/health")
+        return "error" not in result
+    
+    @property
+    def last_latency(self):
+        """Get last request latency in ms."""
+        if self.last_request_time and self.last_response_time:
+            return int((self.last_response_time - self.last_request_time) * 1000)
+        return None
+
+
+def get_api(cfg=None):
+    """Get API client from configuration."""
+    cfg = cfg or load_config()
+    return NovaAPI(cfg["api_url"], cfg["api_key"]), cfg
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# VERSION CHECK — Auto-update notifications
+# ══════════════════════════════════════════════════════════════════════════════
+
+_VERSION_CACHE = {}
+
+
+def check_for_updates(force=False):
+    """
+    Check if a newer version of nova is available.
+    Results are cached for 24 hours.
+    """
+    cache_key = "version_check"
+    now = time.time()
+    
+    # Check cache
+    if not force and cache_key in _VERSION_CACHE:
+        cached = _VERSION_CACHE[cache_key]
+        if now - cached.get("timestamp", 0) < 86400:  # 24 hours
+            return cached.get("latest")
+    
     try:
         req = urllib.request.Request(
             "https://api.github.com/repos/Santiagorubioads/nova-os/releases/latest",
-            headers={"User-Agent": "nova-cli/" + NOVA_VERSION}
+            headers={
+                "User-Agent": f"nova-cli/{NOVA_VERSION}",
+                "Accept": "application/vnd.github.v3+json",
+            }
         )
-        with urllib.request.urlopen(req, timeout=2) as r:
-            data = json.loads(r.read().decode())
+        
+        with urllib.request.urlopen(req, timeout=3) as response:
+            data = json.loads(response.read().decode())
             latest = data.get("tag_name", "").lstrip("v")
+            
+            _VERSION_CACHE[cache_key] = {
+                "latest": latest,
+                "timestamp": now,
+                "release_url": data.get("html_url"),
+            }
+            
             if latest and latest != NOVA_VERSION:
                 return latest
-    except Exception:
-        pass
+    
+    except Exception as e:
+        debug(f"Version check failed: {e}")
+    
     return None
 
 
-# ══════════════════════════════════════════════════════════════════
-# INTERNATIONALIZATION
-# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# I18N — Internationalization
+# ══════════════════════════════════════════════════════════════════════════════
 
-def _i18n(lang="en"):
+def get_strings(lang="en"):
+    """Get localized strings."""
     strings = {
         "en": {
-            "tagline":    random.choice(_TAGLINES),
-            "welcome":    "Welcome to nova.",
-            "intro1":     "nova sits between your agents and the real world.",
-            "intro2":     "Before anything executes, nova asks one question:",
-            "question":   "Should this happen?",
-            "p_continue": "continue",
-            "h_howworks": "How nova works",
-            "how1":       "Your agent wants to do something",
-            "how_ev":     "nova evaluates it in <5ms — no AI for 90% of cases",
-            "approved":   "Approved · runs",
-            "escalated":  "Escalated · you decide",
-            "blocked":    "Blocked · logged forever",
-            "ledger_desc":"Every decision lands in the Intent Ledger.",
+            # Init wizard
+            "welcome": "Welcome to nova.",
+            "welcome_sub": "Let's set up your governance layer.",
+            "intro_1": "nova sits between your agents and the real world.",
+            "intro_2": "Before anything executes, nova asks one question:",
+            "intro_question": "Should this happen?",
+            
+            # How it works
+            "how_it_works": "How nova works",
+            "how_step_1": "Your agent wants to do something",
+            "how_step_2": "nova evaluates it in <5ms — no AI for 90% of cases",
+            "how_approved": "Approved · runs immediately",
+            "how_escalated": "Escalated · you decide",
+            "how_blocked": "Blocked · logged forever",
+            "ledger_desc": "Every decision lands in the Intent Ledger.",
             "ledger_sub": "Cryptographic. Auditable. Permanent.",
-            "h_risks":    "Before we continue",
-            "risk_title": "nova is not a sandbox.",
-            "risk_sub":   "It makes real decisions about real actions in production.",
-            "r1":         "nova may block actions your agents try to execute",
-            "r2":         "every validation is recorded permanently in the ledger",
-            "r3":         "you define the rules — you own the consequences",
-            "r4":         "misconfigured rules can block legitimate work",
-            "r5":         "the ledger cannot be deleted or modified",
-            "terms_label":"Terms:",
-            "terms_q":    "Do you understand and accept?",
-            "accept":     "Yes, I accept",
-            "decline":    "No, exit",
-            "cancelled":  "Setup cancelled. Run",
-            "h_who":      "Who are you?",
-            "who_sub":    "This personalizes your nova experience.",
-            "your_name":  "Your name or organization",
-            "h_server":   "Connect to your server",
-            "server_sub": "nova CLI talks to a nova server. Self-hosted or cloud.",
-            "server_opts":"How do you want to connect?",
-            "srv_local":  "Local server (http://localhost:8000)",
-            "srv_remote": "Enter a custom URL",
-            "srv_already":"Use saved config",
-            "using":      "Using",
-            "server_url": "Server URL",
-            "h_connecting":"Connecting",
-            "testing":    "Testing connection...",
-            "srv_ok":     "Server responding",
-            "key_ok":     "API key accepted",
-            "srv_fail":   "Could not connect",
-            "saved_anyway":"Config saved. Fix server then run",
-            "youre_in":   "You're in",
-            "ready":      "is ready.",
-            "next_steps": "What to do next:",
-            "n1":         "Create your first agent",
-            "n2":         "System health & metrics",
-            "n3":         "Skills, server, preferences",
-            "n4":         "Browse available integrations",
+            
+            # Risks
+            "risks_title": "Before we continue",
+            "risks_warning": "nova is not a sandbox.",
+            "risks_sub": "It makes real decisions about real actions in production.",
+            "risk_1": "nova may block actions your agents try to execute",
+            "risk_2": "every validation is recorded permanently in the ledger",
+            "risk_3": "you define the rules — you own the consequences",
+            "risk_4": "misconfigured rules can block legitimate work",
+            "risk_5": "the ledger cannot be deleted or modified",
+            
+            # Terms
+            "terms_label": "Terms:",
+            "terms_question": "Do you understand and accept?",
+            "terms_accept": "Yes, I accept",
+            "terms_decline": "No, exit",
+            "setup_cancelled": "Setup cancelled.",
+            
+            # Identity
+            "identity_title": "Who are you?",
+            "identity_sub": "This helps personalize your experience.",
+            "your_name": "Your name",
+            "your_org": "Organization (optional)",
+            
+            # API Key
+            "apikey_title": "API Key Setup",
+            "apikey_sub": "Your API key authenticates all requests.",
+            "apikey_generate": "Generate a new key (recommended)",
+            "apikey_enter": "Enter an existing key",
+            "apikey_use_saved": "Use saved key",
+            "apikey_generated": "Generated new API key",
+            "apikey_saved": "API key saved",
+            "apikey_warning": "Save this key securely — shown only once.",
+            
+            # Server
+            "server_title": "Connect to server",
+            "server_sub": "nova CLI talks to a nova server.",
+            "server_local": "Local server (localhost:8000)",
+            "server_custom": "Enter custom URL",
+            "server_saved": "Use saved configuration",
+            
+            # Connecting
+            "connecting_title": "Connecting",
+            "testing_connection": "Testing connection...",
+            "server_online": "Server responding",
+            "key_accepted": "API key accepted",
+            "connection_failed": "Could not connect",
+            "config_saved": "Configuration saved",
+            
+            # Success
+            "youre_in": "You're in",
+            "ready": "is ready.",
+            "next_steps": "What's next?",
+            
+            # Skills
+            "skills_title": "Skills Setup",
+            "skills_sub": "Skills give nova real-world context.",
+            "skills_now": "Would you like to configure skills now?",
+            "skills_yes": "Yes, let's set them up",
+            "skills_later": "No, I'll do it later",
+            
+            # Buttons
+            "continue": "continue",
+            "back": "back",
+            "skip": "skip",
         },
         "es": {
-            "tagline":    random.choice(_TAGLINES),
-            "welcome":    "Bienvenido a nova.",
-            "intro1":     "nova se sienta entre tus agentes y el mundo real.",
-            "intro2":     "Antes de que algo se ejecute, nova hace una pregunta:",
-            "question":   "¿Debería pasar esto?",
-            "p_continue": "continuar",
-            "h_howworks": "Cómo funciona nova",
-            "how1":       "Tu agente quiere hacer algo",
-            "how_ev":     "nova lo evalúa en <5ms — sin IA en el 90% de casos",
-            "approved":   "Aprobado · se ejecuta",
-            "escalated":  "Escalado · tú decides",
-            "blocked":    "Bloqueado · registrado para siempre",
-            "ledger_desc":"Cada decisión queda en el Intent Ledger.",
+            "welcome": "Bienvenido a nova.",
+            "welcome_sub": "Configuremos tu capa de gobernanza.",
+            "intro_1": "nova se sienta entre tus agentes y el mundo real.",
+            "intro_2": "Antes de que algo se ejecute, nova pregunta:",
+            "intro_question": "¿Debería pasar esto?",
+            
+            "how_it_works": "Cómo funciona nova",
+            "how_step_1": "Tu agente quiere hacer algo",
+            "how_step_2": "nova lo evalúa en <5ms — sin IA en el 90% de casos",
+            "how_approved": "Aprobado · se ejecuta",
+            "how_escalated": "Escalado · tú decides",
+            "how_blocked": "Bloqueado · registrado",
+            "ledger_desc": "Cada decisión queda en el Intent Ledger.",
             "ledger_sub": "Criptográfico. Auditable. Permanente.",
-            "h_risks":    "Antes de continuar",
-            "risk_title": "nova no es un sandbox.",
-            "risk_sub":   "Toma decisiones reales sobre acciones reales en producción.",
-            "r1":         "nova puede bloquear acciones que tus agentes intentan ejecutar",
-            "r2":         "cada validación se registra permanentemente en el ledger",
-            "r3":         "tú defines las reglas — tú eres responsable de las consecuencias",
-            "r4":         "reglas mal configuradas pueden bloquear trabajo legítimo",
-            "r5":         "el ledger no puede eliminarse ni modificarse",
-            "terms_label":"Términos:",
-            "terms_q":    "¿Entiendes y aceptas?",
-            "accept":     "Sí, acepto",
-            "decline":    "No, salir",
-            "cancelled":  "Setup cancelado. Ejecuta",
-            "h_who":      "¿Quién eres?",
-            "who_sub":    "Esto personaliza tu experiencia con nova.",
-            "your_name":  "Tu nombre u organización",
-            "h_server":   "Conecta tu servidor",
-            "server_sub": "nova CLI habla con un servidor nova. Self-hosted o cloud.",
-            "server_opts":"¿Cómo quieres conectar?",
-            "srv_local":  "Servidor local (http://localhost:8000)",
-            "srv_remote": "Ingresar URL personalizada",
-            "srv_already":"Usar configuración guardada",
-            "using":      "Usando",
-            "server_url": "URL del servidor",
-            "h_connecting":"Conectando",
-            "testing":    "Probando conexión...",
-            "srv_ok":     "Servidor respondiendo",
-            "key_ok":     "API key aceptada",
-            "srv_fail":   "No se puede conectar",
-            "saved_anyway":"Config guardada. Arregla el servidor y ejecuta",
-            "youre_in":   "Estás dentro",
-            "ready":      "está listo.",
-            "next_steps": "Qué hacer ahora:",
-            "n1":         "Crea tu primer agente",
-            "n2":         "Estado del sistema y métricas",
-            "n3":         "Skills, servidor, preferencias",
-            "n4":         "Ver integraciones disponibles",
+            
+            "risks_title": "Antes de continuar",
+            "risks_warning": "nova no es un sandbox.",
+            "risks_sub": "Toma decisiones reales sobre acciones reales.",
+            "risk_1": "nova puede bloquear acciones de tus agentes",
+            "risk_2": "cada validación se registra permanentemente",
+            "risk_3": "tú defines las reglas — tú eres responsable",
+            "risk_4": "reglas mal configuradas bloquean trabajo",
+            "risk_5": "el ledger no puede eliminarse ni modificarse",
+            
+            "terms_label": "Términos:",
+            "terms_question": "¿Entiendes y aceptas?",
+            "terms_accept": "Sí, acepto",
+            "terms_decline": "No, salir",
+            "setup_cancelled": "Setup cancelado.",
+            
+            "identity_title": "¿Quién eres?",
+            "identity_sub": "Esto personaliza tu experiencia.",
+            "your_name": "Tu nombre",
+            "your_org": "Organización (opcional)",
+            
+            "apikey_title": "Configurar API Key",
+            "apikey_sub": "Tu API key autentica las peticiones.",
+            "apikey_generate": "Generar nueva key (recomendado)",
+            "apikey_enter": "Ingresar key existente",
+            "apikey_use_saved": "Usar key guardada",
+            "apikey_generated": "Nueva API key generada",
+            "apikey_saved": "API key guardada",
+            "apikey_warning": "Guarda esta key — solo se muestra una vez.",
+            
+            "server_title": "Conectar servidor",
+            "server_sub": "nova CLI habla con un servidor nova.",
+            "server_local": "Servidor local (localhost:8000)",
+            "server_custom": "Ingresar URL personalizada",
+            "server_saved": "Usar configuración guardada",
+            
+            "connecting_title": "Conectando",
+            "testing_connection": "Probando conexión...",
+            "server_online": "Servidor respondiendo",
+            "key_accepted": "API key aceptada",
+            "connection_failed": "No se pudo conectar",
+            "config_saved": "Configuración guardada",
+            
+            "youre_in": "Estás dentro",
+            "ready": "está listo.",
+            "next_steps": "¿Qué sigue?",
+            
+            "skills_title": "Configurar Skills",
+            "skills_sub": "Los skills dan contexto a nova.",
+            "skills_now": "¿Configurar skills ahora?",
+            "skills_yes": "Sí, vamos",
+            "skills_later": "No, después",
+            
+            "continue": "continuar",
+            "back": "volver",
+            "skip": "omitir",
         }
     }
+    
     return strings.get(lang, strings["en"])
 
 
-# ══════════════════════════════════════════════════════════════════
-# RULE TEMPLATES — pre-built agent configurations
-# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# RULE TEMPLATES — Pre-built agent configurations
+# ══════════════════════════════════════════════════════════════════════════════
 
 RULE_TEMPLATES = {
     "email-safety": {
         "label": "Email Safety",
-        "desc":  "Block external sends, protect inbox integrity",
+        "description": "Block external sends, protect inbox integrity",
+        "icon": "✉",
         "can_do": [
             "send email to verified contacts",
             "read inbox",
             "draft emails",
             "reply to existing threads",
+            "search emails",
         ],
         "cannot_do": [
             "send email to external domains",
-            "delete emails",
+            "delete emails permanently",
             "forward to personal accounts",
-            "modify email rules",
+            "modify email rules or filters",
+            "access archived emails",
         ],
     },
     "database-readonly": {
         "label": "Database Read-Only",
-        "desc":  "SELECT only — no mutations allowed",
+        "description": "SELECT only — no mutations allowed",
+        "icon": "⊞",
         "can_do": [
             "SELECT queries",
             "read schemas",
             "list tables",
             "explain query plans",
+            "read indexes",
         ],
         "cannot_do": [
-            "INSERT",
-            "UPDATE",
-            "DELETE",
-            "DROP",
-            "ALTER",
-            "TRUNCATE",
-            "CREATE",
+            "INSERT statements",
+            "UPDATE statements",
+            "DELETE statements",
+            "DROP operations",
+            "ALTER operations",
+            "TRUNCATE tables",
+            "CREATE objects",
+            "GRANT permissions",
         ],
     },
     "social-media": {
         "label": "Social Media Manager",
-        "desc":  "Draft and schedule, never auto-publish",
+        "description": "Draft and schedule, never auto-publish",
+        "icon": "◎",
         "can_do": [
             "read posts and analytics",
             "draft content",
             "schedule posts for review",
             "reply to comments",
+            "read messages",
         ],
         "cannot_do": [
             "publish without approval",
             "delete posts",
             "change account settings",
             "DM users directly",
+            "modify profile",
+            "connect new accounts",
         ],
     },
     "payment-guard": {
         "label": "Payment Guard",
-        "desc":  "Verify and read — never initiate charges",
+        "description": "Verify and read — never initiate charges",
+        "icon": "◈",
         "can_do": [
             "read transaction history",
             "verify payment status",
             "list subscriptions",
             "check balance",
+            "view invoices",
         ],
         "cannot_do": [
             "create charges",
@@ -899,299 +2166,1085 @@ RULE_TEMPLATES = {
             "modify subscriptions",
             "update payment methods",
             "transfer funds",
+            "change billing info",
         ],
     },
     "devops-safe": {
         "label": "DevOps Safe Mode",
-        "desc":  "Monitor and report, no destructive ops",
+        "description": "Monitor and report, no destructive operations",
+        "icon": "◉",
         "can_do": [
             "read logs",
             "check service status",
             "list deployments",
             "run health checks",
-            "view metrics",
+            "view metrics and alerts",
+            "read configurations",
         ],
         "cannot_do": [
             "deploy to production",
             "scale down services",
             "delete resources",
             "modify secrets",
-            "change DNS",
+            "change DNS records",
             "rollback without approval",
+            "terminate instances",
         ],
     },
     "crm-assistant": {
         "label": "CRM Assistant",
-        "desc":  "Read and update contacts, no deletions",
+        "description": "Read and update contacts, no deletions",
+        "icon": "◻",
         "can_do": [
             "read contacts",
-            "update notes on existing contacts",
+            "update notes on contacts",
             "search leads",
             "log activities",
+            "view deal history",
         ],
         "cannot_do": [
             "delete contacts",
             "export all data",
             "modify deal amounts",
             "send mass emails",
-            "change pipeline stages without note",
+            "change pipeline stages",
+            "merge contacts",
+        ],
+    },
+    "file-readonly": {
+        "label": "File System Read-Only",
+        "description": "Read files, no write or delete",
+        "icon": "◯",
+        "can_do": [
+            "read files",
+            "list directories",
+            "search file contents",
+            "view file metadata",
+        ],
+        "cannot_do": [
+            "write files",
+            "delete files",
+            "rename files",
+            "create directories",
+            "modify permissions",
+            "move files",
+        ],
+    },
+    "api-conservative": {
+        "label": "API Conservative",
+        "description": "GET only, no modifications",
+        "icon": "⊘",
+        "can_do": [
+            "GET requests",
+            "read documentation",
+            "check API status",
+        ],
+        "cannot_do": [
+            "POST requests",
+            "PUT requests",
+            "DELETE requests",
+            "PATCH requests",
+            "create webhooks",
+            "modify API keys",
         ],
     },
 }
 
 
-# ══════════════════════════════════════════════════════════════════
-# COMMANDS
-# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# SKILLS CATALOG — Integration definitions
+# ══════════════════════════════════════════════════════════════════════════════
 
-def cmd_init(args):
-    """First-run setup wizard."""
-    cfg = load_config()
+SKILLS = {
+    "gmail": {
+        "name": "Gmail",
+        "category": "Communication",
+        "icon": "✉",
+        "color": "RED",
+        "tagline": "Email intelligence for your agents",
+        "description": "Verify sent emails, detect duplicates, read inbox",
+        "what_it_does": "nova checks your Gmail before approving any send action",
+        "fields": [
+            {
+                "key": "service_account_json",
+                "label": "Service Account JSON",
+                "description": "Path to your Google Cloud service account file",
+                "secret": False,
+                "required": True,
+            },
+            {
+                "key": "delegated_email",
+                "label": "Delegated Email",
+                "description": "The Google account email to access",
+                "secret": False,
+                "required": True,
+            },
+        ],
+        "docs_url": "https://console.cloud.google.com/iam-admin/serviceaccounts",
+        "setup_guide": [
+            "1. Go to Google Cloud Console",
+            "2. Create a Service Account",
+            "3. Download the JSON key file",
+            "4. Enable Gmail API for your project",
+            "5. Share mailbox access with the service account",
+        ],
+        "mcp": "gmail-mcp",
+    },
+    "slack": {
+        "name": "Slack",
+        "category": "Communication",
+        "icon": "◈",
+        "color": "YLW",
+        "tagline": "Real-time alerts and channel monitoring",
+        "description": "Send alerts, read channels, verify sent messages",
+        "what_it_does": "nova notifies Slack when it blocks or escalates an action",
+        "fields": [
+            {
+                "key": "bot_token",
+                "label": "Bot Token",
+                "description": "Slack Bot User OAuth Token (xoxb-...)",
+                "secret": True,
+                "required": True,
+            },
+            {
+                "key": "channel",
+                "label": "Default Channel",
+                "description": "Channel for nova alerts (#general)",
+                "secret": False,
+                "required": False,
+            },
+        ],
+        "docs_url": "https://api.slack.com/apps",
+        "setup_guide": [
+            "1. Create a Slack App at api.slack.com",
+            "2. Add Bot Token Scopes",
+            "3. Install to your workspace",
+            "4. Copy the Bot User OAuth Token",
+        ],
+        "mcp": "slack-mcp-server",
+    },
+    "notion": {
+        "name": "Notion",
+        "category": "Productivity",
+        "icon": "◻",
+        "color": "W",
+        "tagline": "Your knowledge base as context",
+        "description": "Read databases, create pages, update records",
+        "what_it_does": "nova queries Notion as source of truth for validations",
+        "fields": [
+            {
+                "key": "api_key",
+                "label": "Integration Token",
+                "description": "Notion Internal Integration Token (secret_...)",
+                "secret": True,
+                "required": True,
+            },
+            {
+                "key": "database_id",
+                "label": "Default Database",
+                "description": "Primary database ID for queries",
+                "secret": False,
+                "required": False,
+            },
+        ],
+        "docs_url": "https://www.notion.so/my-integrations",
+        "setup_guide": [
+            "1. Go to Notion Integrations",
+            "2. Create a new integration",
+            "3. Copy the Internal Integration Token",
+            "4. Share databases with your integration",
+        ],
+        "mcp": "notion-mcp",
+    },
+    "github": {
+        "name": "GitHub",
+        "category": "Development",
+        "icon": "◯",
+        "color": "W",
+        "tagline": "Code-aware governance",
+        "description": "Create issues, review PRs, verify code before deploy",
+        "what_it_does": "nova can block deploys if critical issues are open",
+        "fields": [
+            {
+                "key": "token",
+                "label": "Personal Access Token",
+                "description": "GitHub PAT with repo access (ghp_...)",
+                "secret": True,
+                "required": True,
+            },
+            {
+                "key": "repo",
+                "label": "Default Repository",
+                "description": "Default repo (owner/repo)",
+                "secret": False,
+                "required": False,
+            },
+        ],
+        "docs_url": "https://github.com/settings/tokens",
+        "setup_guide": [
+            "1. Go to GitHub Settings > Developer Settings",
+            "2. Create a Personal Access Token (classic)",
+            "3. Select required scopes (repo, read:org)",
+            "4. Copy the token",
+        ],
+        "mcp": "github-mcp",
+    },
+    "stripe": {
+        "name": "Stripe",
+        "category": "Payments",
+        "icon": "◈",
+        "color": "B7",
+        "tagline": "Payment verification and fraud prevention",
+        "description": "Verify charges, detect fraud, approve transactions",
+        "what_it_does": "nova validates payments and blocks suspicious activity",
+        "fields": [
+            {
+                "key": "secret_key",
+                "label": "Secret Key",
+                "description": "Stripe Secret Key (sk_live_... or sk_test_...)",
+                "secret": True,
+                "required": True,
+            },
+        ],
+        "docs_url": "https://dashboard.stripe.com/apikeys",
+        "setup_guide": [
+            "1. Go to Stripe Dashboard > Developers > API Keys",
+            "2. Copy your Secret Key",
+            "3. Use test key for development (sk_test_...)",
+        ],
+        "mcp": "stripe-mcp",
+    },
+    "supabase": {
+        "name": "Supabase",
+        "category": "Database",
+        "icon": "◈",
+        "color": "GRN",
+        "tagline": "Real-time database verification",
+        "description": "Query your Postgres database in real time",
+        "what_it_does": "nova verifies database state before executing actions",
+        "fields": [
+            {
+                "key": "url",
+                "label": "Project URL",
+                "description": "Your Supabase project URL",
+                "secret": False,
+                "required": True,
+            },
+            {
+                "key": "service_key",
+                "label": "Service Role Key",
+                "description": "Service role key for admin access",
+                "secret": True,
+                "required": True,
+            },
+        ],
+        "docs_url": "https://app.supabase.com/project/_/settings/api",
+        "setup_guide": [
+            "1. Go to Supabase Dashboard",
+            "2. Select your project",
+            "3. Go to Settings > API",
+            "4. Copy the URL and service_role key",
+        ],
+        "mcp": "supabase-mcp",
+    },
+    "postgres": {
+        "name": "PostgreSQL",
+        "category": "Database",
+        "icon": "◉",
+        "color": "B6",
+        "tagline": "Direct database connection",
+        "description": "Connect directly to PostgreSQL for queries",
+        "what_it_does": "nova queries your database before every validation",
+        "fields": [
+            {
+                "key": "connection_string",
+                "label": "Connection String",
+                "description": "postgresql://user:pass@host:5432/db",
+                "secret": True,
+                "required": True,
+            },
+        ],
+        "docs_url": "https://www.postgresql.org/docs/current/libpq-connect.html",
+        "setup_guide": [
+            "1. Get your PostgreSQL connection details",
+            "2. Format: postgresql://user:password@host:port/database",
+            "3. Ensure network access is configured",
+        ],
+        "mcp": "postgres-mcp",
+    },
+    "hubspot": {
+        "name": "HubSpot",
+        "category": "CRM",
+        "icon": "◉",
+        "color": "ORG",
+        "tagline": "CRM context for your agents",
+        "description": "Query contacts, deals, and communication history",
+        "what_it_does": "nova checks if a lead was already contacted",
+        "fields": [
+            {
+                "key": "api_key",
+                "label": "Private App Token",
+                "description": "HubSpot Private App access token",
+                "secret": True,
+                "required": True,
+            },
+        ],
+        "docs_url": "https://developers.hubspot.com/docs/api/private-apps",
+        "setup_guide": [
+            "1. Go to HubSpot Settings > Integrations > Private Apps",
+            "2. Create a Private App",
+            "3. Select required scopes",
+            "4. Copy the access token",
+        ],
+        "mcp": "hubspot-mcp",
+    },
+    "airtable": {
+        "name": "Airtable",
+        "category": "Data",
+        "icon": "◈",
+        "color": "ORG",
+        "tagline": "Spreadsheet-database hybrid",
+        "description": "CRM, leads, inventory — verify before acting",
+        "what_it_does": "nova verifies Airtable records before executing",
+        "fields": [
+            {
+                "key": "api_key",
+                "label": "Personal Access Token",
+                "description": "Airtable Personal Access Token",
+                "secret": True,
+                "required": True,
+            },
+            {
+                "key": "base_id",
+                "label": "Base ID",
+                "description": "Default base ID (app...)",
+                "secret": False,
+                "required": False,
+            },
+        ],
+        "docs_url": "https://airtable.com/create/tokens",
+        "setup_guide": [
+            "1. Go to airtable.com/create/tokens",
+            "2. Create a Personal Access Token",
+            "3. Grant access to your bases",
+            "4. Copy the token",
+        ],
+        "mcp": "airtable-mcp",
+    },
+    "whatsapp": {
+        "name": "WhatsApp",
+        "category": "Communication",
+        "icon": "◉",
+        "color": "GRN",
+        "tagline": "Message verification and spam prevention",
+        "description": "Verify sent messages, prevent spam",
+        "what_it_does": "nova checks WhatsApp history before approving",
+        "fields": [
+            {
+                "key": "evolution_api_url",
+                "label": "Evolution API URL",
+                "description": "Your Evolution API instance URL",
+                "secret": False,
+                "required": True,
+            },
+            {
+                "key": "evolution_api_key",
+                "label": "Evolution API Key",
+                "description": "API key for Evolution API",
+                "secret": True,
+                "required": True,
+            },
+            {
+                "key": "instance_name",
+                "label": "Instance Name",
+                "description": "WhatsApp instance name",
+                "secret": False,
+                "required": True,
+            },
+        ],
+        "docs_url": "https://doc.evolution-api.com",
+        "setup_guide": [
+            "1. Set up Evolution API",
+            "2. Create a WhatsApp instance",
+            "3. Get your API key and instance name",
+        ],
+        "mcp": "whatsapp-mcp",
+    },
+    "telegram": {
+        "name": "Telegram",
+        "category": "Communication",
+        "icon": "◎",
+        "color": "B6",
+        "tagline": "Bot commands and alerts",
+        "description": "Read & send messages, manage bots",
+        "what_it_does": "nova can receive commands via Telegram",
+        "fields": [
+            {
+                "key": "bot_token",
+                "label": "Bot Token",
+                "description": "Token from @BotFather",
+                "secret": True,
+                "required": True,
+            },
+            {
+                "key": "chat_id",
+                "label": "Chat ID",
+                "description": "Default chat/group ID",
+                "secret": False,
+                "required": False,
+            },
+        ],
+        "docs_url": "https://core.telegram.org/bots",
+        "setup_guide": [
+            "1. Message @BotFather on Telegram",
+            "2. Create a new bot with /newbot",
+            "3. Copy the bot token",
+            "4. Get your chat ID from @userinfobot",
+        ],
+        "mcp": "telegram-mcp",
+    },
+    "sheets": {
+        "name": "Google Sheets",
+        "category": "Data",
+        "icon": "⊞",
+        "color": "GRN",
+        "tagline": "Spreadsheet automation",
+        "description": "Read and write spreadsheets in real time",
+        "what_it_does": "nova checks your Sheets before executing",
+        "fields": [
+            {
+                "key": "service_account_json",
+                "label": "Service Account JSON",
+                "description": "Path to service account file",
+                "secret": False,
+                "required": True,
+            },
+            {
+                "key": "spreadsheet_id",
+                "label": "Default Spreadsheet",
+                "description": "Primary spreadsheet ID",
+                "secret": False,
+                "required": False,
+            },
+        ],
+        "docs_url": "https://console.cloud.google.com/iam-admin/serviceaccounts",
+        "setup_guide": [
+            "1. Create a Google Cloud Service Account",
+            "2. Download the JSON key",
+            "3. Enable Google Sheets API",
+            "4. Share spreadsheets with service account email",
+        ],
+        "mcp": "google-sheets-mcp",
+    },
+}
 
-    lang = cfg.get("lang", "")
-    if not lang:
+SKILL_CATEGORIES = [
+    "Communication",
+    "Data",
+    "Productivity",
+    "Development",
+    "CRM",
+    "Payments",
+    "Database",
+]
+
+
+def load_skill(name):
+    """Load skill configuration."""
+    path = SKILLS_DIR / f"{name}.json"
+    if path.exists():
         try:
-            lang = _select_lang()
-        except KeyboardInterrupt:
-            print(); return
-        cfg["lang"] = lang
-        save_config(cfg)
+            return json.loads(path.read_text())
+        except Exception:
+            pass
+    return None
 
-    L = _i18n(lang)
 
-    # ── SPLASH
-    print()
-    print()
-    for i in range(6):
-        print(_NOVA_COLORS[i] + C.BOLD + _NOVA[i] + C.R + C.W + C.BOLD + _CLI[i] + C.R)
-        time.sleep(0.06)
+def save_skill(name, data):
+    """Save skill configuration."""
+    ensure_dirs()
+    path = SKILLS_DIR / f"{name}.json"
+    path.write_text(json.dumps(data, indent=2))
 
+
+def skill_status(name):
+    """Get skill installation status."""
+    data = load_skill(name)
+    if not data:
+        return "not_installed"
+    return data.get("status", "installed")
+
+
+def get_installed_skills():
+    """Get list of installed skills."""
+    return [k for k in SKILLS if skill_status(k) == "installed"]
+
+
+def get_skill_color(skill_def):
+    """Get color for a skill."""
+    color_map = {
+        "RED": C.RED, "GRN": C.GRN, "YLW": C.YLW,
+        "W": C.W, "B6": C.B6, "B7": C.B7, "ORG": C.ORG,
+    }
+    return color_map.get(skill_def.get("color", "W"), C.W)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CONNECT ANIMATION — Premium handshake visualization
+# ══════════════════════════════════════════════════════════════════════════════
+
+def animate_connection(url):
+    """
+    Cinematic two-machine handshake animation.
+    Shows the authentication flow in real-time.
+    """
+    host = url.replace("http://", "").replace("https://", "").split(":")[0][:18]
+    host = host.ljust(18)
+    
+    frames = [
+        (f"  CLI                    {host}", C.G3, 0.06),
+        ("   ○                          ○",   C.G2, 0.08),
+        ("   │                          │",   C.G2, 0.04),
+        ("   │  ──── identify ────────► │",   C.G1, 0.20),
+        ("   │                          │",   C.G2, 0.06),
+        ("   │  ◄─── challenge ───────  │",   C.B5, 0.24),
+        ("   │                          │",   C.G2, 0.06),
+        ("   │  ──── intent token ────► │",   C.G1, 0.22),
+        ("   │                          │",   C.G2, 0.06),
+        ("   │  ◄─── access granted ──  │",   C.B6, 0.26),
+        ("   │                          │",   C.G2, 0.06),
+        ("   ●                          ●",   C.GRN, 0.12),
+    ]
+    
     print()
-    print("  " + q(C.G2, L["tagline"]))
-    print("  " + q(C.G3, "─" * 54))
+    for line, color, delay in frames:
+        print("  " + q(color, line))
+        time.sleep(delay)
+    print()
+
+
+def animate_agent_wake():
+    """
+    Agent wake-up sequence — the moment nova comes alive.
+    Ghost writing effect with personality.
+    """
+    print()
+    
+    # Processing indicators
+    wake_messages = random.sample(_AGENT_WAKE_MESSAGES, 3)
+    for msg in wake_messages:
+        print("  " + q(C.G3, "▸") + "  " + q(C.G2, msg))
+        time.sleep(random.uniform(0.2, 0.4))
+    
     print()
     time.sleep(0.3)
-
-    print("  " + q(C.W, L["welcome"], bold=True))
+    
+    # The "wake up" moment
+    hr_bold()
     print()
-    print("  " + q(C.G1, L["intro1"]))
-    print("  " + q(C.G1, L["intro2"]))
+    
+    # Ghost write the greeting
+    greeting = random.choice(_AGENT_GREETINGS)
+    ghost_write(f"  {greeting}", color=C.W, delay=0.025, bold=True)
+    
     print()
-    print("  " + q(C.B7, "  " + L["question"], bold=True))
+    time.sleep(0.2)
+    
+    # Secondary context
+    ghost_write("  I'm your governance layer.", color=C.G1, delay=0.018)
+    ghost_write("  Every action your agents take passes through me.", color=C.G1, delay=0.018)
+    ghost_write("  I approve, block, or escalate — and I remember everything.", color=C.G1, delay=0.018)
+    
     print()
-    _pause(L["p_continue"])
-
-    # ── [1/5] HOW IT WORKS
-    _step_header(1, 5, L["h_howworks"])
-    print("  " + q(C.G2,  "  ┌─  " + L["how1"]))
-    print("  " + q(C.G3,  "  │"))
-    print("  " + q(C.G1,  "  │   " + L["how_ev"]))
-    print("  " + q(C.G3,  "  │"))
-    print("  " + q(C.G3,  "  ├─  ") + q(C.GRN, "Score >= 70", bold=True) +
-          q(C.G2, "  →  ✓  " + L["approved"]))
-    print("  " + q(C.G3,  "  ├─  ") + q(C.YLW, "Score 40-70", bold=True) +
-          q(C.G2, "  →  ⚠  " + L["escalated"]))
-    print("  " + q(C.G3,  "  └─  ") + q(C.RED, "Score < 40", bold=True) +
-          q(C.G2, "   →  ✗  " + L["blocked"]))
-    print()
-    print("  " + q(C.G1, "  " + L["ledger_desc"]))
-    print("  " + q(C.G2, "  " + L["ledger_sub"]))
-    print()
-    _pause(L["p_continue"])
-
-    # ── [2/5] RISKS + T&C
-    _step_header(2, 5, L["h_risks"])
-    print("  " + q(C.YLW, "  !") + "  " + q(C.W, L["risk_title"], bold=True))
-    print("  " + q(C.G1, "     " + L["risk_sub"]))
+    hr_bold()
     print()
 
-    for r in [L["r1"], L["r2"], L["r3"], L["r4"], L["r5"]]:
-        print("  " + q(C.G3, "     ◦  ") + q(C.G1, r))
-    print()
-    print("  " + q(C.G3, "     " + L["terms_label"] + "  ") + q(C.B7, "https://nova-os.com/terms"))
-    print()
 
-    print("  " + q(C.G2, "  " + L["terms_q"]))
-    print()
-    try:
-        idx = _select([L["accept"], L["decline"]], default=0)
-    except KeyboardInterrupt:
-        print(); return
+# ══════════════════════════════════════════════════════════════════════════════
+# COMMANDS — Core CLI functionality
+# ══════════════════════════════════════════════════════════════════════════════
 
-    if idx != 0:
+def cmd_init(args):
+    """
+    First-run setup wizard — enterprise onboarding experience.
+    """
+    cfg = load_config()
+    
+    # ── Language Selection ────────────────────────────────────────────────────
+    lang = cfg.get("lang", "")
+    if not lang:
         print()
-        warn(L["cancelled"] + "  nova init")
+        print()
+        print("  " + q(C.W, "Select your language", bold=True) + "  " + 
+              q(C.G3, "/ Selecciona tu idioma"))
+        print()
+        
+        try:
+            lang_idx = _select(["English", "Español"], default=0)
+            lang = "en" if lang_idx == 0 else "es"
+        except KeyboardInterrupt:
+            print()
+            return
+        
+        cfg["lang"] = lang
+        save_config(cfg)
+    
+    L = get_strings(lang)
+    
+    # ── Splash Screen ─────────────────────────────────────────────────────────
+    print()
+    print()
+    print_logo(tagline=False, animated=True)
+    
+    time.sleep(0.3)
+    
+    # Tagline with ghost effect
+    tagline = random.choice(_TAGLINES)
+    ghost_write(tagline, color=C.G2, delay=0.01)
+    hr()
+    print()
+    time.sleep(0.2)
+    
+    # Welcome message
+    ghost_write(L["welcome"], color=C.W, delay=0.02, bold=True)
+    print()
+    ghost_write(L["intro_1"], color=C.G1, delay=0.015)
+    ghost_write(L["intro_2"], color=C.G1, delay=0.015)
+    print()
+    time.sleep(0.1)
+    
+    print("  " + q(C.B7, f"  {L['intro_question']}", bold=True))
+    print()
+    
+    pause(L["continue"])
+    
+    # ── [1/7] How It Works ────────────────────────────────────────────────────
+    step_header(1, 7, L["how_it_works"])
+    
+    print("  " + q(C.G2, "  ┌─  " + L["how_step_1"]))
+    print("  " + q(C.G3, "  │"))
+    print("  " + q(C.G1, "  │   " + L["how_step_2"]))
+    print("  " + q(C.G3, "  │"))
+    print("  " + q(C.G3, "  ├─  ") + q(C.GRN, "Score ≥ 70", bold=True) + 
+          q(C.G2, f"  →  ✓  {L['how_approved']}"))
+    print("  " + q(C.G3, "  ├─  ") + q(C.YLW, "Score 40-70", bold=True) + 
+          q(C.G2, f"  →  ⚠  {L['how_escalated']}"))
+    print("  " + q(C.G3, "  └─  ") + q(C.RED, "Score < 40", bold=True) + 
+          q(C.G2, f"   →  ✗  {L['how_blocked']}"))
+    print()
+    print("  " + q(C.G1, f"  {L['ledger_desc']}"))
+    print("  " + q(C.G2, f"  {L['ledger_sub']}"))
+    print()
+    
+    pause(L["continue"])
+    
+    # ── [2/7] Risks & Terms ───────────────────────────────────────────────────
+    step_header(2, 7, L["risks_title"])
+    
+    print("  " + q(C.YLW, "  !") + "  " + q(C.W, L["risks_warning"], bold=True))
+    print("       " + q(C.G1, L["risks_sub"]))
+    print()
+    
+    risks = [L["risk_1"], L["risk_2"], L["risk_3"], L["risk_4"], L["risk_5"]]
+    for risk in risks:
+        print("  " + q(C.G3, "     ◦  ") + q(C.G1, risk))
+    
+    print()
+    print("  " + q(C.G3, f"     {L['terms_label']}  ") + 
+          q(C.B7, "https://nova-os.com/terms", underline=True))
+    print()
+    
+    print("  " + q(C.G2, f"  {L['terms_question']}"))
+    print()
+    
+    try:
+        terms_idx = _select([L["terms_accept"], L["terms_decline"]], default=0)
+    except KeyboardInterrupt:
         print()
         return
-
-    # ── [3/5] PERSONALIZATION
-    _step_header(3, 5, L["h_who"])
-    print("  " + q(C.G1, "  " + L["who_sub"]))
+    
+    if terms_idx != 0:
+        print()
+        warn(L["setup_cancelled"])
+        hint("Run  " + q(C.B7, "nova init") + "  when ready.")
+        print()
+        return
+    
+    # ── [3/7] Identity ────────────────────────────────────────────────────────
+    step_header(3, 7, L["identity_title"])
+    
+    print("  " + q(C.G1, f"  {L['identity_sub']}"))
     print()
+    
     try:
-        name = prompt("  " + L["your_name"], cfg.get("user_name", ""))
+        name = prompt(L["your_name"], default=cfg.get("user_name", ""))
         name = name or "Explorer"
+        
+        org = prompt(L["your_org"], default=cfg.get("org_name", ""))
     except (EOFError, KeyboardInterrupt):
         name = "Explorer"
-
-    # ── [4/5] SERVER
-    _step_header(4, 5, L["h_server"])
-    print("  " + q(C.G1, "  " + L["server_sub"]))
+        org = ""
+    
+    # ── [4/7] API Key Setup ───────────────────────────────────────────────────
+    step_header(4, 7, L["apikey_title"])
+    
+    print("  " + q(C.G1, f"  {L['apikey_sub']}"))
     print()
-    print("  " + q(C.G3, "  Docs: ") + q(C.B7, "https://github.com/Santiagorubioads/nova-os"))
-    print()
-    print("  " + q(C.G2, "  " + L["server_opts"]))
-    print()
-
+    
+    existing_key = cfg.get("api_key", "") or get_active_key()
+    
+    # Key options with descriptions
+    key_opts = [
+        L["apikey_generate"],
+        L["apikey_enter"],
+    ]
+    key_descs = [
+        "Creates a secure random key locally",
+        "Paste a key from another source",
+    ]
+    
+    if existing_key:
+        key_opts.append(f"{L['apikey_use_saved']} ({mask_key(existing_key)})")
+        key_descs.append("Continue with your saved key")
+    
     try:
-        srv_idx = _select([L["srv_local"], L["srv_remote"], L["srv_already"]], default=0)
+        key_choice = _select(key_opts, descriptions=key_descs, default=0)
     except KeyboardInterrupt:
-        print(); return
-
-    if srv_idx == 0:
-        url = "http://localhost:8000"
         print()
-        info(L["using"] + " http://localhost:8000")
-    elif srv_idx == 1:
+        return
+    
+    api_key = ""
+    
+    if key_choice == 0:
+        # Generate new key
+        api_key = generate_api_key("nova")
+        add_api_key(api_key, name=f"{name}'s key")
+        
         print()
-        try:
-            url = prompt("  " + L["server_url"], cfg.get("api_url", "http://localhost:8000"))
-        except (EOFError, KeyboardInterrupt):
-            url = cfg.get("api_url", "http://localhost:8000")
+        ok(L["apikey_generated"])
+        print()
+        print("  " + q(C.G2, "Your API key:"))
+        print()
+        print("    " + q(C.B7, api_key, bold=True))
+        print()
+        warn(L["apikey_warning"])
+        print()
+        
+        # Offer clipboard
+        if confirm("Copy to clipboard?", default=False):
+            copied = _copy_to_clipboard(api_key)
+            if copied:
+                ok("Copied to clipboard")
+            else:
+                warn("Could not copy — please copy manually")
+        
+    elif key_choice == 1:
+        # Enter existing key
+        print()
+        api_key = prompt("API Key", secret=True)
+        
+        if api_key:
+            add_api_key(api_key, name="Imported key")
+            print()
+            ok(L["apikey_saved"])
+        else:
+            # Generate one anyway
+            api_key = generate_api_key("nova")
+            add_api_key(api_key, name="Auto-generated")
+            print()
+            warn("No key entered — generated one automatically")
+            print()
+            print("    " + q(C.B7, api_key, bold=True))
+            print()
+    
     else:
-        url = cfg.get("api_url", "http://localhost:8000")
+        # Use existing
+        api_key = existing_key
         print()
-        info(L["using"] + " " + url)
-
+        ok("Using saved key")
+    
+    # ── [5/7] Server Connection ───────────────────────────────────────────────
+    step_header(5, 7, L["server_title"])
+    
+    print("  " + q(C.G1, f"  {L['server_sub']}"))
     print()
+    print("  " + q(C.G3, "  Docs: ") + 
+          q(C.B7, "https://github.com/Santiagorubioads/nova-os", underline=True))
+    print()
+    
+    srv_opts = [
+        L["server_local"],
+        L["server_custom"],
+        L["server_saved"],
+    ]
+    srv_descs = [
+        "Default development server",
+        "Enter a custom URL (production/cloud)",
+        f"Keep {cfg.get('api_url', 'http://localhost:8000')}",
+    ]
+    
     try:
-        import getpass
-        print("  " + q(C.B6, "?") + "  " + q(C.G1, "  API Key") + "  ", end="", flush=True)
-        key = getpass.getpass("").strip() or cfg.get("api_key", "")
-    except (EOFError, KeyboardInterrupt):
-        key = cfg.get("api_key", "")
-
-    # ── [5/5] CONNECT
-    _step_header(5, 5, L["h_connecting"])
-    _animate_connect(url)
-
-    loading(L["testing"])
-    api    = NovaAPI(url, key)
-    health = api.get("/health")
-    clear_line()
-
-    connected = "error" not in health
-    srv_ver   = health.get("version", "online") if connected else "—"
-
-    if connected:
-        ok(L["srv_ok"] + "  · " + q(C.G3, srv_ver))
-        ok(L["key_ok"])
-    else:
-        fail(health.get("error", L["srv_fail"]))
+        srv_choice = _select(srv_opts, descriptions=srv_descs, default=0)
+    except KeyboardInterrupt:
         print()
-        warn(L["saved_anyway"] + "  " + q(C.B7, "nova status"))
-
-    cfg.update({"api_url": url, "api_key": key, "user_name": name, "lang": lang,
-                "version": NOVA_VERSION})
+        return
+    
+    if srv_choice == 0:
+        server_url = "http://localhost:8000"
+        print()
+        info(f"Using {server_url}")
+    
+    elif srv_choice == 1:
+        print()
+        server_url = prompt(
+            "Server URL",
+            default=cfg.get("api_url", "http://localhost:8000"),
+            validator=lambda x: True if x.startswith(("http://", "https://")) 
+                                else "URL must start with http:// or https://"
+        )
+    
+    else:
+        server_url = cfg.get("api_url", "http://localhost:8000")
+        print()
+        info(f"Using {server_url}")
+    
+    # ── [6/7] Connect ─────────────────────────────────────────────────────────
+    step_header(6, 7, L["connecting_title"])
+    
+    animate_connection(server_url)
+    
+    # Test connection
+    with Spinner(L["testing_connection"]) as sp:
+        api = NovaAPI(server_url, api_key)
+        health = api.get("/health")
+    
+    connected = "error" not in health
+    server_version = health.get("version", "") if connected else ""
+    
+    if connected:
+        ok(f"{L['server_online']}  " + q(C.G3, f"v{server_version}" if server_version else ""))
+        ok(L["key_accepted"])
+    else:
+        fail(health.get("error", L["connection_failed"]))
+        print()
+        warn(f"{L['config_saved']}. Fix server and run " + q(C.B7, "nova status"))
+    
+    # Save configuration
+    cfg.update({
+        "api_url": server_url,
+        "api_key": api_key,
+        "user_name": name,
+        "org_name": org,
+        "lang": lang,
+        "version": NOVA_VERSION,
+        "created_at": cfg.get("created_at") or datetime.now().isoformat(),
+    })
     save_config(cfg)
-
-    # ── SUCCESS
+    set_active_key(api_key)
+    
+    # ── [7/7] Skills Setup (Optional) ─────────────────────────────────────────
+    step_header(7, 7, L["skills_title"])
+    
+    print("  " + q(C.G1, f"  {L['skills_sub']}"))
+    print("  " + q(C.G2, "  Skills connect nova to external systems like Gmail, Slack, GitHub."))
     print()
-    print("  " + q(C.G3, "═" * 54))
+    
+    print("  " + q(C.G2, f"  {L['skills_now']}"))
     print()
-    first = name.split()[0] if name and name != "Explorer" else ""
-    greeting = L["youre_in"] + (", " + first + "." if first else ".")
-    print("  " + q(C.GRN, "✓", bold=True) + "  " + q(C.W, greeting, bold=True))
+    
+    try:
+        skills_idx = _select(
+            [L["skills_yes"], L["skills_later"]],
+            descriptions=[
+                "Configure your first integration",
+                "You can always run 'nova skill' later",
+            ],
+            default=1  # Default to later
+        )
+    except KeyboardInterrupt:
+        skills_idx = 1
+    
+    # ── Success + Agent Wake ──────────────────────────────────────────────────
     print()
-    print("     " + q(C.G1, "nova CLI " + NOVA_VERSION + " " + L["ready"]))
+    
+    # The agent "wakes up"
+    animate_agent_wake()
+    
+    # Personalized success message
+    first_name = name.split()[0] if name and name != "Explorer" else ""
+    greeting = L["youre_in"] + (f", {first_name}." if first_name else ".")
+    
+    print("  " + q(C.GRN, "✦", bold=True) + "  " + q(C.W, greeting, bold=True))
     print()
-    print("  " + q(C.G3, "═" * 54))
+    print("     " + q(C.G1, f"nova CLI {NOVA_VERSION} {L['ready']}"))
+    if org:
+        print("     " + q(C.G2, org))
     print()
-
+    hr_bold()
+    print()
+    
+    # Next steps
     print("  " + q(C.G2, L["next_steps"]))
     print()
-    for cmd, desc in [
-        ("nova agent create",  L["n1"]),
-        ("nova status",        L["n2"]),
-        ("nova config",        L["n3"]),
-        ("nova skill",         L["n4"]),
-    ]:
+    
+    next_cmds = [
+        ("nova agent create", "Create your first agent"),
+        ("nova status", "System health & metrics"),
+        ("nova skill", "Browse available integrations"),
+        ("nova help", "See all commands"),
+    ]
+    
+    for cmd, desc in next_cmds:
         print("    " + q(C.B7, cmd.ljust(22), bold=True) + q(C.G2, desc))
+    
     print()
+    
+    # If user chose to configure skills, launch skill wizard
+    if skills_idx == 0:
+        cmd_skill_browse(args)
 
 
 def cmd_status(args):
     """System status dashboard."""
     print_logo()
-    api, cfg = _api()
-
+    
+    api, cfg = get_api()
+    
     with Spinner("Loading dashboard...") as sp:
-        stats  = api.get("/stats")
+        stats = api.get("/stats")
         health = api.get("/health")
-
+    
+    # Connection status
     if "error" in health:
-        fail("Nova not responding at " + q(C.G3, cfg["api_url"]))
+        fail(f"Nova not responding at {q(C.G3, cfg['api_url'])}")
         print()
-        dim("Check: docker compose -f ~/nova-os/docker-compose.yml up -d")
-        print()
-        # Show queued actions if any
+        dim("Check: docker compose up -d")
+        
         queue = get_queue()
         if queue:
-            warn(str(len(queue)) + " actions queued offline. Run " +
-                 q(C.B7, "nova sync") + " when server is back.")
+            print()
+            warn(f"{len(queue)} actions queued offline")
+            hint("Run  " + q(C.B7, "nova sync") + "  when server is back")
         print()
         return
-
+    
+    # Server info
     section("Server")
-    kv("URL",     cfg["api_url"], C.B7)
-    kv("Status",  "Operational",  C.GRN)
-    ver = health.get("version", "")
-    if ver:
-        kv("Version", ver, C.G2)
-
+    kv("URL", cfg["api_url"], C.B7)
+    kv("Status", "Operational", C.GRN)
+    if health.get("version"):
+        kv("Version", health["version"], C.G2)
+    if api.last_latency:
+        kv("Latency", f"{api.last_latency}ms", C.G2)
+    
+    # Activity metrics
     if "error" not in stats:
         section("Activity")
-        t = stats.get("total_actions", 0)
-        a = stats.get("approved", 0)
-        b = stats.get("blocked", 0)
-        d = stats.get("duplicates_blocked", 0)
+        
+        total = stats.get("total_actions", 0)
+        approved = stats.get("approved", 0)
+        blocked = stats.get("blocked", 0)
+        escalated = stats.get("escalated", 0)
+        duplicates = stats.get("duplicates_blocked", 0)
         rate = stats.get("approval_rate", 0)
-
-        kv("Total actions",       str(t))
-        kv("Approved",            str(a), C.GRN)
-        kv("Blocked",             str(b), C.RED if b > 0 else C.G2)
-        kv("Duplicates avoided",  str(d), C.ORG if d > 0 else C.G2)
-        kv("Approval rate",       str(rate) + "%")
-        if t > 0:
+        
+        kv("Total actions", f"{total:,}")
+        kv("Approved", f"{approved:,}", C.GRN)
+        kv("Blocked", f"{blocked:,}", C.RED if blocked > 0 else C.G2)
+        kv("Escalated", f"{escalated:,}", C.YLW if escalated > 0 else C.G2)
+        kv("Duplicates blocked", f"{duplicates:,}", C.ORG if duplicates > 0 else C.G2)
+        kv("Approval rate", f"{rate}%")
+        
+        if total > 0:
             print()
             print("  " + q(C.G2, "Distribution") + "   " + score_bar(rate, 24))
-
+        
+        # Resources
         section("Resources")
-        alr = stats.get("alerts_pending", 0)
-        kv("Active agents",    str(stats.get("active_agents", 0)),  C.B7)
-        kv("Memories stored",  str(stats.get("memories_stored", 0)), C.B6)
-        kv("Avg score",        str(stats.get("avg_score", 0)))
-        kv("Pending alerts",   str(alr), C.YLW if alr > 0 else C.G2)
-
-        # Score trend sparkline if available
+        
+        agents = stats.get("active_agents", 0)
+        memories = stats.get("memories_stored", 0)
+        avg_score = stats.get("avg_score", 0)
+        alerts = stats.get("alerts_pending", 0)
+        
+        kv("Active agents", str(agents), C.B7)
+        kv("Memories stored", f"{memories:,}", C.B6)
+        kv("Avg score", str(avg_score))
+        kv("Pending alerts", str(alerts), C.YLW if alerts > 0 else C.G2)
+        
+        # Score trend sparkline
         trend = stats.get("score_trend")
         if trend and isinstance(trend, list) and len(trend) > 1:
             print()
             kv("Score trend (7d)", sparkline(trend))
-
-    # Offline queue check
+    
+    # Queue status
     queue = get_queue()
     if queue:
         print()
-        warn(str(len(queue)) + " actions queued offline")
-        dim("Run " + q(C.B7, "nova sync") + " to process them")
+        warn(f"{len(queue)} actions queued offline")
+        dim("Run  nova sync  to process")
+    
+    # Update check
+    cfg_check = cfg.get("auto_update_check", True)
+    if cfg_check:
+        new_version = check_for_updates()
+        if new_version:
+            print()
+            info(f"Nova {q(C.B7, new_version)} available")
+            dim("Run: pip install --upgrade nova-cli")
+    
+    print()
 
-    # Version check (non-blocking)
-    new_ver = check_version()
-    if new_ver:
-        print()
-        info("Nova " + q(C.B7, new_ver) + " available. Run: " +
-             q(C.B7, "pip install --upgrade nova-cli"))
+
+def cmd_whoami(args):
+    """Show current identity and configuration."""
+    cfg = load_config()
+    keys_data = load_keys()
+    
+    print_logo(compact=True)
+    print()
+    
+    # Identity
+    kv("User", cfg.get("user_name") or "not set", C.W)
+    if cfg.get("org_name"):
+        kv("Organization", cfg["org_name"], C.G1)
+    
+    # Connection
+    section("Connection")
+    kv("Server", cfg.get("api_url", "not set"), C.B7)
+    kv("API Key", mask_key(cfg.get("api_key", "")), C.G2)
+    
+    # Test connection
+    api = NovaAPI(cfg.get("api_url", ""), cfg.get("api_key", ""))
+    connected = api.health_check()
+    kv("Status", "Connected" if connected else "Unreachable", 
+       C.GRN if connected else C.RED)
+    
+    # Keys
+    if keys_data.get("keys"):
+        kv("Saved keys", str(len(keys_data["keys"])), C.G2)
+    
+    # Default agent
+    if cfg.get("default_token"):
+        kv("Default agent", mask_key(cfg["default_token"]), C.G3)
+    
+    # Skills
+    installed = get_installed_skills()
+    if installed:
+        section("Skills")
+        for skill_name in installed:
+            skill_def = SKILLS.get(skill_name, {})
+            sc = get_skill_color(skill_def)
+            print("  " + q(C.GRN, "●") + "  " + 
+                  q(sc, f"{skill_def.get('icon', '·')} {skill_def.get('name', skill_name)}"))
+    
+    # Config file
+    section("Configuration")
+    kv("Config file", str(CONFIG_FILE), C.G3)
+    kv("Version", NOVA_VERSION, C.B6)
+    kv("Build", NOVA_BUILD, C.G3)
+    
     print()
 
 
@@ -1200,249 +3253,332 @@ def cmd_agent_create(args):
     section("New Agent")
     print("  " + q(C.G2, "Define the behavior rules for your agent."))
     print()
-
-    api, cfg = _api()
-
-    # Ask if they want to start from a template
-    print("  " + q(C.G2, "Start from a template or create from scratch?"))
+    
+    api, cfg = get_api()
+    
+    # Template or custom?
+    print("  " + q(C.G2, "How do you want to start?"))
     print()
+    
+    opts = ["From template (recommended)", "From scratch"]
+    descs = [
+        "Pre-built rules for common patterns",
+        "Define every rule manually",
+    ]
+    
     try:
-        mode = _select(["From template (recommended)", "From scratch"], default=0)
+        mode = _select(opts, descriptions=descs, default=0)
     except KeyboardInterrupt:
-        print(); return
-
-    can  = []
-    cant = []
-
+        print()
+        return
+    
+    can = []
+    cannot = []
+    
     if mode == 0:
-        # Template picker
+        # Template selection
         print()
         print("  " + q(C.W, "Choose a template:", bold=True))
         print()
+        
         tpl_keys = list(RULE_TEMPLATES.keys())
-        tpl_opts = []
-        for k in tpl_keys:
-            t = RULE_TEMPLATES[k]
-            tpl_opts.append(t["label"] + "  —  " + t["desc"])
-
+        tpl_opts = [RULE_TEMPLATES[k]["label"] for k in tpl_keys]
+        tpl_descs = [RULE_TEMPLATES[k]["description"] for k in tpl_keys]
+        
         try:
-            tpl_idx = _select(tpl_opts, default=0)
+            tpl_idx = _select(tpl_opts, descriptions=tpl_descs, default=0)
         except KeyboardInterrupt:
-            print(); return
-
-        chosen = RULE_TEMPLATES[tpl_keys[tpl_idx]]
-        can  = list(chosen["can_do"])
-        cant = list(chosen["cannot_do"])
-
+            print()
+            return
+        
+        template = RULE_TEMPLATES[tpl_keys[tpl_idx]]
+        can = list(template["can_do"])
+        cannot = list(template["cannot_do"])
+        
         print()
-        ok("Template loaded: " + q(C.B7, chosen["label"]))
+        ok(f"Template loaded: {q(C.B7, template['label'])}")
         print()
-
-        # Show pre-filled rules
-        print("  " + q(C.GRN, "●", bold=True) + "  " + q(C.W, "ALLOWED:"))
-        for c in can:
-            print("    " + q(C.G2, "  + " + c))
+        
+        # Show what was loaded
+        print("  " + q(C.GRN, "●", bold=True) + "  " + q(C.W, "ALLOWED actions:", bold=True))
+        for action in can[:5]:
+            print("       " + q(C.G2, f"+ {action}"))
+        if len(can) > 5:
+            print("       " + q(C.G3, f"... and {len(can) - 5} more"))
+        
         print()
-        print("  " + q(C.RED, "●", bold=True) + "  " + q(C.W, "FORBIDDEN:"))
-        for c in cant:
-            print("    " + q(C.G2, "  - " + c))
+        
+        print("  " + q(C.RED, "●", bold=True) + "  " + q(C.W, "FORBIDDEN actions:", bold=True))
+        for action in cannot[:5]:
+            print("       " + q(C.G2, f"- {action}"))
+        if len(cannot) > 5:
+            print("       " + q(C.G3, f"... and {len(cannot) - 5} more"))
+        
         print()
-
+        
+        # Customization?
         if confirm("Customize these rules?", default=False):
             print()
-            print("  " + q(C.G2, "Add more ALLOWED actions (empty to skip):"))
-            extra_can = prompt_list("Additional allowed actions")
+            print("  " + q(C.G2, "Add more ALLOWED actions:"))
+            extra_can = prompt_list("Additional allowed", min_items=0)
             can.extend(extra_can)
-
-            print("  " + q(C.G2, "Add more FORBIDDEN actions (empty to skip):"))
-            extra_cant = prompt_list("Additional forbidden actions")
-            cant.extend(extra_cant)
-    else:
-        pass
-
-    name = prompt("Agent name", "My Agent")
-    desc = prompt("Brief description (optional)", "")
-    auth = prompt("Authorized by", cfg.get("user_name", "admin@company.com"))
+            
+            print("  " + q(C.G2, "Add more FORBIDDEN actions:"))
+            extra_cannot = prompt_list("Additional forbidden", min_items=0)
+            cannot.extend(extra_cannot)
+    
+    # Agent details
     print()
-
+    name = prompt("Agent name", default="My Agent", required=True)
+    description = prompt("Brief description (optional)", default="")
+    authorized_by = prompt("Authorized by", 
+                           default=cfg.get("user_name", "admin@company.com"))
+    
+    # Manual rules if not using template
     if mode == 1:
-        print("  " + q(C.GRN, "●", bold=True) + "  " + q(C.W, "ALLOWED actions:"))
-        can = prompt_list("One per line")
         print()
-        print("  " + q(C.RED, "●", bold=True) + "  " + q(C.W, "FORBIDDEN actions:"))
-        cant = prompt_list("One per line")
+        print("  " + q(C.GRN, "●", bold=True) + "  " + q(C.W, "ALLOWED actions:", bold=True))
+        can = prompt_list("One per line", min_items=0)
+        
         print()
-
-    can_preview  = (", ".join(can[:2])  + ("..." if len(can)  > 2 else "")) if can  else "none"
-    cant_preview = (", ".join(cant[:2]) + ("..." if len(cant) > 2 else "")) if cant else "none"
-    box([
-        "  Agent      " + name,
-        "  Can do     " + can_preview,
-        "  Forbidden  " + cant_preview,
-        "  By         " + auth,
-    ], C.B5, title="Summary")
+        print("  " + q(C.RED, "●", bold=True) + "  " + q(C.W, "FORBIDDEN actions:", bold=True))
+        cannot = prompt_list("One per line", min_items=0)
+    
+    # Summary
     print()
-
+    can_preview = ", ".join(can[:2]) + ("..." if len(can) > 2 else "") if can else "none"
+    cannot_preview = ", ".join(cannot[:2]) + ("..." if len(cannot) > 2 else "") if cannot else "none"
+    
+    box([
+        f"  Agent       {name}",
+        f"  Can do      {can_preview}",
+        f"  Forbidden   {cannot_preview}",
+        f"  By          {authorized_by}",
+    ], C.B5, title="Summary")
+    
+    print()
+    
     if not confirm("Create this agent?"):
         warn("Cancelled.")
         return
-
-    with Spinner("Signing Intent Token..."):
+    
+    # Create agent
+    with Spinner("Signing Intent Token...") as sp:
         result = api.post("/tokens", {
-            "agent_name": name, "description": desc,
-            "can_do": can, "cannot_do": cant, "authorized_by": auth,
+            "agent_name": name,
+            "description": description,
+            "can_do": can,
+            "cannot_do": cannot,
+            "authorized_by": authorized_by,
         })
-
+    
     if "error" in result:
-        print_error(result)
+        fail(result.get("error", "Unknown error"))
         return
-
-    tid = result.get("token_id", "")
+    
+    token_id = result.get("token_id", "")
+    signature = result.get("signature", "")
+    
     ok("Agent created — token signed")
     print()
-    kv("Token ID",  tid, C.B7)
-    kv("Signature", result.get("signature", "")[:24] + "...", C.G3)
+    kv("Token ID", token_id, C.B7)
+    kv("Signature", (signature[:24] + "...") if signature else "—", C.G3)
     print()
-
-    cfg["default_token"] = tid
+    
+    # Save as default
+    cfg["default_token"] = token_id
     save_config(cfg)
-
-    webhook = cfg["api_url"] + "/webhook/" + cfg["api_key"]
-    section("Webhook ready for n8n")
-    box([
-        "  POST  " + webhook,
-        "",
-        '  Body:  {"action": "{{$json.texto}}", "token_id": "' + tid[:16] + '..."}',
-    ], C.B5)
+    
+    # Show webhook info
+    if cfg.get("api_key"):
+        webhook = f"{cfg['api_url']}/webhook/{cfg['api_key']}"
+        section("Webhook")
+        print("  " + q(C.G2, "Use this endpoint to integrate with n8n, Zapier, etc:"))
+        print()
+        print("    " + q(C.B7, f"POST {webhook}"))
+        print()
+        print("    " + q(C.G3, "Body:"))
+        print("    " + q(C.G2, '{"action": "your action", "token_id": "' + 
+                        token_id[:12] + '..."}'))
+    
     print()
 
 
 def cmd_agent_list(args):
     """List all active agents."""
-    api, cfg = _api()
-
+    api, cfg = get_api()
+    
     with Spinner("Loading agents..."):
         result = api.get("/tokens")
-
+    
     if "error" in result:
-        print_error(result)
+        fail(result.get("error", "Unknown error"))
         return
+    
     if not result:
         warn("No active agents.")
-        info("Create one with:  " + q(C.B7, "nova agent create"))
+        hint("Create one with:  " + q(C.B7, "nova agent create"))
         return
-
-    default_id = cfg.get("default_token", "")
-    section("Active Agents", str(len(result)) + " total")
-
-    for t in result:
-        is_def = str(t["id"]) == default_id
-        badge  = "  " + q(C.B6, "default") if is_def else ""
-        st     = q(C.GRN, "● active") if t.get("active") else q(C.G2, "○ inactive")
+    
+    section("Active Agents", f"{len(result)} total")
+    
+    default_token = cfg.get("default_token", "")
+    
+    for agent in result:
+        agent_id = str(agent.get("id", ""))
+        agent_name = agent.get("agent_name", "Unknown")
+        is_active = agent.get("active", True)
+        is_default = agent_id == default_token
+        
+        # Status badges
+        status = q(C.GRN, "● active") if is_active else q(C.G2, "○ inactive")
+        default_badge = "  " + q(C.B6, "default") if is_default else ""
+        
         print()
-        print("  " + q(C.W, t["agent_name"], bold=True) + "  " + st + badge)
-        kv("  ID", str(t["id"])[:22] + "...", C.G3)
-        created = t.get("created_at", "")
-        if created:
-            kv("  Created", time_ago(created), C.G2)
-        if t.get("can_do"):
-            preview = ", ".join(t["can_do"][:3]) + ("..." if len(t["can_do"]) > 3 else "")
-            kv("  Can do",    preview, C.GRN)
-        if t.get("cannot_do"):
-            preview = ", ".join(t["cannot_do"][:3]) + ("..." if len(t["cannot_do"]) > 3 else "")
+        print("  " + q(C.W, agent_name, bold=True) + "  " + status + default_badge)
+        
+        kv("  ID", agent_id[:22] + "...", C.G3)
+        
+        if agent.get("created_at"):
+            kv("  Created", time_ago(agent["created_at"]), C.G2)
+        
+        if agent.get("can_do"):
+            preview = ", ".join(agent["can_do"][:3])
+            if len(agent["can_do"]) > 3:
+                preview += "..."
+            kv("  Can do", preview, C.GRN)
+        
+        if agent.get("cannot_do"):
+            preview = ", ".join(agent["cannot_do"][:3])
+            if len(agent["cannot_do"]) > 3:
+                preview += "..."
             kv("  Forbidden", preview, C.RED)
+    
     print()
 
 
 def cmd_validate(args):
     """Validate an action and get verdict."""
-    api, cfg = _api()
-    tid    = args.token or cfg.get("default_token", "")
-    action = args.action or prompt("Action to validate")
-    ctx    = args.context or ""
-    dry    = getattr(args, "dry_run", False)
-
-    if not tid:
+    api, cfg = get_api()
+    
+    token_id = args.token or cfg.get("default_token", "")
+    action = args.action
+    context = args.context or ""
+    dry_run = getattr(args, "dry_run", False)
+    
+    # Interactive mode if no action provided
+    if not action:
+        print_logo(compact=True)
+        print()
+        action = prompt("Action to validate", required=True)
+        if not action:
+            return
+    
+    if not token_id:
         fail("No token set. Pass --token or create an agent first.")
+        hint("Run:  nova agent create")
         return
-
+    
     payload = {
-        "token_id": tid, "action": action, "context": ctx,
-        "generate_response": True, "check_duplicates": True,
+        "token_id": token_id,
+        "action": action,
+        "context": context,
+        "generate_response": True,
+        "check_duplicates": True,
     }
-    if dry:
+    
+    if dry_run:
         payload["dry_run"] = True
-
-    t0 = time.time()
-    with Spinner("Validating..."):
+    
+    start_time = time.time()
+    
+    with Spinner("Validating...") as sp:
         result = api.post("/validate", payload)
-    ms = int((time.time() - t0) * 1000)
-
+    
+    elapsed_ms = int((time.time() - start_time) * 1000)
+    
+    # Handle errors
     if "error" in result:
-        # Offer to queue if offline
         if "Cannot connect" in result.get("error", ""):
-            print()
             fail("Server unreachable.")
+            print()
             if confirm("Queue this action for later?", default=True):
                 n = queue_action(payload)
-                ok("Action queued (" + str(n) + " pending). Run " +
-                   q(C.B7, "nova sync") + " when server is back.")
+                ok(f"Queued ({n} pending)")
+                hint("Run  nova sync  when server is back")
             return
-        print_error(result)
+        
+        fail(result.get("error", "Unknown error"))
         return
-
-    verdict = result.get("verdict", "?")
-    score   = result.get("score", 0)
-    reason  = result.get("reason", "")
-    resp    = result.get("response")
-    dup     = result.get("duplicate_of")
-    factors = result.get("score_factors")
-
-    if dry:
+    
+    # Show dry run warning
+    if dry_run:
         print()
         warn("DRY RUN — not recorded to ledger")
-
+    
+    # Results
+    verdict = result.get("verdict", "?")
+    score = result.get("score", 0)
+    reason = result.get("reason", "")
+    agent_name = result.get("agent_name", "")
+    ledger_id = result.get("ledger_id")
+    memories_used = result.get("memories_used", 0)
+    response = result.get("response")
+    duplicate = result.get("duplicate_of")
+    score_factors = result.get("score_factors")
+    
     print()
-    print("  " + verdict_badge(verdict) + "   " + score_bar(score) + "   " + q(C.G3, str(ms) + "ms"))
+    print("  " + verdict_badge(verdict) + "   " + score_bar(score) + 
+          "   " + q(C.G3, f"{elapsed_ms}ms"))
     print()
-    kv("Reason",         reason, C.G2)
-    kv("Agent",          result.get("agent_name", ""), C.W)
-    kv("Ledger",         "#" + str(result.get("ledger_id", "?")), C.G3)
-    kv("Memories used",  str(result.get("memories_used", 0)), C.B6)
-
+    
+    kv("Reason", reason, C.G2)
+    kv("Agent", agent_name, C.W)
+    if ledger_id:
+        kv("Ledger", f"#{ledger_id}", C.G3)
+    kv("Memories used", str(memories_used), C.B6)
+    
     # Score breakdown
-    if factors and isinstance(factors, dict):
+    if score_factors and isinstance(score_factors, dict):
         print()
         print("  " + q(C.G2, "Score Breakdown"))
-        print("  " + q(C.G3, "─" * 32))
-        for factor, impact in factors.items():
+        hr(width=32)
+        
+        for factor, impact in score_factors.items():
             c = C.GRN if impact > 0 else C.RED if impact < 0 else C.G2
             sign = "+" if impact > 0 else ""
-            print("  " + q(c, (sign + str(impact)).rjust(5)) + "  " + q(C.G1, factor))
-        print("  " + q(C.G3, "─" * 32))
-        print("  " + q(C.W, str(score).rjust(5), bold=True) + "  " + q(C.G2, "Final score"))
-
-    if dup:
+            print("  " + q(c, f"{sign}{impact:>4}") + "  " + q(C.G1, factor))
+        
+        hr(width=32)
+        print("  " + q(C.W, f"{score:>4}", bold=True) + "  " + q(C.G2, "Final score"))
+    
+    # Duplicate detection
+    if duplicate:
         print()
-        dup_action = dup.get("action", "")
-        dup_short  = dup_action[:52] + ("…" if len(dup_action) > 52 else "")
+        dup_action = duplicate.get("action", "")[:50]
+        dup_id = duplicate.get("ledger_id", "?")
+        dup_sim = int(duplicate.get("similarity", 0) * 100)
+        
         box([
-            "  Duplicate of record #" + str(dup.get("ledger_id")),
-            "  Similarity  " + str(int(dup.get("similarity", 0) * 100)) + "%",
-            "  Original    " + dup_short,
+            f"  Duplicate of #{dup_id}",
+            f"  Similarity: {dup_sim}%",
+            f"  Original: {dup_action}...",
         ], C.ORG, title="Duplicate Detected")
-
-    if resp:
+    
+    # Generated response
+    if response:
         print()
         section("Generated Response")
         print()
-        for line in textwrap.wrap(resp, width=64):
+        for line in textwrap.wrap(response, width=64):
             print("  " + q(C.G1, line))
-
-    print()
-    h = result.get("hash", "")[:20]
-    if h:
-        print("  " + q(C.G3, "hash  " + h + "..."))
+    
+    # Hash
+    hash_val = result.get("hash", "")[:20]
+    if hash_val:
+        print()
+        print("  " + q(C.G3, f"hash  {hash_val}..."))
+    
     print()
 
 
@@ -1452,658 +3588,1408 @@ def cmd_test(args):
     cmd_validate(args)
 
 
-def cmd_memory_save(args):
-    """Save a memory to an agent's context."""
-    api, cfg = _api()
-    agent = args.agent or prompt("Agent")
-    key   = args.key   or prompt("Key", "important_data")
-    value = args.value or prompt("Value")
-    imp   = int(getattr(args, "importance", None) or "5")
-
-    with Spinner("Saving memory..."):
-        r = api.post("/memory", {
-            "agent_name": agent, "key": key, "value": value,
-            "importance": imp, "tags": ["manual"],
-        })
-
-    if "error" in r:
-        print_error(r)
-        return
-    ok("Memory saved — ID " + str(r.get("id")) + "  importance " + str(imp) + "/10")
-    print()
-
-
-def cmd_memory_list(args):
-    """List memories for an agent."""
-    api, cfg = _api()
-    agent = args.agent or prompt("Agent")
-
-    with Spinner("Loading memories..."):
-        result = api.get("/memory/" + urllib.parse.quote(agent))
-
-    if "error" in result:
-        print_error(result)
-        return
-    if not result:
-        warn("'" + agent + "' has no memories.")
-        cmd_hint = 'nova memory save --agent "' + agent + '"'
-        info("Save with:  " + q(C.B7, cmd_hint))
-        return
-
-    section("Memories of " + agent, str(len(result)) + " entries")
-    for m in result:
-        imp = m.get("importance", 5)
-        bar = q(C.B6, "█" * imp) + q(C.G3, "░" * (10 - imp))
-        src = q(C.G3, m.get("source", "manual"))
-        ts  = time_ago(m.get("created_at", ""))
-        print()
-        print("  " + q(C.W, m["key"], bold=True) + "  " + bar + "  " + src +
-              ("  " + q(C.G3, ts) if ts else ""))
-        for line in textwrap.wrap(m["value"], width=62):
-            print("    " + q(C.G2, line))
-    print()
-
-
 def cmd_ledger(args):
     """View the cryptographic action ledger."""
-    api, cfg = _api()
-    limit   = getattr(args, "limit", 10) or 10
-    verdict = getattr(args, "verdict", "") or ""
-    url     = "/ledger?limit=" + str(limit) + ("&verdict=" + verdict.upper() if verdict else "")
-
+    api, cfg = get_api()
+    
+    limit = getattr(args, "limit", 20) or 20
+    verdict_filter = getattr(args, "verdict", "") or ""
+    
+    url = f"/ledger?limit={limit}"
+    if verdict_filter:
+        url += f"&verdict={verdict_filter.upper()}"
+    
     with Spinner("Loading ledger..."):
         result = api.get(url)
-
+    
     if "error" in result:
-        print_error(result)
+        fail(result.get("error", "Unknown error"))
         return
-
-    section("Ledger", str(len(result)) + " entries")
-    vc_map = {
-        "APPROVED": C.GRN, "BLOCKED": C.RED,
-        "ESCALATED": C.YLW, "DUPLICATE": C.ORG,
+    
+    if not result:
+        warn("Ledger is empty.")
+        return
+    
+    section("Ledger", f"{len(result)} entries")
+    
+    verdict_colors = {
+        "APPROVED": C.GRN,
+        "BLOCKED": C.RED,
+        "ESCALATED": C.YLW,
+        "DUPLICATE": C.ORG,
     }
-    for e in result:
-        v   = e.get("verdict", "?")
-        s   = e.get("score", 0)
-        vc  = vc_map.get(v, C.G2)
-        act = e.get("action", "")
-        ts  = time_ago(e.get("executed_at", ""))
+    
+    for entry in result:
+        verdict = entry.get("verdict", "?")
+        score = entry.get("score", 0)
+        action = entry.get("action", "")[:56]
+        agent = entry.get("agent_name", "")[:20]
+        ts = time_ago(entry.get("executed_at", ""))
+        
+                vc = verdict_colors.get(verdict, C.G2)
+        
         print()
-        short = act[:56] + ("…" if len(act) > 56 else "")
-        print("  " + q(vc, "■") + "  " + q(C.W, short))
-        print("     " + q(vc, v.ljust(10)) + "  score " + score_bar(s, 10) +
-              "  " + q(C.G3, ts) + "  " + q(C.G3, e.get("agent_name", "")[:22]))
+        print("  " + q(vc, "■") + "  " + q(C.W, action))
+        print("     " + q(vc, verdict.ljust(10)) + "  " + score_bar(score, 10) + 
+              "  " + q(C.G3, ts) + "  " + q(C.G3, agent))
+    
     print()
 
 
 def cmd_verify(args):
     """Verify ledger cryptographic integrity."""
-    api, cfg = _api()
-
-    with Spinner("Verifying cryptographic chain..."):
-        r = api.get("/ledger/verify")
-
-    if "error" in r:
-        print_error(r)
+    api, cfg = get_api()
+    
+    with Spinner("Verifying cryptographic chain...", style="pulse") as sp:
+        result = api.get("/ledger/verify")
+    
+    if "error" in result:
+        fail(result.get("error", "Unknown error"))
         return
+    
     print()
-    if r.get("verified"):
-        ok("Chain intact — " + str(r.get("total_records", 0)) + " records verified")
+    
+    if result.get("verified"):
+        total = result.get("total_records", 0)
+        ok(f"Chain intact — {total:,} records verified")
         kv("Status", "No modifications detected", C.GRN)
-        h = r.get("chain_hash", "")
-        if h:
-            kv("Chain hash", h[:32] + "...", C.G3)
+        
+        chain_hash = result.get("chain_hash", "")
+        if chain_hash:
+            kv("Chain hash", chain_hash[:32] + "...", C.G3)
     else:
-        fail("Chain compromised at record #" + str(r.get("broken_at")))
+        broken_at = result.get("broken_at", "?")
+        fail(f"Chain compromised at record #{broken_at}")
         warn("A ledger record has been tampered with.")
+        hint("Contact support immediately.")
+    
     print()
 
-
-def cmd_alerts(args):
-    """View pending alerts."""
-    api, cfg = _api()
-
-    with Spinner("Loading alerts..."):
-        r = api.get("/alerts")
-
-    if "error" in r:
-        print_error(r)
-        return
-
-    pending = [a for a in r if not a.get("resolved")]
-    if not pending:
-        ok("No pending alerts.")
-        print()
-        return
-
-    section("Pending Alerts", str(len(pending)))
-    for a in pending:
-        s  = a.get("score", 0)
-        ac = C.RED if s < 40 else C.YLW
-        ts = time_ago(a.get("created_at", ""))
-        print()
-        print("  " + q(ac, "▲") + "  " + q(C.W, a.get("message", "")[:62]))
-        print("     " + q(C.G2, "Score ") + q(ac, str(s), bold=True) +
-              "   " + q(C.G3, a.get("agent_name", "")) +
-              "   " + q(C.G3, str(a["id"])[:12]) +
-              ("   " + q(C.G3, ts) if ts else ""))
-    print()
-    dim("Resolve:  nova alerts resolve <id>")
-    print()
-
-
-def cmd_seed(args):
-    """Seed demo data for testing."""
-    api, cfg = _api()
-
-    warn("This will insert demo agents and actions.")
-    if not confirm("Continue?"):
-        return
-
-    with Spinner("Seeding demo data..."):
-        r = api.post("/demo/seed", {})
-
-    if "error" in r:
-        print_error(r)
-        return
-    ok("Demo data loaded.")
-    kv("Agents",   str(r.get("tokens", 0)),   C.B7)
-    kv("Actions",  str(r.get("actions", 0)))
-    kv("Memories", str(r.get("memories", 0)), C.B6)
-    print()
-    info("Explore with:  " + q(C.B7, "nova status"))
-    print()
-
-
-# ══════════════════════════════════════════════════════════════════
-# WATCH — Live tail of ledger
-# ══════════════════════════════════════════════════════════════════
 
 def cmd_watch(args):
     """Live stream of ledger entries."""
-    api, cfg = _api()
+    api, cfg = get_api()
     interval = getattr(args, "interval", 3) or 3
-
+    
     print_logo(compact=True)
-    print("  " + q(C.W, "Watching ledger...", bold=True) + "  " + q(C.G3, "Ctrl+C to stop"))
-    print("  " + q(C.G3, "─" * 54))
+    print("  " + q(C.W, "Watching ledger...", bold=True) + "  " + 
+          q(C.G3, "Ctrl+C to stop"))
+    hr()
     print()
-
+    
     seen = set()
-    vc_map = {
-        "APPROVED": C.GRN, "BLOCKED": C.RED,
-        "ESCALATED": C.YLW, "DUPLICATE": C.ORG,
+    verdict_colors = {
+        "APPROVED": C.GRN,
+        "BLOCKED": C.RED,
+        "ESCALATED": C.YLW,
+        "DUPLICATE": C.ORG,
     }
-
+    
     try:
         while True:
             result = api.get("/ledger?limit=10")
+            
             if isinstance(result, list):
-                for e in reversed(result):
-                    eid = e.get("id", "")
-                    if eid and eid not in seen:
-                        seen.add(eid)
-                        v   = e.get("verdict", "?")
-                        vc  = vc_map.get(v, C.G2)
-                        act = e.get("action", "")[:52]
-                        ts  = time_ago(e.get("executed_at", ""))
-                        s   = e.get("score", 0)
-                        print("  " + q(vc, "■") + "  " + q(C.W, act) + "  " +
-                              q(vc, v) + "  " + score_bar(s, 8) + "  " + q(C.G3, ts))
+                for entry in reversed(result):
+                    entry_id = entry.get("id", "")
+                    
+                    if entry_id and entry_id not in seen:
+                        seen.add(entry_id)
+                        
+                        verdict = entry.get("verdict", "?")
+                        score = entry.get("score", 0)
+                        action = entry.get("action", "")[:50]
+                        ts = time_ago(entry.get("executed_at", ""))
+                        
+                        vc = verdict_colors.get(verdict, C.G2)
+                        
+                        print("  " + q(vc, "■") + "  " + q(C.W, action) + "  " +
+                              q(vc, verdict) + "  " + score_bar(score, 8) + 
+                              "  " + q(C.G3, ts))
+            
             time.sleep(interval)
+    
     except KeyboardInterrupt:
         print()
         info("Stopped watching.")
         print()
 
 
-# ══════════════════════════════════════════════════════════════════
-# REPLAY — Re-evaluate past action with current rules
-# ══════════════════════════════════════════════════════════════════
-
-def cmd_replay(args):
-    """Re-evaluate a past action with current rules."""
-    api, cfg = _api()
-    ledger_id = args.subcommand or args.third or ""
-    if not ledger_id:
-        ledger_id = prompt("Ledger entry ID")
-
-    with Spinner("Loading original entry..."):
-        entries = api.get("/ledger?limit=100")
-
-    if "error" in entries:
-        print_error(entries)
-        return
-
-    # Find entry
-    entry = None
-    for e in entries:
-        if str(e.get("id", "")) == str(ledger_id):
-            entry = e
-            break
-
-    if not entry:
-        fail("Ledger entry #" + str(ledger_id) + " not found.")
-        return
-
-    print()
-    section("Replaying entry #" + str(ledger_id))
-    kv("Action",    entry.get("action", "")[:50], C.W)
-    kv("Original",  entry.get("verdict", "?"), C.G2)
-    kv("Score",     str(entry.get("score", 0)), C.G2)
-
-    with Spinner("Re-evaluating with current rules..."):
-        result = api.post("/validate", {
-            "token_id": entry.get("token_id", cfg.get("default_token", "")),
-            "action": entry.get("action", ""),
-            "context": entry.get("context", ""),
-            "dry_run": True,
-        })
-
+def cmd_alerts(args):
+    """View and manage pending alerts."""
+    api, cfg = get_api()
+    
+    with Spinner("Loading alerts..."):
+        result = api.get("/alerts")
+    
     if "error" in result:
-        print_error(result)
+        fail(result.get("error", "Unknown error"))
         return
-
-    new_verdict = result.get("verdict", "?")
-    new_score   = result.get("score", 0)
-
-    print()
-    section("Original vs Current")
-    old_v = entry.get("verdict", "?")
-    vc_map = {"APPROVED": C.GRN, "BLOCKED": C.RED, "ESCALATED": C.YLW, "DUPLICATE": C.ORG}
-    kv("Original verdict", old_v, vc_map.get(old_v, C.G2))
-    kv("Current verdict",  new_verdict, vc_map.get(new_verdict, C.G2))
-    kv("Original score",   str(entry.get("score", 0)))
-    kv("Current score",    str(new_score))
-
-    if old_v != new_verdict:
+    
+    pending = [a for a in result if not a.get("resolved")]
+    
+    if not pending:
+        ok("No pending alerts.")
         print()
-        warn("Verdict changed! Rules have been modified since original validation.")
-    else:
+        return
+    
+    section("Pending Alerts", f"{len(pending)} requiring attention")
+    
+    for alert in pending:
+        alert_id = alert.get("id", "")
+        message = alert.get("message", "")[:60]
+        score = alert.get("score", 0)
+        agent = alert.get("agent_name", "")
+        ts = time_ago(alert.get("created_at", ""))
+        
+        ac = C.RED if score < 40 else C.YLW
+        
         print()
-        ok("Verdict is consistent — rules unchanged.")
+        print("  " + q(ac, "▲") + "  " + q(C.W, message))
+        print("     " + q(C.G2, "Score ") + q(ac, str(score), bold=True) +
+              "   " + q(C.G3, agent) + 
+              "   " + q(C.G3, str(alert_id)[:12]) +
+              "   " + q(C.G3, ts))
+    
+    print()
+    dim("Resolve:  nova alerts resolve <id>")
     print()
 
 
-# ══════════════════════════════════════════════════════════════════
-# DIFF — Compare two agents
-# ══════════════════════════════════════════════════════════════════
-
-def cmd_diff(args):
-    """Compare rules between two agents."""
-    api, cfg = _api()
-
-    with Spinner("Loading agents..."):
-        tokens = api.get("/tokens")
-
-    if "error" in tokens:
-        print_error(tokens)
+def cmd_memory_save(args):
+    """Save a memory to an agent's context."""
+    api, cfg = get_api()
+    
+    agent = args.agent or prompt("Agent name", required=True)
+    key = args.key or prompt("Memory key", default="important_data")
+    value = args.value or prompt("Memory value", required=True)
+    importance = int(getattr(args, "importance", 5) or 5)
+    
+    with Spinner("Saving memory..."):
+        result = api.post("/memory", {
+            "agent_name": agent,
+            "key": key,
+            "value": value,
+            "importance": importance,
+            "tags": ["manual", "cli"],
+        })
+    
+    if "error" in result:
+        fail(result.get("error", "Unknown error"))
         return
-    if not tokens or len(tokens) < 2:
-        warn("Need at least 2 agents to compare.")
+    
+    memory_id = result.get("id", "")
+    ok(f"Memory saved — ID {memory_id}  importance {importance}/10")
+    print()
+
+
+def cmd_memory_list(args):
+    """List memories for an agent."""
+    api, cfg = get_api()
+    
+    agent = args.agent or prompt("Agent name", required=True)
+    
+    with Spinner("Loading memories..."):
+        result = api.get(f"/memory/{urllib.parse.quote(agent)}")
+    
+    if "error" in result:
+        fail(result.get("error", "Unknown error"))
         return
-
-    # Let user pick two agents
-    names = [t["agent_name"] for t in tokens]
-    print()
-    print("  " + q(C.W, "Select first agent:", bold=True))
-    print()
-    try:
-        idx1 = _select(names, default=0)
-    except KeyboardInterrupt:
-        print(); return
-
-    print("  " + q(C.W, "Select second agent:", bold=True))
-    print()
-    remaining = [n for i, n in enumerate(names) if i != idx1]
-    if not remaining:
-        fail("Need at least 2 agents.")
+    
+    if not result:
+        warn(f"'{agent}' has no memories.")
+        hint(f'Save with:  nova memory save --agent "{agent}"')
         return
-    try:
-        idx2_r = _select(remaining, default=0)
-    except KeyboardInterrupt:
-        print(); return
-
-    t1 = tokens[idx1]
-    # Find t2 in original list
-    chosen_name = remaining[idx2_r]
-    t2 = next(t for t in tokens if t["agent_name"] == chosen_name)
-
-    section("Diff: " + t1["agent_name"] + " vs " + t2["agent_name"])
-
-    can1  = set(t1.get("can_do", []))
-    can2  = set(t2.get("can_do", []))
-    cant1 = set(t1.get("cannot_do", []))
-    cant2 = set(t2.get("cannot_do", []))
-
-    print()
-    print("  " + q(C.W, "ALLOWED actions:", bold=True))
-    for x in sorted(can1 - can2):
-        print("    " + q(C.RED, "-") + "  " + q(C.G1, x) + "  " + q(C.G3, "(only " + t1["agent_name"] + ")"))
-    for x in sorted(can2 - can1):
-        print("    " + q(C.GRN, "+") + "  " + q(C.G1, x) + "  " + q(C.G3, "(only " + t2["agent_name"] + ")"))
-    for x in sorted(can1 & can2):
-        print("    " + q(C.G3, " ") + "  " + q(C.G3, x))
-    if not (can1 | can2):
-        print("    " + q(C.G3, "(none)"))
-
-    print()
-    print("  " + q(C.W, "FORBIDDEN actions:", bold=True))
-    for x in sorted(cant1 - cant2):
-        print("    " + q(C.RED, "-") + "  " + q(C.G1, x) + "  " + q(C.G3, "(only " + t1["agent_name"] + ")"))
-    for x in sorted(cant2 - cant1):
-        print("    " + q(C.GRN, "+") + "  " + q(C.G1, x) + "  " + q(C.G3, "(only " + t2["agent_name"] + ")"))
-    for x in sorted(cant1 & cant2):
-        print("    " + q(C.G3, " ") + "  " + q(C.G3, x))
-    if not (cant1 | cant2):
-        print("    " + q(C.G3, "(none)"))
+    
+    section(f"Memories of {agent}", f"{len(result)} entries")
+    
+    for memory in result:
+        key = memory.get("key", "")
+        value = memory.get("value", "")
+        importance = memory.get("importance", 5)
+        source = memory.get("source", "manual")
+        ts = time_ago(memory.get("created_at", ""))
+        
+        bar = q(C.B6, "█" * importance) + q(C.G3, "░" * (10 - importance))
+        
+        print()
+        print("  " + q(C.W, key, bold=True) + "  " + bar + "  " + 
+              q(C.G3, source) + "  " + q(C.G3, ts))
+        
+        for line in textwrap.wrap(value, width=60):
+            print("    " + q(C.G2, line))
+    
     print()
 
-
-# ══════════════════════════════════════════════════════════════════
-# EXPORT — Export ledger to JSON/CSV
-# ══════════════════════════════════════════════════════════════════
 
 def cmd_export(args):
-    """Export ledger entries to JSON or CSV."""
-    api, cfg = _api()
-    fmt    = getattr(args, "format", "json") or "json"
-    limit  = getattr(args, "limit", 1000) or 1000
+    """Export ledger to JSON or CSV."""
+    api, cfg = get_api()
+    
+    fmt = getattr(args, "format", "json") or "json"
+    limit = getattr(args, "limit", 1000) or 1000
     output = getattr(args, "output", "") or ""
-
-    with Spinner("Exporting ledger..."):
-        entries = api.get("/ledger?limit=" + str(limit))
-
+    
+    with Spinner(f"Exporting ledger ({limit} entries)..."):
+        entries = api.get(f"/ledger?limit={limit}")
+    
     if "error" in entries:
-        print_error(entries)
+        fail(entries.get("error", "Unknown error"))
         return
+    
     if not entries:
-        warn("No ledger entries to export.")
+        warn("No entries to export.")
         return
-
+    
+    # Generate filename if not provided
     if not output:
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         ext = "csv" if fmt == "csv" else "json"
-        output = "nova-ledger-" + datetime.now().strftime("%Y%m%d-%H%M%S") + "." + ext
-
+        output = f"nova-ledger-{timestamp}.{ext}"
+    
+    # Export
     if fmt == "csv":
-        # CSV export without importing csv module (zero deps)
+        # CSV without importing csv module
         if entries:
             fields = list(entries[0].keys())
             lines = [",".join(fields)]
-            for e in entries:
+            
+            for entry in entries:
                 row = []
-                for f in fields:
-                    val = str(e.get(f, "")).replace('"', '""')
+                for field in fields:
+                    val = str(entry.get(field, "")).replace('"', '""')
                     if "," in val or '"' in val or "\n" in val:
-                        val = '"' + val + '"'
+                        val = f'"{val}"'
                     row.append(val)
                 lines.append(",".join(row))
-            with open(output, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines))
+            
+            Path(output).write_text("\n".join(lines), encoding="utf-8")
     else:
-        with open(output, "w", encoding="utf-8") as f:
-            json.dump(entries, f, indent=2, ensure_ascii=False)
-
-    ok("Exported " + str(len(entries)) + " entries to " + q(C.B7, output))
+        Path(output).write_text(
+            json.dumps(entries, indent=2, ensure_ascii=False),
+            encoding="utf-8"
+        )
+    
+    file_size = Path(output).stat().st_size
+    
+    ok(f"Exported {len(entries):,} entries to {q(C.B7, output)}")
     kv("Format", fmt.upper(), C.G2)
-    kv("Size",   str(os.path.getsize(output)) + " bytes", C.G2)
+    kv("Size", format_bytes(file_size), C.G2)
     print()
 
-
-# ══════════════════════════════════════════════════════════════════
-# SIMULATE — Batch validate from file
-# ══════════════════════════════════════════════════════════════════
-
-def cmd_simulate(args):
-    """Batch-validate actions from a file or interactive list."""
-    api, cfg = _api()
-    tid = args.token or cfg.get("default_token", "")
-
-    if not tid:
-        fail("No token set. Pass --token or create an agent first.")
-        return
-
-    file_path = getattr(args, "file", "") or ""
-    actions = []
-
-    if file_path and os.path.exists(file_path):
-        with open(file_path) as f:
-            actions = [l.strip() for l in f if l.strip() and not l.startswith("#")]
-    else:
-        print()
-        print("  " + q(C.W, "Enter actions to simulate", bold=True) +
-              "  " + q(C.G3, "(one per line, empty line to run)"))
-        print()
-        actions = prompt_list("Actions")
-
-    if not actions:
-        warn("No actions to simulate.")
-        return
-
-    print()
-    section("Simulating " + str(len(actions)) + " actions", "dry run")
-    print()
-
-    results = {"APPROVED": 0, "BLOCKED": 0, "ESCALATED": 0, "DUPLICATE": 0}
-    scores = []
-    vc_map = {"APPROVED": C.GRN, "BLOCKED": C.RED, "ESCALATED": C.YLW, "DUPLICATE": C.ORG}
-
-    for i, action in enumerate(actions):
-        progress_bar(i + 1, len(actions), label=action[:30])
-        r = api.post("/validate", {
-            "token_id": tid, "action": action, "dry_run": True,
-        })
-        v = r.get("verdict", "?")
-        s = r.get("score", 0)
-        results[v] = results.get(v, 0) + 1
-        scores.append(s)
-
-    print()  # newline after progress bar
-    print()
-
-    # Results
-    section("Simulation Results")
-    print()
-    for v in ["APPROVED", "BLOCKED", "ESCALATED", "DUPLICATE"]:
-        count = results.get(v, 0)
-        if count > 0:
-            c = vc_map.get(v, C.G2)
-            pct = int(count / len(actions) * 100)
-            bar_w = int(count / len(actions) * 20)
-            print("  " + q(c, v.ljust(12)) + "  " + q(c, str(count).rjust(3)) +
-                  "  " + q(c, "█" * bar_w) + q(C.G3, "░" * (20 - bar_w)) +
-                  "  " + q(C.G2, str(pct) + "%"))
-
-    if scores:
-        avg = sum(scores) / len(scores)
-        print()
-        kv("Average score", str(int(avg)), C.W)
-        kv("Score range",   str(min(scores)) + " — " + str(max(scores)), C.G2)
-        kv("Distribution",  sparkline(scores))
-    print()
-
-
-# ══════════════════════════════════════════════════════════════════
-# SYNC — Process offline queue
-# ══════════════════════════════════════════════════════════════════
 
 def cmd_sync(args):
-    """Process actions queued while offline."""
-    api, cfg = _api()
+    """Process offline queue."""
+    api, cfg = get_api()
     queue = get_queue()
-
+    
     if not queue:
         ok("No pending actions in queue.")
         print()
         return
-
-    section("Syncing " + str(len(queue)) + " queued actions")
+    
+    section(f"Syncing {len(queue)} queued actions")
     print()
-
-    success, failed = 0, 0
-    for i, item in enumerate(queue):
-        progress_bar(i + 1, len(queue), label="Syncing...")
-        result = api.post("/validate", item["data"])
-        if "error" not in result:
-            success += 1
-        else:
-            failed += 1
-
+    
+    success = 0
+    failed = 0
+    
+    with ProgressBar(total=len(queue), label="Processing...") as pb:
+        for i, item in enumerate(queue):
+            result = api.post("/validate", item["data"])
+            
+            if "error" not in result:
+                success += 1
+            else:
+                failed += 1
+            
+            pb.update(i + 1)
+    
     print()
-    print()
-
+    
     if success > 0:
-        ok(str(success) + " actions synced successfully")
+        ok(f"{success} actions synced successfully")
     if failed > 0:
-        fail(str(failed) + " actions failed")
-
+        fail(f"{failed} actions failed")
+    
     clear_queue()
     print()
 
 
-# ══════════════════════════════════════════════════════════════════
-# AUDIT — Generate signed audit report
-# ══════════════════════════════════════════════════════════════════
-
 def cmd_audit(args):
-    """Generate a signed audit report."""
-    api, cfg = _api()
-
-    with Spinner("Generating audit report..."):
-        stats  = api.get("/stats")
+    """Generate signed audit report."""
+    api, cfg = get_api()
+    
+    with Spinner("Generating audit report...") as sp:
+        stats = api.get("/stats")
         verify = api.get("/ledger/verify")
-        recent = api.get("/ledger?limit=5")
-
+        recent = api.get("/ledger?limit=10")
+    
     if "error" in stats:
-        print_error(stats)
+        fail(stats.get("error", "Unknown error"))
         return
-
+    
+    # Build report
     report = {
         "report_type": "nova_audit",
+        "version": "1.0",
         "generated_at": datetime.now().isoformat(),
-        "cli_version": NOVA_VERSION,
-        "server_url": cfg["api_url"],
+        "generator": f"nova-cli/{NOVA_VERSION}",
+        "server_url": cfg.get("api_url", ""),
+        "organization": cfg.get("org_name", ""),
         "stats": stats if "error" not in stats else {},
-        "chain_verified": verify.get("verified", False) if "error" not in verify else None,
+        "chain_verified": verify.get("verified") if "error" not in verify else None,
         "chain_records": verify.get("total_records", 0) if "error" not in verify else 0,
         "chain_hash": verify.get("chain_hash", "") if "error" not in verify else "",
         "recent_entries": recent if isinstance(recent, list) else [],
     }
-
+    
     # Sign the report
-    report_json = json.dumps(report, sort_keys=True)
-    report["signature"] = hashlib.sha256(report_json.encode()).hexdigest()
-
-    filename = "nova-audit-" + datetime.now().strftime("%Y%m%d-%H%M%S") + ".json"
-    with open(filename, "w", encoding="utf-8") as f:
-        json.dump(report, f, indent=2, ensure_ascii=False)
-
+    report_str = json.dumps(report, sort_keys=True)
+    report["signature"] = hashlib.sha256(report_str.encode()).hexdigest()
+    
+    # Save
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    filename = f"nova-audit-{timestamp}.json"
+    
+    Path(filename).write_text(
+        json.dumps(report, indent=2, ensure_ascii=False),
+        encoding="utf-8"
+    )
+    
+    file_size = Path(filename).stat().st_size
+    
     ok("Audit report generated")
     print()
-    kv("File",       filename, C.B7)
-    kv("Records",    str(report["chain_records"]))
-    kv("Chain",      "Verified" if report["chain_verified"] else "Unverified",
+    kv("File", filename, C.B7)
+    kv("Records", f"{report['chain_records']:,}")
+    kv("Chain", "Verified" if report["chain_verified"] else "Unverified",
        C.GRN if report["chain_verified"] else C.RED)
-    kv("Signature",  report["signature"][:32] + "...", C.G3)
-    kv("Size",       str(os.path.getsize(filename)) + " bytes", C.G2)
+    kv("Signature", report["signature"][:32] + "...", C.G3)
+    kv("Size", format_bytes(file_size), C.G2)
     print()
 
 
-# ══════════════════════════════════════════════════════════════════
-# WHOAMI — Current config summary
-# ══════════════════════════════════════════════════════════════════
-
-def cmd_whoami(args):
-    """Show current configuration identity."""
-    cfg = load_config()
-    api_key = cfg.get("api_key", "")
-    key_display = ("*" * 8 + api_key[-4:]) if len(api_key) >= 4 else ("not set" if not api_key else api_key)
-
-    print_logo(compact=True)
+def cmd_seed(args):
+    """Load demo data for testing."""
+    api, cfg = get_api()
+    
+    warn("This will insert demo agents and sample actions.")
     print()
-    kv("User",     cfg.get("user_name", "not set"), C.W)
-    kv("Server",   cfg.get("api_url", "not set"), C.B7)
-    kv("API Key",  key_display, C.G2)
-    kv("Agent",    (cfg.get("default_token", "")[:20] + "...") if cfg.get("default_token") else "none", C.G3)
-    kv("Language", "English" if cfg.get("lang", "en") == "en" else "Español", C.G2)
-    kv("Config",   CONFIG_FILE, C.G3)
-    kv("Version",  NOVA_VERSION, C.B6)
-
-    # Config validation
-    issues = validate_config(cfg)
-    if issues:
-        print()
-        for issue in issues:
-            warn(issue)
-
-    # Installed skills
-    installed = [k for k in SKILLS if skill_status(k) == "installed"]
-    if installed:
-        print()
-        kv("Skills", ", ".join(installed), C.GRN)
-
-    # Queue
-    queue = get_queue()
-    if queue:
-        print()
-        kv("Queued actions", str(len(queue)), C.YLW)
+    
+    if not confirm("Continue?"):
+        return
+    
+    with Spinner("Seeding demo data..."):
+        result = api.post("/demo/seed", {})
+    
+    if "error" in result:
+        fail(result.get("error", "Unknown error"))
+        return
+    
+    ok("Demo data loaded.")
+    kv("Agents", str(result.get("tokens", 0)), C.B7)
+    kv("Actions", str(result.get("actions", 0)))
+    kv("Memories", str(result.get("memories", 0)), C.B6)
+    print()
+    hint("Explore with:  " + q(C.B7, "nova status"))
     print()
 
 
-# ══════════════════════════════════════════════════════════════════
-# WEBHOOK TEST
-# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# SKILLS COMMANDS — Full interactive catalog
+# ══════════════════════════════════════════════════════════════════════════════
 
-def cmd_webhook_test(args):
-    """Test webhook connectivity."""
-    cfg = load_config()
-    url = cfg["api_url"] + "/webhook/" + cfg["api_key"]
-
-    test_payload = {
-        "action": "test action from nova CLI",
-        "token_id": cfg.get("default_token", "test"),
-        "_test": True,
-    }
-
-    with Spinner("Sending test webhook..."):
+def cmd_skill_browse(args):
+    """Interactive skill browser with arrow key navigation."""
+    while True:
+        print_logo(tagline=False)
+        print("  " + q(C.W, "Skills", bold=True) + "  " + q(C.GLD, "✦", bold=True) +
+              "  " + q(C.G2, "The Constellation"))
+        hr()
+        print()
+        print("  " + q(C.G1, "Skills give nova real-world context before every decision."))
+        print("  " + q(C.G2, "Each skill connects to an external system."))
+        print()
+        
+        # Build options
+        all_keys = list(SKILLS.keys())
+        installed = get_installed_skills()
+        
+        opts = []
+        descs = []
+        
+        for key in all_keys:
+            skill = SKILLS[key]
+            status = "[installed]" if key in installed else ""
+            opts.append(f"{skill['icon']}  {skill['name']} {status}")
+            descs.append(skill["description"])
+        
+        opts.append("← Back")
+        descs.append("Return to main menu")
+        
         try:
-            req = urllib.request.Request(
-                url,
-                data=json.dumps(test_payload).encode(),
-                headers={"Content-Type": "application/json"},
-                method="POST"
-            )
-            with urllib.request.urlopen(req, timeout=10) as r:
-                status = r.status
-                body = r.read().decode()[:200]
-        except urllib.error.HTTPError as e:
-            status = e.code
-            body = str(e)
-        except Exception as e:
-            status = 0
-            body = str(e)
-
-    if 200 <= status < 300:
-        ok("Webhook responding (" + str(status) + ")")
-        if body:
+            idx = _select(opts, descriptions=descs, default=0, show_index=True)
+        except KeyboardInterrupt:
             print()
-            print("  " + q(C.G2, "Response:"))
-            print("  " + q(C.G1, body))
+            break
+        
+        if idx == len(opts) - 1:
+            break
+        
+        # Selected a skill
+        skill_key = all_keys[idx]
+        _skill_detail_screen(skill_key)
+
+
+def _skill_detail_screen(skill_key):
+    """Show skill details and options."""
+    skill = SKILLS.get(skill_key)
+    if not skill:
+        return
+    
+    sc = get_skill_color(skill)
+    status = skill_status(skill_key)
+    data = load_skill(skill_key)
+    
+    print()
+    print("  " + q(sc, f"{skill['icon']}  {skill['name']}", bold=True) + 
+          "  " + q(C.G3, skill.get("category", "")))
+    hr()
+    print()
+    
+    print("  " + q(C.G1, skill.get("tagline", "")))
+    print()
+    
+    kv("Description", skill["description"])
+    kv("What it does", skill["what_it_does"], C.G2)
+    kv("MCP Server", skill.get("mcp", "—"), C.G3)
+    kv("Documentation", skill.get("docs_url", "—"), C.B7)
+    kv("Status", "✓ Installed" if status == "installed" else "Not installed",
+       C.GRN if status == "installed" else C.G2)
+    
+    if data and data.get("installed_at"):
+        kv("Installed", time_ago(data["installed_at"]), C.G3)
+    
+    # Required fields
+    section("Required Configuration")
+    
+    for field in skill.get("fields", []):
+        field_key = field["key"]
+        field_label = field["label"]
+        is_secret = field.get("secret", False)
+        
+        if data and data.get(field_key):
+            val = "•" * 8 if is_secret else data[field_key][:32]
+            status_str = q(C.GRN, val)
+        else:
+            status_str = q(C.G3, "not configured")
+        
+        kv(f"  {field_key}", status_str)
+    
+    print()
+    
+    # Options based on status
+    if status == "installed":
+        opts = ["View configuration", "Reconfigure", "Uninstall", "← Back"]
+        descs = [
+            "Show current field values",
+            "Update credentials and settings",
+            "Remove this skill",
+            "Return to skill list",
+        ]
     else:
-        fail("Webhook failed" + (" (" + str(status) + ")" if status else "") + ": " + body)
+        opts = ["Install", "View setup guide", "← Back"]
+        descs = [
+            f"Configure {skill['name']} integration",
+            "Step-by-step instructions",
+            "Return to skill list",
+        ]
+    
+    try:
+        choice = _select(opts, descriptions=descs, default=0)
+    except KeyboardInterrupt:
+        print()
+        return
+    
+    if status == "installed":
+        if choice == 0:
+            _skill_view_config(skill_key)
+        elif choice == 1:
+            _skill_install(skill_key, reconfigure=True)
+        elif choice == 2:
+            _skill_uninstall(skill_key)
+    else:
+        if choice == 0:
+            _skill_install(skill_key)
+        elif choice == 1:
+            _skill_setup_guide(skill_key)
+
+
+def _skill_view_config(skill_key):
+    """View skill configuration."""
+    skill = SKILLS.get(skill_key)
+    data = load_skill(skill_key)
+    
+    if not skill or not data:
+        return
+    
+    print()
+    section(f"Configuration: {skill['name']}")
+    
+    for field in skill.get("fields", []):
+        field_key = field["key"]
+        is_secret = field.get("secret", False)
+        val = data.get(field_key, "")
+        
+        if is_secret and val:
+            display = "•" * 8 + val[-4:] if len(val) > 4 else "•" * len(val)
+        else:
+            display = val or "(not set)"
+        
+        kv(f"  {field_key}", display, C.GRN if val else C.G3)
+    
+    print()
+    pause("go back")
+
+
+def _skill_setup_guide(skill_key):
+    """Show setup guide for a skill."""
+    skill = SKILLS.get(skill_key)
+    if not skill:
+        return
+    
+    print()
+    section(f"Setup Guide: {skill['name']}")
+    print()
+    
+    guide = skill.get("setup_guide", [])
+    for step in guide:
+        print("  " + q(C.G1, step))
+    
+    print()
+    print("  " + q(C.G2, "Documentation:"))
+    print("  " + q(C.B7, skill.get("docs_url", ""), underline=True))
+    print()
+    
+    pause("go back")
+
+
+def _skill_install(skill_key, reconfigure=False):
+    """Install or reconfigure a skill."""
+    skill = SKILLS.get(skill_key)
+    if not skill:
+        return
+    
+    existing = load_skill(skill_key) or {}
+    sc = get_skill_color(skill)
+    
+    print()
+    print("  " + q(C.B6, "✦") + "  " + 
+          q(C.W, "Step 1 of 2 — Get credentials", bold=True))
+    print()
+    print("  " + q(C.G2, "Set up access at:"))
+    print("  " + q(C.B7, skill.get("docs_url", ""), underline=True))
+    print()
+    
+    # Show setup guide
+    guide = skill.get("setup_guide", [])
+    if guide:
+        print("  " + q(C.G2, "Quick guide:"))
+        for step in guide[:3]:
+            print("  " + q(C.G3, f"  {step}"))
+        print()
+    
+    if not confirm("Do you have the credentials ready?", default=False):
+        print()
+        hint(f"Come back when ready:  nova skill add {skill_key}")
+        print()
+        return
+    
+    print()
+    print("  " + q(C.B6, "✦") + "  " + 
+          q(C.W, "Step 2 of 2 — Configure", bold=True))
+    print()
+    
+    data = dict(existing)
+    
+    for field in skill.get("fields", []):
+        field_key = field["key"]
+        field_label = field["label"]
+        field_desc = field.get("description", "")
+        is_secret = field.get("secret", False)
+        is_required = field.get("required", True)
+        
+        current = existing.get(field_key, "")
+        hint_text = "•" * 6 if (is_secret and current) else current[:20] if current else ""
+        
+        print("  " + q(C.G2, field_desc))
+        value = prompt(
+            field_label,
+            default=hint_text if not is_secret else "",
+            secret=is_secret,
+            required=is_required
+        )
+        
+        data[field_key] = value or current
+        print()
+    
+    # Verify
+    with Spinner("Verifying configuration...") as sp:
+        time.sleep(0.5)  # Simulate verification
+    
+    # Check required fields
+    missing = []
+    for field in skill.get("fields", []):
+        if field.get("required") and not data.get(field["key"]):
+            missing.append(field["key"])
+    
+    if missing:
+        warn(f"Missing required fields: {', '.join(missing)}")
+        data["status"] = "incomplete"
+    else:
+        ok(f"{skill['name']} configured successfully")
+        data["status"] = "installed"
+    
+    data["installed_at"] = datetime.now().isoformat()
+    data["skill_version"] = "1.0.0"
+    save_skill(skill_key, data)
+    
+    print()
+    
+    box([
+        f"  {skill['icon']}  {skill['name']} connected to nova",
+        "",
+        f"  {skill['what_it_does']}",
+    ], sc, title=skill.get("category", ""))
+    
+    print()
+    hint(f"View details:  nova skill info {skill_key}")
     print()
 
 
-# ══════════════════════════════════════════════════════════════════
-# COMPLETION — Shell autocompletion
-# ══════════════════════════════════════════════════════════════════
+def _skill_uninstall(skill_key):
+    """Uninstall a skill."""
+    skill = SKILLS.get(skill_key)
+    if not skill:
+        return
+    
+    print()
+    warn(f"This will remove {skill['name']} credentials from this machine.")
+    print()
+    
+    if not confirm("Continue?", default=False):
+        return
+    
+    path = SKILLS_DIR / f"{skill_key}.json"
+    if path.exists():
+        path.unlink()
+    
+    ok(f"{skill['name']} uninstalled.")
+    print()
+
+
+def cmd_skill_add(args):
+    """Add a skill interactively or by name."""
+    skill_name = getattr(args, "third", "") or args.subcommand or ""
+    
+    if skill_name in ("add", "install", "remove", "list", "info", ""):
+        skill_name = getattr(args, "third", "") or ""
+    
+    skill_name = skill_name.lower().strip()
+    
+    if not skill_name:
+        cmd_skill_browse(args)
+        return
+    
+    if skill_name not in SKILLS:
+        fail(f"Skill '{skill_name}' not found.")
+        hint("Available: " + ", ".join(SKILLS.keys()))
+        return
+    
+    _skill_install(skill_name)
+
+
+def cmd_skill_info(args):
+    """Show skill information."""
+    skill_name = getattr(args, "third", "") or args.subcommand or ""
+    
+    if skill_name in ("info", "add", "list", "remove", ""):
+        skill_name = getattr(args, "third", "") or ""
+    
+    if not skill_name or skill_name not in SKILLS:
+        fail(f"Skill not found: {skill_name or '?'}")
+        hint("Available: " + ", ".join(SKILLS.keys()))
+        return
+    
+    _skill_detail_screen(skill_name)
+
+
+def cmd_skill_remove(args):
+    """Remove an installed skill."""
+    skill_name = getattr(args, "third", "") or args.subcommand or ""
+    
+    if skill_name in ("remove", "delete", ""):
+        skill_name = getattr(args, "third", "") or ""
+    
+    skill_name = skill_name.lower().strip()
+    
+    if not skill_name or skill_name not in SKILLS:
+        fail("Specify a valid skill name.")
+        hint("Installed: " + ", ".join(get_installed_skills()) or "none")
+        return
+    
+    if skill_status(skill_name) != "installed":
+        warn(f"{skill_name} is not installed.")
+        return
+    
+    _skill_uninstall(skill_name)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# API KEYS COMMANDS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def cmd_keys(args):
+    """Manage API keys."""
+    sub = args.subcommand or ""
+    
+    if sub == "create" or sub == "new":
+        _keys_create()
+    elif sub == "delete" or sub == "remove":
+        _keys_delete()
+    elif sub == "use" or sub == "switch":
+        _keys_switch()
+    else:
+        _keys_list()
+
+
+def _keys_list():
+    """List all saved API keys."""
+    data = load_keys()
+    keys = data.get("keys", [])
+    active = data.get("active", "")
+    
+    if not keys:
+        warn("No API keys saved.")
+        hint("Create one with:  " + q(C.B7, "nova keys create"))
+        return
+    
+    section("API Keys", f"{len(keys)} saved")
+    
+    for key_entry in keys:
+        key_val = key_entry.get("key", "")
+        key_name = key_entry.get("name", "Unnamed")
+        key_id = key_entry.get("id", "")[:8]
+        is_active = key_val == active
+        created = time_ago(key_entry.get("created_at", ""))
+        last_used = time_ago(key_entry.get("last_used", ""))
+        
+        badge = "  " + q(C.GRN, "active") if is_active else ""
+        
+        print()
+        print("  " + q(C.W, key_name, bold=True) + badge)
+        kv("  Key", mask_key(key_val), C.B6)
+        kv("  ID", key_id, C.G3)
+        kv("  Created", created, C.G3)
+        if last_used:
+            kv("  Last used", last_used, C.G3)
+    
+    print()
+    dim("nova keys use     — switch active key")
+    dim("nova keys create  — generate new key")
+    dim("nova keys delete  — remove a key")
+    print()
+
+
+def _keys_create():
+    """Create a new API key."""
+    print()
+    print("  " + q(C.W, "Create new API key", bold=True))
+    print()
+    
+    opts = ["Generate automatically", "Enter manually"]
+    descs = [
+        "nova creates a secure random key",
+        "Paste from another source",
+    ]
+    
+    try:
+        choice = _select(opts, descriptions=descs, default=0)
+    except KeyboardInterrupt:
+        print()
+        return
+    
+    if choice == 0:
+        key = generate_api_key("nova")
+        name = prompt("Key name", default=f"Key {len(load_keys().get('keys', [])) + 1}")
+    else:
+        print()
+        key = prompt("API Key", secret=True, required=True)
+        if not key:
+            warn("No key entered.")
+            return
+        name = prompt("Key name", default="Imported key")
+    
+    entry = add_api_key(key, name=name)
+    
+    print()
+    ok(f"API key created: {q(C.B7, name)}")
+    print()
+    print("  " + q(C.G2, "Your key:"))
+    print()
+    print("    " + q(C.B7, key, bold=True))
+    print()
+    warn("Save this key securely — it won't be shown again.")
+    print()
+    
+    # Copy to clipboard
+    if confirm("Copy to clipboard?", default=False):
+        if _copy_to_clipboard(key):
+            ok("Copied to clipboard")
+        else:
+            warn("Could not copy — please copy manually")
+    
+    # Set as active
+    if confirm("Set as active key?", default=True):
+        set_active_key(key)
+        cfg = load_config()
+        cfg["api_key"] = key
+        save_config(cfg)
+        ok("Now using this key")
+    
+    print()
+
+
+def _keys_delete():
+    """Delete an API key."""
+    data = load_keys()
+    keys = data.get("keys", [])
+    
+    if not keys:
+        warn("No keys to delete.")
+        return
+    
+    print()
+    print("  " + q(C.W, "Select key to delete:", bold=True))
+    print()
+    
+    opts = [f"{k['name']}  {mask_key(k['key'])}" for k in keys]
+    opts.append("← Cancel")
+    
+    try:
+        idx = _select(opts, default=len(opts) - 1)
+    except KeyboardInterrupt:
+        print()
+        return
+    
+    if idx == len(opts) - 1:
+        return
+    
+    key_entry = keys[idx]
+    
+    if not confirm(f"Delete '{key_entry['name']}'?", default=False):
+        return
+    
+    if delete_api_key(key_entry.get("id", "")):
+        ok("Key deleted.")
+    else:
+        fail("Could not delete key.")
+    
+    print()
+
+
+def _keys_switch():
+    """Switch active API key."""
+    data = load_keys()
+    keys = data.get("keys", [])
+    active = data.get("active", "")
+    
+    if not keys:
+        warn("No keys available.")
+        return
+    
+    print()
+    print("  " + q(C.W, "Select key to use:", bold=True))
+    print()
+    
+    opts = []
+    for k in keys:
+        is_active = k["key"] == active
+        status = " (active)" if is_active else ""
+        opts.append(f"{k['name']}{status}  {mask_key(k['key'])}")
+    
+    opts.append("← Cancel")
+    
+    try:
+        idx = _select(opts, default=len(opts) - 1)
+    except KeyboardInterrupt:
+        print()
+        return
+    
+    if idx == len(opts) - 1:
+        return
+    
+    key_entry = keys[idx]
+    set_active_key(key_entry["key"])
+    
+    # Update config
+    cfg = load_config()
+    cfg["api_key"] = key_entry["key"]
+    save_config(cfg)
+    
+    ok(f"Now using: {key_entry['name']}")
+    print()
+
+
+def _copy_to_clipboard(text):
+    """Copy text to clipboard (cross-platform)."""
+    try:
+        if IS_MAC:
+            subprocess.run(["pbcopy"], input=text.encode(), check=True)
+            return True
+        elif IS_WINDOWS:
+            subprocess.run(["clip"], input=text.encode(), check=True)
+            return True
+        else:
+            # Try xclip, xsel, or wl-copy
+            for cmd in [["xclip", "-selection", "clipboard"],
+                        ["xsel", "--clipboard", "--input"],
+                        ["wl-copy"]]:
+                try:
+                    subprocess.run(cmd, input=text.encode(), check=True)
+                    return True
+                except FileNotFoundError:
+                    continue
+    except Exception as e:
+        debug(f"Clipboard error: {e}")
+    
+    return False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CONFIG COMMAND — Interactive configuration hub
+# ══════════════════════════════════════════════════════════════════════════════
+
+def cmd_config(args):
+    """Interactive configuration hub."""
+    while True:
+        cfg = load_config()
+        api_url = cfg.get("api_url", "http://localhost:8000")
+        api_key = cfg.get("api_key", "")
+        keys_data = load_keys()
+        num_keys = len(keys_data.get("keys", []))
+        installed_skills = get_installed_skills()
+        
+        # Test connection
+        api = NovaAPI(api_url, api_key)
+        connected = api.health_check()
+        
+        # Display current state
+        print_logo(compact=True)
+        hr()
+        print()
+        
+        kv("  Server", api_url[:40], C.B7 if connected else C.YLW)
+        kv("  Status", "Connected" if connected else "Unreachable",
+           C.GRN if connected else C.YLW)
+        kv("  API Key", mask_key(api_key), C.G2)
+        kv("  Saved Keys", str(num_keys), C.G2)
+        kv("  Skills", f"{len(installed_skills)}/{len(SKILLS)}", 
+           C.GRN if installed_skills else C.G2)
+        
+        # Validation warnings
+        issues = validate_config(cfg)
+        if issues:
+            print()
+            for issue in issues:
+                warn(issue)
+        
+        print()
+        hr()
+        print()
+        
+        # Menu options
+        opts = [
+            "Server",
+            "API Keys",
+            "Skills",
+            "Templates",
+            "Profiles",
+            "Preferences",
+            "About",
+            "Reset",
+            "Exit",
+        ]
+        
+        descs = [
+            "Update server URL",
+            f"Manage API keys ({num_keys} saved)",
+            f"Browse integrations ({len(installed_skills)} installed)",
+            "Pre-built agent rule sets",
+            "Switch environments (dev/staging/prod)",
+            "Language, theme, telemetry",
+            "Version, docs, changelog",
+            "Clear all nova data",
+            "Return to command line",
+        ]
+        
+        try:
+            choice = _select(opts, descriptions=descs, default=0)
+        except KeyboardInterrupt:
+            print()
+            break
+        
+        if choice == 8:  # Exit
+            break
+        
+        if choice == 0:  # Server
+            _config_server(cfg)
+        
+        elif choice == 1:  # API Keys
+            cmd_keys(args)
+        
+        elif choice == 2:  # Skills
+            cmd_skill_browse(args)
+        
+        elif choice == 3:  # Templates
+            _config_templates()
+        
+        elif choice == 4:  # Profiles
+            _config_profiles()
+        
+        elif choice == 5:  # Preferences
+            _config_preferences(cfg)
+        
+        elif choice == 6:  # About
+            _config_about()
+        
+        elif choice == 7:  # Reset
+            _config_reset()
+            break
+        
+        print()
+
+
+def _config_server(cfg):
+    """Configure server connection."""
+    print()
+    section("Server Configuration")
+    
+    current_url = cfg.get("api_url", "http://localhost:8000")
+    kv("Current URL", current_url, C.B7)
+    
+    # Test current connection
+    api = NovaAPI(current_url, cfg.get("api_key", ""))
+    connected = api.health_check()
+    kv("Status", "Connected" if connected else "Unreachable",
+       C.GRN if connected else C.RED)
+    
+    print()
+    
+    try:
+        new_url = prompt(
+            "New URL (Enter to keep)",
+            default=current_url,
+            validator=lambda x: True if x.startswith(("http://", "https://"))
+                                else "URL must start with http:// or https://"
+        )
+        
+        if new_url and new_url != current_url:
+            cfg["api_url"] = new_url
+            save_config(cfg)
+            ok("Server URL updated.")
+            
+            # Test new connection
+            api = NovaAPI(new_url, cfg.get("api_key", ""))
+            if api.health_check():
+                ok("Connection verified.")
+            else:
+                warn("Could not connect to new server.")
+    
+    except (EOFError, KeyboardInterrupt):
+        pass
+
+
+def _config_templates():
+    """Browse rule templates."""
+    print()
+    section("Rule Templates")
+    print("  " + q(C.G1, "Pre-built rule sets for common agent patterns."))
+    print("  " + q(C.G2, f"Use with:  nova agent create"))
+    print()
+    
+    for key, template in RULE_TEMPLATES.items():
+        print("  " + q(C.B6, template.get("icon", "●")) + "  " + 
+              q(C.W, template["label"], bold=True))
+        print("       " + q(C.G2, template["description"]))
+        print()
+        
+        # Show preview of rules
+        can_preview = ", ".join(template["can_do"][:2])
+        cannot_preview = ", ".join(template["cannot_do"][:2])
+        print("       " + q(C.GRN, "✓") + " " + q(C.G3, can_preview + "..."))
+        print("       " + q(C.RED, "✗") + " " + q(C.G3, cannot_preview + "..."))
+        print()
+    
+    pause("go back")
+
+
+def _config_profiles():
+    """Manage configuration profiles."""
+    profiles_data = load_profiles()
+    profiles = profiles_data.get("profiles", {})
+    active = profiles_data.get("active", "default")
+    
+    print()
+    section("Profiles", f"{len(profiles)} available")
+    print("  " + q(C.G2, "Switch between environments (dev/staging/prod)"))
+    print()
+    
+    for name, profile in profiles.items():
+        is_active = name == active
+        badge = "  " + q(C.GRN, "active") if is_active else ""
+        
+        print("  " + q(C.W, profile.get("name", name), bold=True) + badge)
+        kv("    URL", profile.get("api_url", "—"), C.G3)
+        if profile.get("description"):
+            kv("    Description", profile["description"], C.G3)
+        print()
+    
+    opts = list(profiles.keys()) + ["Create new profile", "← Back"]
+    
+    try:
+        idx = _select(opts, default=len(opts) - 1)
+    except KeyboardInterrupt:
+        print()
+        return
+    
+    if idx == len(opts) - 1:  # Back
+        return
+    
+    if idx == len(opts) - 2:  # Create new
+        print()
+        name = prompt("Profile name", required=True)
+        if not name:
+            return
+        
+        url = prompt("Server URL", default="http://localhost:8000")
+        desc = prompt("Description (optional)")
+        
+        profiles_data["profiles"][name.lower().replace(" ", "-")] = {
+            "name": name,
+            "api_url": url,
+            "description": desc,
+        }
+        save_profiles(profiles_data)
+        ok(f"Profile '{name}' created.")
+    
+    else:  # Switch to profile
+        profile_key = opts[idx]
+        switch_profile(profile_key)
+        ok(f"Switched to profile: {profile_key}")
+    
+    print()
+
+
+def _config_preferences(cfg):
+    """Configure preferences."""
+    print()
+    section("Preferences")
+    
+    # Language
+    lang = cfg.get("lang", "en")
+    kv("Language", "English" if lang == "en" else "Español", C.W)
+    
+    print()
+    
+    try:
+        lang_idx = _select(["English", "Español"], 
+                           default=0 if lang == "en" else 1)
+        cfg["lang"] = "en" if lang_idx == 0 else "es"
+        save_config(cfg)
+        ok("Preferences saved.")
+    except (EOFError, KeyboardInterrupt):
+        pass
+
+
+def _config_about():
+    """Show about information."""
+    print()
+    section("About nova")
+    
+    kv("Version", NOVA_VERSION, C.B6)
+    kv("Build", NOVA_BUILD, C.G3)
+    kv("Codename", NOVA_CODENAME, C.G2)
+    kv("Platform", f"{PLATFORM} ({platform.machine()})", C.G3)
+    kv("Python", platform.python_version(), C.G3)
+    kv("Config", str(CONFIG_FILE), C.G3)
+    
+    print()
+    kv("Documentation", "https://github.com/Santiagorubioads/nova-os", C.B7)
+    kv("Support", "https://nova-os.com/support", C.B7)
+    kv("Terms", "https://nova-os.com/terms", C.G3)
+    
+    # Changelog highlights
+    print()
+    print("  " + q(C.G2, f"What's new in {NOVA_VERSION}:"))
+    print()
+    
+    features = [
+        "Ghost writing animations for premium feel",
+        "Full arrow-key navigation throughout",
+        "Rule templates for quick agent setup",
+        "Live ledger watch mode",
+        "Offline queue with automatic sync",
+        "Enterprise API key management",
+        "Multi-profile support (dev/staging/prod)",
+        "Signed audit report generation",
+        "Shell autocompletion (bash/zsh/fish)",
+    ]
+    
+    for feature in features:
+        print("    " + q(C.B6, "·") + "  " + q(C.G1, feature))
+    
+    print()
+    pause("go back")
+
+
+def _config_reset():
+    """Reset all nova data."""
+    print()
+    warn("This will erase ALL nova data including:")
+    print()
+    bullet("Configuration and preferences", C.G1)
+    bullet("All saved API keys", C.G1)
+    bullet("Installed skills", C.G1)
+    bullet("Profiles", C.G1)
+    bullet("Offline queue", C.G1)
+    print()
+    
+    if not confirm_danger("Are you sure?", confirm_text="RESET"):
+        info("Reset cancelled.")
+        return
+    
+    # Remove nova directory
+    if NOVA_DIR.exists():
+        shutil.rmtree(NOVA_DIR)
+    
+    ok("nova has been reset.")
+    hint("Run  " + q(C.B7, "nova init") + "  to start fresh.")
+    print()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# HELP COMMAND
+# ══════════════════════════════════════════════════════════════════════════════
+
+def cmd_help(args=None):
+    """Display comprehensive help."""
+    print_logo()
+    
+    print("  " + q(C.G1, "Enterprise-grade governance infrastructure for AI agents."))
+    print()
+    hr()
+    print()
+    
+    # Command sections
+    sections = [
+        ("Getting Started", [
+            ("init", "First-run setup wizard"),
+            ("status", "System health and metrics"),
+            ("config", "Interactive settings hub"),
+            ("whoami", "Current identity and config"),
+        ]),
+        ("Agents", [
+            ("agent create", "Create agent with rules"),
+            ("agent list", "List all agents"),
+        ]),
+        ("Validation", [
+            ("validate", "Validate an action"),
+            ("test", "Dry-run validation"),
+        ]),
+        ("Memory", [
+            ("memory save", "Store agent context"),
+            ("memory list", "View agent memories"),
+        ]),
+        ("Ledger", [
+            ("ledger", "View action history"),
+            ("verify", "Check chain integrity"),
+            ("watch", "Live stream entries"),
+            ("export", "Export to JSON/CSV"),
+            ("audit", "Generate audit report"),
+        ]),
+        ("API Keys", [
+            ("keys", "List saved keys"),
+            ("keys create", "Generate new key"),
+            ("keys use", "Switch active key"),
+        ]),
+        ("Skills", [
+            ("skill", "Browse catalog (↑↓)"),
+            ("skill add <name>", "Install a skill"),
+            ("skill info <name>", "View skill details"),
+        ]),
+        ("System", [
+            ("sync", "Process offline queue"),
+            ("seed", "Load demo data"),
+            ("alerts", "View pending alerts"),
+        ]),
+    ]
+    
+    for section_title, commands in sections:
+        print("  " + q(C.G2, section_title.upper()))
+        print()
+        
+        for cmd, desc in commands:
+            print("    " + q(C.B7, cmd.ljust(20), bold=True) + q(C.G2, desc))
+        
+        print()
+    
+    hr()
+    print()
+    
+    # Aliases
+    print("  " + q(C.G2, "Aliases") + "  " + 
+          q(C.G3, "s=status  v=validate  a=agent  c=config  l=ledger  w=watch"))
+    print()
+    
+    # Examples
+    print("  " + q(C.G2, "Examples"))
+    print()
+    
+    examples = [
+        'nova validate --action "Send email to john@example.com"',
+        "nova ledger --limit 50 --verdict BLOCKED",
+        "nova export --format csv --limit 1000",
+        "nova watch --interval 5",
+        "nova skill add slack",
+    ]
+    
+    for ex in examples:
+        print("    " + q(C.G3, "$ ") + q(C.W, ex))
+    
+    print()
+    
+    # Debug mode
+    print("  " + q(C.G2, "Debug mode") + "  " + q(C.G3, "NOVA_DEBUG=1 nova status"))
+    print()
+    
+    # Links
+    print("  " + q(C.G3, "Docs: ") + 
+          q(C.B7, "https://github.com/Santiagorubioads/nova-os", underline=True))
+    print()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SHELL COMPLETION
+# ══════════════════════════════════════════════════════════════════════════════
 
 def cmd_completion(args):
-    """Generate shell completion script."""
+    """Generate shell completion scripts."""
     shell = args.subcommand or ""
+    
     if not shell:
-        # Try to detect shell
+        # Auto-detect shell
         shell_path = os.environ.get("SHELL", "")
         if "zsh" in shell_path:
             shell = "zsh"
@@ -2111,973 +4997,282 @@ def cmd_completion(args):
             shell = "fish"
         else:
             shell = "bash"
-
-    commands = "init status config agent validate memory ledger skill help " \
-               "watch replay diff export simulate sync audit whoami test " \
-               "seed alerts verify webhook completion"
-    sub_agent  = "create list"
-    sub_memory = "save list"
-    sub_skill  = "add remove info list"
-
+    
+    commands = [
+        "init", "status", "config", "whoami",
+        "agent", "validate", "test",
+        "memory", "ledger", "verify", "watch", "export", "audit",
+        "keys", "skill", "sync", "seed", "alerts", "help", "completion"
+    ]
+    
     if shell == "bash":
-        print("""
+        print(f"""
 # nova CLI bash completion
 # Add to ~/.bashrc: eval "$(nova completion bash)"
-_nova_completions() {
-    local cur="${COMP_WORDS[COMP_CWORD]}"
-    local prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+_nova_completions() {{
+    local cur="${{COMP_WORDS[COMP_CWORD]}}"
+    local prev="${{COMP_WORDS[COMP_CWORD-1]}}"
+    
     case "$prev" in
-        agent)  COMPREPLY=($(compgen -W \"""" + sub_agent + """\" -- "$cur"));;
-        memory) COMPREPLY=($(compgen -W \"""" + sub_memory + """\" -- "$cur"));;
-        skill)  COMPREPLY=($(compgen -W \"""" + sub_skill + """\" -- "$cur"));;
-        *)      COMPREPLY=($(compgen -W \"""" + commands + """\" -- "$cur"));;
+        agent)
+            COMPREPLY=($(compgen -W "create list" -- "$cur"))
+            ;;
+        memory)
+            COMPREPLY=($(compgen -W "save list" -- "$cur"))
+            ;;
+        skill)
+            COMPREPLY=($(compgen -W "add remove info list" -- "$cur"))
+            ;;
+        keys)
+            COMPREPLY=($(compgen -W "create delete use list" -- "$cur"))
+            ;;
+        completion)
+            COMPREPLY=($(compgen -W "bash zsh fish" -- "$cur"))
+            ;;
+        *)
+            COMPREPLY=($(compgen -W "{' '.join(commands)}" -- "$cur"))
+            ;;
     esac
-}
+}}
 complete -F _nova_completions nova
 """.strip())
+    
     elif shell == "zsh":
-        print("""
+        print(f"""
 # nova CLI zsh completion
 # Add to ~/.zshrc: eval "$(nova completion zsh)"
-_nova() {
+
+_nova() {{
     local -a commands=(
         'init:First-run setup'
-        'status:System health and metrics'
-        'config:Skills, server, preferences'
+        'status:System health'
+        'config:Settings hub'
+        'whoami:Current identity'
         'agent:Agent management'
-        'validate:Validate an action'
+        'validate:Validate action'
         'test:Dry-run validation'
         'memory:Agent memory'
         'ledger:Action history'
-        'skill:Skill catalog'
-        'watch:Live ledger tail'
-        'replay:Re-evaluate past action'
-        'diff:Compare agents'
+        'verify:Check integrity'
+        'watch:Live stream'
         'export:Export ledger'
-        'simulate:Batch testing'
-        'sync:Process offline queue'
-        'audit:Generate audit report'
-        'whoami:Current config'
+        'audit:Generate report'
+        'keys:API key management'
+        'skill:Skill catalog'
+        'sync:Process queue'
+        'seed:Load demo data'
+        'alerts:View alerts'
         'help:Show help'
     )
+    
     _describe 'commands' commands
-}
+}}
 compdef _nova nova
 """.strip())
+    
     elif shell == "fish":
         print("""
 # nova CLI fish completion
 # Save to ~/.config/fish/completions/nova.fish
+
 complete -c nova -n __fish_use_subcommand -a init -d 'First-run setup'
 complete -c nova -n __fish_use_subcommand -a status -d 'System health'
-complete -c nova -n __fish_use_subcommand -a config -d 'Configuration'
+complete -c nova -n __fish_use_subcommand -a config -d 'Settings hub'
+complete -c nova -n __fish_use_subcommand -a whoami -d 'Current identity'
 complete -c nova -n __fish_use_subcommand -a agent -d 'Agent management'
 complete -c nova -n __fish_use_subcommand -a validate -d 'Validate action'
 complete -c nova -n __fish_use_subcommand -a test -d 'Dry-run validation'
 complete -c nova -n __fish_use_subcommand -a memory -d 'Agent memory'
 complete -c nova -n __fish_use_subcommand -a ledger -d 'Action history'
-complete -c nova -n __fish_use_subcommand -a skill -d 'Skill catalog'
-complete -c nova -n __fish_use_subcommand -a watch -d 'Live ledger tail'
+complete -c nova -n __fish_use_subcommand -a verify -d 'Check integrity'
+complete -c nova -n __fish_use_subcommand -a watch -d 'Live stream'
 complete -c nova -n __fish_use_subcommand -a export -d 'Export ledger'
-complete -c nova -n __fish_use_subcommand -a whoami -d 'Current config'
+complete -c nova -n __fish_use_subcommand -a audit -d 'Generate report'
+complete -c nova -n __fish_use_subcommand -a keys -d 'API keys'
+complete -c nova -n __fish_use_subcommand -a skill -d 'Skill catalog'
+complete -c nova -n __fish_use_subcommand -a sync -d 'Process queue'
+complete -c nova -n __fish_use_subcommand -a seed -d 'Demo data'
+complete -c nova -n __fish_use_subcommand -a alerts -d 'View alerts'
 complete -c nova -n __fish_use_subcommand -a help -d 'Show help'
+
+complete -c nova -n '__fish_seen_subcommand_from agent' -a 'create list'
+complete -c nova -n '__fish_seen_subcommand_from memory' -a 'save list'
+complete -c nova -n '__fish_seen_subcommand_from skill' -a 'add remove info list'
+complete -c nova -n '__fish_seen_subcommand_from keys' -a 'create delete use list'
 """.strip())
+    
     else:
-        fail("Unknown shell: " + shell)
-        info("Supported: bash, zsh, fish")
+        fail(f"Unknown shell: {shell}")
+        hint("Supported: bash, zsh, fish")
 
 
-# ══════════════════════════════════════════════════════════════════
-# CONFIG HUB
-# ══════════════════════════════════════════════════════════════════
-
-def cmd_config(args):
-    """Interactive configuration hub."""
-    while True:
-        cfg       = load_config()
-        api_url   = cfg.get("api_url", "http://localhost:8000")
-        api_key   = cfg.get("api_key", "")
-        installed = [k for k in SKILLS if skill_status(k) == "installed"]
-
-        connected = False
-        try:
-            h = NovaAPI(api_url, api_key).get("/health")
-            connected = "error" not in h
-        except Exception:
-            pass
-
-        key_display = ("*" * 8 + api_key[-4:]) if len(api_key) >= 4 else ("not set" if not api_key else api_key)
-        srv_status  = ("connected" if connected else "unreachable")
-        skill_count = str(len(installed)) + "/" + str(len(SKILLS)) + " installed"
-
-        print_logo(compact=True)
-        print("  " + q(C.G3, "─" * 52))
-        print()
-        kv("  Server",  api_url[:38], C.B7 if connected else C.YLW)
-        kv("  Status",  srv_status,   C.GRN if connected else C.YLW)
-        kv("  API Key", key_display,  C.G2)
-        kv("  Skills",  skill_count,  C.GRN if installed else C.G2)
-        print()
-
-        # Config validation warnings
-        issues = validate_config(cfg)
-        if issues:
-            for issue in issues:
-                warn(issue)
-            print()
-
-        print("  " + q(C.G3, "─" * 52))
-        print()
-
-        opts = [
-            "Server        — update URL",
-            "API Key       — update credentials",
-            "Skills        — install integrations",
-            "Templates     — pre-built agent rules",
-            "Preferences   — language",
-            "About         — version, docs",
-            "Reset         — clear all settings",
-            "Exit",
-        ]
-
-        try:
-            choice = _select(opts, default=0)
-        except KeyboardInterrupt:
-            print(); break
-
-        if choice == 7:  # Exit
-            break
-
-        if choice == 0:  # Server
-            print()
-            section("Server")
-            kv("URL", api_url, C.B7)
-            kv("Status", "Connected" if connected else "Unreachable",
-               C.GRN if connected else C.RED)
-            print()
-            try:
-                new_url = prompt("New URL (Enter to keep)", api_url)
-                if new_url and new_url != api_url:
-                    cfg["api_url"] = new_url
-                    save_config(cfg)
-                    ok("Server URL updated.")
-            except (EOFError, KeyboardInterrupt):
-                pass
-
-        elif choice == 1:  # API Key
-            print()
-            section("API Key")
-            kv("Current", key_display, C.G2)
-            print()
-            try:
-                import getpass
-                print("  " + q(C.B6, "?") + "  " + q(C.G1, "New API Key (Enter to keep)") +
-                      "  ", end="", flush=True)
-                new_key = getpass.getpass("").strip()
-                if new_key:
-                    cfg["api_key"] = new_key
-                    save_config(cfg)
-                    ok("API Key updated.")
-            except (EOFError, KeyboardInterrupt):
-                pass
-
-        elif choice == 2:  # Skills
-            _config_skills_hub()
-
-        elif choice == 3:  # Templates
-            _config_templates_hub()
-
-        elif choice == 4:  # Preferences
-            print()
-            section("Preferences")
-            lang = cfg.get("lang", "en")
-            kv("Language", "English" if lang == "en" else "Español", C.W)
-            print()
-            try:
-                lang_idx = _select(["English", "Español"],
-                                   default=0 if lang == "en" else 1)
-                cfg["lang"] = "en" if lang_idx == 0 else "es"
-                save_config(cfg)
-                ok("Saved.")
-            except (EOFError, KeyboardInterrupt):
-                pass
-
-        elif choice == 5:  # About
-            print()
-            section("About nova")
-            kv("Version", NOVA_VERSION, C.B6)
-            kv("Config",  CONFIG_FILE,  C.G2)
-            kv("Skills",  skill_count,  C.G2)
-            kv("Docs",    "https://github.com/Santiagorubioads/nova-os", C.B7)
-            kv("Support", "https://nova-os.com/support", C.B7)
-            print()
-            # Show changelog highlights
-            print("  " + q(C.G2, "What's new in " + NOVA_VERSION + ":"))
-            for item in [
-                "Animated spinners for all async operations",
-                "Rule templates for quick agent setup",
-                "Live ledger watch mode",
-                "Batch simulation from file",
-                "Offline queue with automatic sync",
-                "Shell autocompletion (bash/zsh/fish)",
-                "Audit report generation with signatures",
-                "Agent diff comparison",
-                "Sparkline visualizations",
-            ]:
-                print("    " + q(C.B6, "·") + "  " + q(C.G1, item))
-            print()
-            _pause("go back")
-
-        elif choice == 6:  # Reset
-            print()
-            warn("This will erase all local nova config and installed skills.")
-            print()
-            try:
-                idx = _select(["Cancel", "Yes, reset everything"], default=0)
-                if idx == 1:
-                    import shutil
-                    shutil.rmtree(NOVA_DIR, ignore_errors=True)
-                    ok("nova reset. Run " + q(C.B7, "nova init") + " to start fresh.")
-                    print()
-                    break
-            except (EOFError, KeyboardInterrupt):
-                pass
-        print()
-
-
-def _config_templates_hub():
-    """Browse and preview rule templates."""
-    print()
-    section("Rule Templates")
-    print("  " + q(C.G1, "Pre-built rule sets for common agent patterns."))
-    print("  " + q(C.G2, "Use them with  " + q(C.B7, "nova agent create")))
-    print()
-
-    for key, tpl in RULE_TEMPLATES.items():
-        print("  " + q(C.B6, "●") + "  " + q(C.W, tpl["label"], bold=True) +
-              "  " + q(C.G2, tpl["desc"]))
-        can_preview = ", ".join(tpl["can_do"][:2]) + ("..." if len(tpl["can_do"]) > 2 else "")
-        cant_preview = ", ".join(tpl["cannot_do"][:2]) + ("..." if len(tpl["cannot_do"]) > 2 else "")
-        print("       " + q(C.GRN, "✓ ") + q(C.G2, can_preview))
-        print("       " + q(C.RED, "✗ ") + q(C.G2, cant_preview))
-        print()
-
-    _pause("go back")
-
-
-def _config_skills_hub():
-    """Skills hub — arrow-key browsable catalog."""
-    while True:
-        all_keys = list(SKILLS.keys())
-
-        print()
-        print_logo(compact=True)
-        print("  " + q(C.W, "Skills  ", bold=True) + q(C.B6, "✦") +
-              "  " + q(C.G2, "The Constellation"))
-        print("  " + q(C.G3, "─" * 52))
-        print()
-        print("  " + q(C.G1, "  Skills give nova real-world context before every decision."))
-        print("  " + q(C.G2, "  Install what you need. Nothing else runs."))
-        print()
-
-        opts = []
-        for k in all_keys:
-            s   = SKILLS[k]
-            st  = skill_status(k)
-            tag = " [installed]" if st == "installed" else ""
-            opts.append(s["icon"] + "  " + s["name"].ljust(14) + tag + "  " + s["desc"][:28])
-        opts.append("Back")
-
-        try:
-            idx = _select(opts, default=0)
-        except KeyboardInterrupt:
-            print(); break
-
-        if idx == len(opts) - 1:
-            break
-
-        name = all_keys[idx]
-        fake = type("A", (), {"third": name, "subcommand": "add",
-                              "agent": "", "reconfigure": False})()
-        cmd_skill_add(fake)
-
-
-# ══════════════════════════════════════════════════════════════════
-# SKILLS CATALOG
-# ══════════════════════════════════════════════════════════════════
-
-SKILLS = {
-    "gmail": {
-        "name": "Gmail",
-        "category": "Communication",
-        "icon": "✉",
-        "color": "RED",
-        "desc": "Verify sent emails, detect duplicates, read inbox",
-        "what": "nova checks your Gmail before approving any send action",
-        "fields": [
-            ("service_account_json", "Path to Service Account JSON file", False),
-            ("delegated_email",      "Your Google account email",         False),
-        ],
-        "docs": "https://console.cloud.google.com/iam-admin/serviceaccounts",
-        "mcp":  "gmail-mcp",
-    },
-    "sheets": {
-        "name": "Google Sheets",
-        "category": "Data",
-        "icon": "⊞",
-        "color": "GRN",
-        "desc": "Read and write your spreadsheets in real time",
-        "what": "nova checks your Sheet before executing actions",
-        "fields": [
-            ("service_account_json", "Path to Service Account JSON file", False),
-            ("spreadsheet_id",       "Main Spreadsheet ID",               False),
-        ],
-        "docs": "https://console.cloud.google.com/iam-admin/serviceaccounts",
-        "mcp":  "google-sheets-mcp",
-    },
-    "slack": {
-        "name": "Slack",
-        "category": "Communication",
-        "icon": "◈",
-        "color": "YLW",
-        "desc": "Send alerts, read channels, verify sent messages",
-        "what": "nova notifies Slack when it blocks or escalates an action",
-        "fields": [
-            ("bot_token",   "Bot Token (xoxb-...)",        False),
-            ("channel",     "Default channel (#general)",  False),
-        ],
-        "docs": "https://api.slack.com/apps",
-        "mcp":  "slack-mcp-server",
-    },
-    "whatsapp": {
-        "name": "WhatsApp",
-        "category": "Communication",
-        "icon": "◉",
-        "color": "GRN",
-        "desc": "Verify sent messages, prevent spam, manage contacts",
-        "what": "nova checks WhatsApp history before approving messages",
-        "fields": [
-            ("evolution_api_url", "Evolution API URL",   False),
-            ("evolution_api_key", "Evolution API Key",   True),
-            ("instance_name",     "Instance name",       False),
-        ],
-        "docs": "https://doc.evolution-api.com",
-        "mcp":  "whatsapp-mcp",
-    },
-    "telegram": {
-        "name": "Telegram",
-        "category": "Communication",
-        "icon": "◎",
-        "color": "B6",
-        "desc": "Read & send messages, manage bots, verify channels",
-        "what": "nova can receive commands and send alerts via Telegram",
-        "fields": [
-            ("bot_token",  "Bot Token from @BotFather", True),
-            ("chat_id",    "Main Chat ID",              False),
-        ],
-        "docs": "https://core.telegram.org/bots",
-        "mcp":  "telegram-mcp",
-    },
-    "notion": {
-        "name": "Notion",
-        "category": "Productivity",
-        "icon": "◻",
-        "color": "W",
-        "desc": "Read databases, create pages, update records",
-        "what": "nova can query and update your Notion as source of truth",
-        "fields": [
-            ("api_key",     "Integration Token (secret_...)", True),
-            ("database_id", "Main database ID",               False),
-        ],
-        "docs": "https://www.notion.so/my-integrations",
-        "mcp":  "notion-mcp",
-    },
-    "airtable": {
-        "name": "Airtable",
-        "category": "Data",
-        "icon": "◈",
-        "color": "ORG",
-        "desc": "CRM, leads database, inventory — check before acting",
-        "what": "nova verifies Airtable records before executing",
-        "fields": [
-            ("api_key",  "Personal Access Token", True),
-            ("base_id",  "Base ID (app...)",      False),
-        ],
-        "docs": "https://airtable.com/create/tokens",
-        "mcp":  "airtable-mcp",
-    },
-    "github": {
-        "name": "GitHub",
-        "category": "Development",
-        "icon": "◯",
-        "color": "W",
-        "desc": "Create issues, review PRs, verify code before deploy",
-        "what": "nova can block deploys if critical issues are open",
-        "fields": [
-            ("token",  "Personal Access Token (ghp_...)", True),
-            ("repo",   "Default repo (owner/repo)",       False),
-        ],
-        "docs": "https://github.com/settings/tokens",
-        "mcp":  "github-mcp",
-    },
-    "stripe": {
-        "name": "Stripe",
-        "category": "Payments",
-        "icon": "◈",
-        "color": "B7",
-        "desc": "Verify charges, detect fraud, approve transactions",
-        "what": "nova validates payments and blocks suspicious transactions",
-        "fields": [
-            ("secret_key", "Secret Key (sk_live_... or sk_test_...)", True),
-        ],
-        "docs": "https://dashboard.stripe.com/apikeys",
-        "mcp":  "stripe-mcp",
-    },
-    "hubspot": {
-        "name": "HubSpot",
-        "category": "CRM",
-        "icon": "◉",
-        "color": "ORG",
-        "desc": "Query contacts, deals, communication history",
-        "what": "nova checks if a lead was already contacted before approving",
-        "fields": [
-            ("api_key", "Private App Token", True),
-        ],
-        "docs": "https://developers.hubspot.com/docs/api/private-apps",
-        "mcp":  "hubspot-mcp",
-    },
-    "supabase": {
-        "name": "Supabase",
-        "category": "Database",
-        "icon": "◈",
-        "color": "GRN",
-        "desc": "Query your Postgres database in real time",
-        "what": "nova can verify any table before executing actions",
-        "fields": [
-            ("url",         "Project URL (https://xxx.supabase.co)", False),
-            ("service_key", "Service Role Key",                      True),
-        ],
-        "docs": "https://app.supabase.com/project/_/settings/api",
-        "mcp":  "supabase-mcp",
-    },
-    "postgres": {
-        "name": "PostgreSQL",
-        "category": "Database",
-        "icon": "◉",
-        "color": "B6",
-        "desc": "Direct connection to your PostgreSQL database",
-        "what": "nova queries your DB before every critical validation",
-        "fields": [
-            ("connection_string", "postgresql://user:pass@host:5432/db", True),
-        ],
-        "docs": "https://www.postgresql.org/docs/current/libpq-connect.html",
-        "mcp":  "postgres-mcp",
-    },
-}
-
-SKILL_CATEGORIES = ["Communication", "Data", "Productivity", "Development", "CRM", "Payments", "Database"]
-SKILLS_DIR = os.path.join(NOVA_DIR, "skills")
-
-
-def load_skill(name):
-    path = os.path.join(SKILLS_DIR, name + ".json")
-    if os.path.exists(path):
-        try:
-            return json.load(open(path))
-        except:
-            pass
-    return None
-
-
-def save_skill(name, data):
-    os.makedirs(SKILLS_DIR, exist_ok=True)
-    json.dump(data, open(os.path.join(SKILLS_DIR, name + ".json"), "w"), indent=2)
-
-
-def skill_status(name):
-    d = load_skill(name)
-    if not d:
-        return "not_installed"
-    return d.get("status", "installed")
-
-
-def _skill_color(skill_def):
-    color_map = {
-        "RED": C.RED, "GRN": C.GRN, "YLW": C.YLW,
-        "W": C.W, "B6": C.B6, "B7": C.B7, "ORG": C.ORG,
-    }
-    return color_map.get(skill_def.get("color", "W"), C.W)
-
-
-def cmd_skill_list(args):
-    """List all available skills."""
-    print_logo(tagline=False)
-    print("  " + q(C.W, "Available Skills", bold=True) + "  " + q(C.G3, "· connect nova to the world"))
-    print("  " + q(C.G3, "─" * 54))
-    print()
-
-    print("  " + q(C.B5, "✦") + "  " + q(C.G2, "nova is a new star. Skills are its constellation."))
-    print("       " + q(C.G2, "Install what you need — each one expands what nova can see."))
-    print()
-
-    for cat in SKILL_CATEGORIES:
-        cat_skills = [(k, v) for k, v in SKILLS.items() if v["category"] == cat]
-        if not cat_skills:
-            continue
-
-        print("  " + q(C.G3, cat.upper()))
-        print()
-
-        for name, s in cat_skills:
-            st   = skill_status(name)
-            sc   = _skill_color(s)
-            icon = s["icon"]
-
-            if st == "installed":
-                badge = q(C.GRN, " installed", bold=True)
-                dot   = q(C.GRN, "●")
-            else:
-                badge = ""
-                dot   = q(C.G2, "○")
-
-            print("  " + dot + "  " + q(sc, icon + " " + s["name"], bold=True) +
-                  badge + "  " + q(C.G2, s["desc"]))
-        print()
-
-    print("  " + q(C.G3, "─" * 54))
-    print()
-    print("  " + q(C.B7, "nova skill add <name>", bold=True) + "     " + q(C.G2, "install a skill"))
-    print("  " + q(C.B7, "nova skill info <name>") + "    " + q(C.G2, "view details"))
-    print("  " + q(C.B7, "nova skill remove <name>") + "  " + q(C.G2, "uninstall"))
-    print()
-
-
-def cmd_skill_info(args):
-    """Show detailed information about a skill."""
-    name = getattr(args, "third", "") or args.subcommand or args.agent or ""
-    if name in ("info", "add", "list", "remove", ""):
-        name = getattr(args, "third", "") or args.agent or ""
-
-    if not name or name not in SKILLS:
-        fail("Skill not found: " + (name or "?"))
-        print()
-        info("Available skills: " + ", ".join(SKILLS.keys()))
-        return
-
-    s  = SKILLS[name]
-    sc = _skill_color(s)
-    st = skill_status(name)
-    data = load_skill(name)
-
-    print()
-    print("  " + q(sc, s["icon"] + "  " + s["name"], bold=True) +
-          "  " + q(C.G3, s["category"]))
-    print()
-    kv("Description",  s["desc"])
-    kv("What it does", s["what"], C.G2)
-    kv("MCP",          s["mcp"], C.G3)
-    kv("Docs",         s["docs"], C.B7)
-    kv("Status",       ("✓ installed" if st == "installed" else "not installed"),
-       C.GRN if st == "installed" else C.G2)
-
-    if data and data.get("installed_at"):
-        kv("Installed", time_ago(data["installed_at"]), C.G3)
-
-    section("Required Fields")
-    for field, label, secret in s["fields"]:
-        val = ""
-        if data and data.get(field):
-            v = data[field]
-            val = q(C.GRN, ("*" * 8) if secret else v[:32])
-        else:
-            val = q(C.G2, "not configured")
-        kv("  " + field, val if val else label)
-
-    print()
-    if st != "installed":
-        info("Install:  " + q(C.B7, "nova skill add " + name))
-    else:
-        info("Reconfigure:  " + q(C.B7, "nova skill add " + name + " --reconfigure"))
-    print()
-
-
-def cmd_skill_add(args):
-    """Install or reconfigure a skill."""
-    raw = getattr(args, "third", "") or args.subcommand or args.agent or ""
-    if raw in ("add", "remove", "list", "info", "install", ""):
-        raw = getattr(args, "third", "") or args.agent or ""
-    name = raw.lower().strip()
-
-    if not name:
-        print()
-        print("  " + q(C.W, "Which skill do you want to install?", bold=True))
-        print()
-        for i, (k, s) in enumerate(SKILLS.items()):
-            sc = _skill_color(s)
-            st = "  " + q(C.GRN, "✓") if skill_status(k) == "installed" else ""
-            print("  " + q(C.G2, str(i+1).rjust(2) + ".") + "  " +
-                  q(sc, s["icon"] + " " + s["name"], bold=True) + st +
-                  "  " + q(C.G2, s["desc"][:48]))
-        print()
-        print("  ", end="")
-        try:
-            choice = input(q(C.B6, "Number or name: ")).strip()
-        except (EOFError, KeyboardInterrupt):
-            print(); return
-
-        if choice.isdigit():
-            idx = int(choice) - 1
-            keys = list(SKILLS.keys())
-            if 0 <= idx < len(keys):
-                name = keys[idx]
-        else:
-            name = choice.lower()
-
-    if name not in SKILLS:
-        fail("Skill '" + name + "' not found.")
-        info("Available skills: " + ", ".join(SKILLS.keys()))
-        return
-
-    s   = SKILLS[name]
-    sc  = _skill_color(s)
-    st  = skill_status(name)
-    existing = load_skill(name) or {}
-    reconfigure = getattr(args, "reconfigure", False) or st == "installed"
-
-    print()
-    print("  " + q(sc, s["icon"] + "  " + s["name"], bold=True) + "  " + q(C.G3, "skill"))
-    print("  " + q(C.G3, "─" * 40))
-    print()
-    print("  " + q(C.G2, s["what"]))
-    print()
-
-    if st == "installed" and not reconfigure:
-        ok("Already installed.")
-        info("To reconfigure:  " + q(C.B7, "nova skill add " + name + " --reconfigure"))
-        print()
-        return
-
-    print("  " + q(C.B6, "✦") + "  " + q(C.W, "Step 1 of 2 — Get your credentials", bold=True))
-    print()
-    print("  " + q(C.G2, "Set up access at:"))
-    print("  " + q(C.B7, "  " + s["docs"]))
-    print()
-    if not confirm("Do you have the credentials ready?", default=False):
-        print()
-        info("Once ready, come back with:  " + q(C.B7, "nova skill add " + name))
-        print()
-        return
-
-    print()
-    print("  " + q(C.B6, "✦") + "  " + q(C.W, "Step 2 of 2 — Configure the skill", bold=True))
-    print()
-
-    data = dict(existing)
-
-    for field, label, secret in s["fields"]:
-        current = existing.get(field, "")
-        display_current = ("***" if secret and current else current[:20] if current else "")
-        hint = display_current or ""
-        print("  " + q(C.B6, "?") + "  " + q(C.G1, label) +
-              ("  " + q(C.G3, "(" + hint + ")") if hint else "") + "  ", end="", flush=True)
-        try:
-            if secret:
-                import getpass
-                val = getpass.getpass("").strip()
-            else:
-                val = input().strip()
-        except (EOFError, KeyboardInterrupt):
-            val = ""
-        data[field] = val or current
-
-    print()
-    with Spinner("Verifying skill..."):
-        time.sleep(0.6)
-
-    missing = [f for f, _, _ in s["fields"] if not data.get(f)]
-    if missing:
-        warn("Missing fields: " + ", ".join(missing))
-        warn("Saved as incomplete. Reconfigure with:  nova skill add " + name)
-        data["status"] = "incomplete"
-    else:
-        ok(s["name"] + " skill configured")
-        data["status"] = "installed"
-
-    data["installed_at"] = datetime.now().isoformat()
-    data["version"] = "1.0.0"
-    save_skill(name, data)
-
-    print()
-    box([
-        "  " + s["icon"] + "  " + s["name"] + " connected to nova",
-        "",
-        "  " + s["what"],
-    ], sc, title=s["category"])
-    print()
-    info("View details:  " + q(C.B7, "nova skill info " + name))
-    print()
-
-
-def cmd_skill_remove(args):
-    """Remove an installed skill."""
-    name = (args.subcommand or args.agent or "").lower()
-    if name in ("remove", ""):
-        name = args.agent or ""
-
-    if not name or name not in SKILLS:
-        fail("Specify a valid skill name.")
-        return
-
-    if skill_status(name) != "installed":
-        warn(name + " is not installed.")
-        return
-
-    warn("This will remove credentials for " + SKILLS[name]["name"] + " from this machine.")
-    if not confirm("Continue?", default=False):
-        return
-
-    path = os.path.join(SKILLS_DIR, name + ".json")
-    if os.path.exists(path):
-        os.remove(path)
-    ok(SKILLS[name]["name"] + " uninstalled.")
-    print()
-
-
-def cmd_skill_health(args):
-    """Check connectivity of all installed skills."""
-    installed = [k for k in SKILLS if skill_status(k) == "installed"]
-
-    if not installed:
-        warn("No skills installed.")
-        info("Install skills with:  " + q(C.B7, "nova skill add <name>"))
-        return
-
-    section("Skill Health Check", str(len(installed)) + " installed")
-    print()
-
-    for name in installed:
-        s = SKILLS[name]
-        sc = _skill_color(s)
-        data = load_skill(name)
-
-        # Check if all required fields are configured
-        missing = [f for f, _, _ in s["fields"] if not data.get(f)]
-        if missing:
-            print("  " + q(C.YLW, "!") + "  " + q(sc, s["icon"] + " " + s["name"]) +
-                  "  " + q(C.YLW, "incomplete") + "  " + q(C.G3, "missing: " + ", ".join(missing)))
-        else:
-            installed_at = data.get("installed_at", "")
-            print("  " + q(C.GRN, "✓") + "  " + q(sc, s["icon"] + " " + s["name"]) +
-                  "  " + q(C.GRN, "configured") +
-                  ("  " + q(C.G3, time_ago(installed_at)) if installed_at else ""))
-    print()
-
-
-# ══════════════════════════════════════════════════════════════════
-# HELP
-# ══════════════════════════════════════════════════════════════════
-
-def cmd_help(args=None):
-    """Display help information."""
-    print_logo()
-
-    print("  " + q(C.G1, "Governance infrastructure for AI agents."))
-    print()
-    print("  " + q(C.G3, "─" * 54))
-    print()
-
-    sections_data = [
-        ("Getting Started", [
-            ("init",              "First-run setup, T&C, server connection"),
-            ("status",            "System health, metrics, active agents"),
-            ("config",            "Skills, server, preferences"),
-            ("whoami",            "Current identity and config summary"),
-        ]),
-        ("Agents", [
-            ("agent create",      "Create agent with rules (or from template)"),
-            ("agent list",        "List all active agents"),
-            ("diff",              "Compare rules between two agents"),
-        ]),
-        ("Validation", [
-            ("validate",          "Validate an action — verdict + response"),
-            ("test",              "Dry-run — validate without recording"),
-            ("simulate",          "Batch-validate from a file"),
-        ]),
-        ("Memory", [
-            ("memory save",       "Store context in an agent's memory"),
-            ("memory list",       "Read an agent's memories"),
-        ]),
-        ("Ledger", [
-            ("ledger",            "Full cryptographic action history"),
-            ("ledger verify",     "Verify chain integrity"),
-            ("watch",             "Live tail — stream new entries"),
-            ("replay <id>",       "Re-evaluate past action with current rules"),
-            ("alerts",            "Blocked & escalated action alerts"),
-        ]),
-        ("Data", [
-            ("export",            "Export ledger to JSON or CSV"),
-            ("audit",             "Generate signed audit report"),
-            ("sync",              "Process offline-queued actions"),
-        ]),
-        ("Skills", [
-            ("skill",             "Skill catalog — all integrations"),
-            ("skill add <name>",  "Install a skill"),
-            ("skill info <name>", "Details & status of a skill"),
-            ("skill health",      "Check all installed skill connections"),
-        ]),
-        ("System", [
-            ("seed",              "Load demo data for testing"),
-            ("webhook test",      "Test webhook connectivity"),
-            ("completion <shell>","Generate shell autocompletion"),
-        ]),
-    ]
-
-    for title, cmds in sections_data:
-        print("  " + q(C.G2, title.upper()))
-        print()
-        for cmd, desc in cmds:
-            print("    " + q(C.B7, cmd.ljust(22), bold=True) + q(C.G2, desc))
-        print()
-
-    print("  " + q(C.G3, "─" * 54))
-    print()
-    print("  " + q(C.G2, "Aliases") + "  " + q(C.G3, "s=status v=validate a=agent c=config l=ledger w=watch"))
-    print()
-    print("  " + q(C.G2, "Examples"))
-    print()
-    for ex in [
-        'nova validate --action "Send email to john@x.com"',
-        "nova ledger --limit 20 --verdict BLOCKED",
-        "nova simulate --file actions.txt",
-        "nova watch",
-        "nova diff",
-        "nova export --format csv",
-    ]:
-        print("    " + q(C.G3, "$ ") + q(C.W, ex))
-    print()
-    print("  " + q(C.G2, "Debug mode") + "  " + q(C.G3, "NOVA_DEBUG=1 nova status"))
-    print("  " + q(C.G3, "Docs: ") + q(C.B7, "https://github.com/Santiagorubioads/nova-os"))
-    print()
-
-
-# ══════════════════════════════════════════════════════════════════
-# ROUTER
-# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# MAIN ROUTER
+# ══════════════════════════════════════════════════════════════════════════════
 
 def main():
-    p = argparse.ArgumentParser(prog="nova", add_help=False)
-    p.add_argument("command",     nargs="?", default="help")
-    p.add_argument("subcommand",  nargs="?", default="")
-    p.add_argument("third",       nargs="?", default="")
-    p.add_argument("--token",  "-t", default="")
-    p.add_argument("--action", "-a", default="")
-    p.add_argument("--context","-c", default="")
-    p.add_argument("--agent",        default="")
-    p.add_argument("--key",          default="")
-    p.add_argument("--value",        default="")
-    p.add_argument("--importance",   default="5")
-    p.add_argument("--limit",  type=int, default=10)
-    p.add_argument("--verdict",      default="")
-    p.add_argument("--format",       default="json")
-    p.add_argument("--output", "-o", default="")
-    p.add_argument("--file",  "-f",  default="")
-    p.add_argument("--dry-run",      action="store_true")
-    p.add_argument("--reconfigure",  action="store_true")
-    p.add_argument("--interval",     type=int, default=3)
-    p.add_argument("--help",   "-h", action="store_true")
-    args = p.parse_args()
-
+    """Main entry point for nova CLI."""
+    
+    # Parse arguments
+    parser = argparse.ArgumentParser(prog="nova", add_help=False)
+    parser.add_argument("command", nargs="?", default="help")
+    parser.add_argument("subcommand", nargs="?", default="")
+    parser.add_argument("third", nargs="?", default="")
+    
+    # Global options
+    parser.add_argument("--token", "-t", default="")
+    parser.add_argument("--action", "-a", default="")
+    parser.add_argument("--context", "-c", default="")
+    parser.add_argument("--agent", default="")
+    parser.add_argument("--key", default="")
+    parser.add_argument("--value", default="")
+    parser.add_argument("--importance", default="5")
+    parser.add_argument("--limit", type=int, default=20)
+    parser.add_argument("--verdict", default="")
+    parser.add_argument("--format", default="json")
+    parser.add_argument("--output", "-o", default="")
+    parser.add_argument("--file", "-f", default="")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--reconfigure", action="store_true")
+    parser.add_argument("--interval", type=int, default=3)
+    parser.add_argument("--verbose", "-v", action="store_true")
+    parser.add_argument("--help", "-h", action="store_true")
+    parser.add_argument("--version", "-V", action="store_true")
+    
+    args = parser.parse_args()
+    
+    # Version flag
+    if args.version:
+        print(f"nova {NOVA_VERSION} ({NOVA_BUILD})")
+        return
+    
     # Resolve aliases
     if args.command in ALIASES:
         args.command = ALIASES[args.command]
-
-    if args.help or args.command in ("help", "--help", "-h"):
+    
+    # Help flag or command
+    if args.help or args.command in ("help", "--help", "-h", "?"):
         cmd_help(args)
         return
-
+    
     # First-run detection
-    if args.command not in ("init", "help", "--help", "-h", "completion") and not os.path.exists(CONFIG_FILE):
+    if args.command not in ("init", "help", "completion", "--help", "-h") and \
+       not CONFIG_FILE.exists():
         print()
-        print("  " + q(C.B6, "✦", bold=True) + "  " + q(C.W, "nova", bold=True))
+        print("  " + q(C.GLD, "✦", bold=True) + "  " + q(C.W, "nova", bold=True))
         print()
-        print("  " + q(C.G1, "nova isn't configured yet."))
+        print("  " + q(C.G1, "Welcome! nova isn't configured yet."))
         print()
-        print("  " + q(C.B7, "nova init", bold=True) + "  " + q(C.G2, "— run setup to get started"))
+        print("  " + q(C.B7, "nova init", bold=True) + "  " + 
+              q(C.G2, "— run the setup wizard"))
         print()
         return
-
-    if args.command == "help" or (not args.command):
-        cmd_help(args)
-        return
-
+    
+    # Command routing table
     routes = {
         # Core
-        ("init",       ""):         cmd_init,
-        ("status",     ""):         cmd_status,
-        ("whoami",     ""):         cmd_whoami,
+        ("init", ""): cmd_init,
+        ("status", ""): cmd_status,
+        ("whoami", ""): cmd_whoami,
+        
         # Agents
-        ("agent",      "create"):   cmd_agent_create,
-        ("agent",      "list"):     cmd_agent_list,
-        ("agents",     ""):         cmd_agent_list,
-        ("diff",       ""):         cmd_diff,
+        ("agent", "create"): cmd_agent_create,
+        ("agent", "list"): cmd_agent_list,
+        ("agent", ""): cmd_agent_list,
+        ("agents", ""): cmd_agent_list,
+        
         # Validation
-        ("validate",   ""):         cmd_validate,
-        ("test",       ""):         cmd_test,
-        ("simulate",   ""):         cmd_simulate,
+        ("validate", ""): cmd_validate,
+        ("test", ""): cmd_test,
+        
         # Memory
-        ("memory",     "save"):     cmd_memory_save,
-        ("memory",     "list"):     cmd_memory_list,
+        ("memory", "save"): cmd_memory_save,
+        ("memory", "list"): cmd_memory_list,
+        ("memory", ""): cmd_memory_list,
+        
         # Ledger
-        ("ledger",     ""):         cmd_ledger,
-        ("ledger",     "verify"):   cmd_verify,
-        ("verify",     ""):         cmd_verify,
-        ("watch",      ""):         cmd_watch,
-        ("replay",     ""):         cmd_replay,
-        ("alerts",     ""):         cmd_alerts,
-        # Data
-        ("export",     ""):         cmd_export,
-        ("audit",      ""):         cmd_audit,
-        ("sync",       ""):         cmd_sync,
+        ("ledger", ""): cmd_ledger,
+        ("ledger", "verify"): cmd_verify,
+        ("verify", ""): cmd_verify,
+        ("watch", ""): cmd_watch,
+        ("export", ""): cmd_export,
+        ("audit", ""): cmd_audit,
+        ("alerts", ""): cmd_alerts,
+        
+        # Sync
+        ("sync", ""): cmd_sync,
+        
+        # Seed
+        ("seed", ""): cmd_seed,
+        
         # Config
-        ("config",     ""):         cmd_config,
-        ("seed",       ""):         cmd_seed,
+        ("config", ""): cmd_config,
+        
+        # Keys
+        ("keys", ""): cmd_keys,
+        ("keys", "list"): cmd_keys,
+        ("keys", "create"): cmd_keys,
+        ("keys", "new"): cmd_keys,
+        ("keys", "delete"): cmd_keys,
+        ("keys", "remove"): cmd_keys,
+        ("keys", "use"): cmd_keys,
+        ("keys", "switch"): cmd_keys,
+        
         # Skills
-        ("skill",      ""):         cmd_skill_list,
-        ("skill",      "list"):     cmd_skill_list,
-        ("skills",     ""):         cmd_skill_list,
-        ("skill",      "add"):      cmd_skill_add,
-        ("skill",      "install"):  cmd_skill_add,
-        ("skill",      "info"):     cmd_skill_info,
-        ("skill",      "remove"):   cmd_skill_remove,
-        ("skill",      "delete"):   cmd_skill_remove,
-        ("skill",      "health"):   cmd_skill_health,
-        ("skill",      "check"):    cmd_skill_health,
-        # Webhook
-        ("webhook",    ""):         cmd_webhook_test,
-        ("webhook",    "test"):     cmd_webhook_test,
+        ("skill", ""): cmd_skill_browse,
+        ("skill", "list"): cmd_skill_browse,
+        ("skills", ""): cmd_skill_browse,
+        ("skill", "add"): cmd_skill_add,
+        ("skill", "install"): cmd_skill_add,
+        ("skill", "info"): cmd_skill_info,
+        ("skill", "remove"): cmd_skill_remove,
+        ("skill", "delete"): cmd_skill_remove,
+        
         # Completion
-        ("completion", ""):         cmd_completion,
-        ("completion", "bash"):     cmd_completion,
-        ("completion", "zsh"):      cmd_completion,
-        ("completion", "fish"):     cmd_completion,
+        ("completion", ""): cmd_completion,
+        ("completion", "bash"): cmd_completion,
+        ("completion", "zsh"): cmd_completion,
+        ("completion", "fish"): cmd_completion,
     }
-
-    fn = routes.get((args.command, args.subcommand)) or routes.get((args.command, ""))
-
-    if not fn:
-        fail("Unknown command: " + args.command +
-             (" " + args.subcommand if args.subcommand else ""))
+    
+    # Find handler
+    handler = routes.get((args.command, args.subcommand))
+    if not handler:
+        handler = routes.get((args.command, ""))
+    
+    if not handler:
+        fail(f"Unknown command: {args.command}" + 
+             (f" {args.subcommand}" if args.subcommand else ""))
         print()
-        info("Run  " + q(C.B7, "nova help") + "  to see all commands.")
+        hint("Run  " + q(C.B7, "nova help") + "  to see all commands.")
         print()
         sys.exit(1)
-
+    
+    # Execute command
     try:
-        fn(args)
+        handler(args)
+        
+        # Track in history
+        if args.command not in ("help", "completion"):
+            add_to_history(args.command, {
+                "subcommand": args.subcommand,
+                "action": args.action,
+            })
+    
     except KeyboardInterrupt:
         print()
         warn("Cancelled.")
         print()
+    
+    except Exception as e:
+        if DEBUG:
+            import traceback
+            traceback.print_exc()
+        else:
+            fail(f"Error: {e}")
+            hint("Run with NOVA_DEBUG=1 for details.")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
