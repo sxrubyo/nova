@@ -50,7 +50,14 @@ if IS_WINDOWS:
         # Enable ANSI on Windows 10+
         import ctypes
         kernel32 = ctypes.windll.kernel32
-        kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+        # Enable ANSI + Virtual Terminal Processing
+        ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+        ENABLE_PROCESSED_OUTPUT = 0x0001
+        ENABLE_WRAP_AT_EOL_OUTPUT = 0x0002
+        handle = kernel32.GetStdHandle(-11)
+        mode = ctypes.c_ulong()
+        kernel32.GetConsoleMode(handle, ctypes.byref(mode))
+        kernel32.SetConsoleMode(handle, mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING)
     except Exception:
         pass
 
@@ -1090,10 +1097,10 @@ def _select(options, title="", default=0, descriptions=None, show_index=False,
 
         if not first:
             # Restore saved cursor position, then erase everything below
-            out.append("\0338\033[J")
+            out.append("\033[u\033[J")
         else:
             # Save cursor position before first draw
-            out.append("\0337")
+            out.append("\033[s")
 
         # Title
         if title:
@@ -1141,7 +1148,54 @@ def _select(options, title="", default=0, descriptions=None, show_index=False,
     
     # Key reading — inline so `current` stays in _select scope
     if IS_WINDOWS:
-        return _select_windows(options, draw, current, get_filtered_indices, page_size)
+        # Windows inline loop — current in _select scope
+        import msvcrt
+        draw(first=True)
+        while True:
+            ch = msvcrt.getch()
+            if ch in (b"\r", b"\n"):
+                return current
+            if ch == b"\x03":
+                raise KeyboardInterrupt
+            if ch in (b"\x00", b"\xe0"):
+                ch2 = msvcrt.getch()
+                filtered = get_filtered_indices()
+                if ch2 == b"H":   # Up arrow
+                    if current in filtered:
+                        idx = filtered.index(current)
+                        if idx > 0:
+                            current = filtered[idx - 1]
+                    draw()
+                elif ch2 == b"P": # Down arrow
+                    if current in filtered:
+                        idx = filtered.index(current)
+                        if idx < len(filtered) - 1:
+                            current = filtered[idx + 1]
+                    draw()
+                continue
+            try:
+                key = ch.decode(errors="ignore")
+            except Exception:
+                continue
+            if key.isdigit():
+                idx = int(key) - 1
+                if 0 <= idx < len(options):
+                    return idx
+            elif key in ("k", "K"):
+                filtered = get_filtered_indices()
+                if current in filtered:
+                    idx = filtered.index(current)
+                    if idx > 0:
+                        current = filtered[idx - 1]
+                draw()
+            elif key in ("j", "J"):
+                filtered = get_filtered_indices()
+                if current in filtered:
+                    idx = filtered.index(current)
+                    if idx < len(filtered) - 1:
+                        current = filtered[idx + 1]
+                draw()
+
 
     # Unix inline loop
     import termios, tty
