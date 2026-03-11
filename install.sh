@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # nova CLI — Linux / macOS Installer
-# curl -sSL https://raw.githubusercontent.com/Santiagorubioads/nova-os/main/install.sh | bash
+# curl -sSL https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh | bash
 set -e
 NOVA_VERSION="2.1.0"
 NOVA_DIR="$HOME/.nova"; NOVA_PY="$NOVA_DIR/nova.py"; NOVA_BIN="$NOVA_DIR/nova"

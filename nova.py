@@ -1890,7 +1890,7 @@ def check_for_updates(force=False):
     
     try:
         req = urllib.request.Request(
-            "https://api.github.com/repos/Santiagorubioads/nova-os/releases/latest",
+            "https://api.github.com/repos/sxrubyo/nova-os/releases/latest",
             headers={
                 "User-Agent": f"nova-cli/{NOVA_VERSION}",
                 "Accept": "application/vnd.github.v3+json",
@@ -2969,7 +2969,7 @@ def cmd_init(args):
     print("  " + q(C.G1, f"  {L['server_sub']}"))
     print()
     print("  " + q(C.G3, "  Docs: ") + 
-          q(C.B7, "https://github.com/Santiagorubioads/nova-os", underline=True))
+          q(C.B7, "https://github.com/sxrubyo/nova-os", underline=True))
     print()
     
     srv_opts = [
@@ -4826,7 +4826,7 @@ def _config_about():
     kv("Config", str(CONFIG_FILE), C.G3)
     
     print()
-    kv("Documentation", "https://github.com/Santiagorubioads/nova-os", C.B7)
+    kv("Documentation", "https://github.com/sxrubyo/nova-os", C.B7)
     kv("Support", "https://nova-os.com/support", C.B7)
     kv("Terms", "https://nova-os.com/terms", C.G3)
     
@@ -4976,7 +4976,7 @@ def cmd_help(args=None):
     
     # Links
     print("  " + q(C.G3, "Docs: ") + 
-          q(C.B7, "https://github.com/Santiagorubioads/nova-os", underline=True))
+          q(C.B7, "https://github.com/sxrubyo/nova-os", underline=True))
     print()
 
 

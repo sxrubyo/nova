@@ -1,5 +1,5 @@
 # nova CLI — Windows Installer
-# irm https://raw.githubusercontent.com/Santiagorubioads/nova-os/main/install.ps1 | iex
+# irm https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.ps1 | iex
 $ErrorActionPreference = "Stop"
 $NOVA_VERSION = "2.1.0"
 $NOVA_DIR = "$env:USERPROFILE\.nova"

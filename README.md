@@ -36,4 +36,4 @@ Instala el backend, la base de datos y la consola de comandos (CLI) en tu propio
 
 ### Linux & MacOS
 ```bash
-curl -sSL [https://raw.githubusercontent.com/Santiagorubioads/nova-os/main/install.sh](https://raw.githubusercontent.com/Santiagorubioads/nova-os/main/install.sh) | bash
+curl -sSL [https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh](https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh) | bash
