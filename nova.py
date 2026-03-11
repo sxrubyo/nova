@@ -129,11 +129,14 @@ def _step_header(n, total, title):
 
 
 def _pause(label="continue"):
-    print("  " + q(C.G3, "  ↵  Enter to " + label), end="", flush=True)
+    print()
+    print("  " + q(C.G2, "  ↵  ") + q(C.W, "Press Enter to " + label, bold=False) +
+          q(C.G3, " ···"), end="", flush=True)
     try:
         input()
     except (EOFError, KeyboardInterrupt):
         print()
+    print()
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -142,22 +145,29 @@ def _pause(label="continue"):
 
 def _select(options, title="", default=0):
     """
-    Interactive arrow-key selector.
-    Returns the chosen index, or default if not interactive.
-    Up/Down to move  ·  Enter to confirm  ·  j/k also work
+    Arrow-key selector. Zero deps. Cross-platform.
+    Up/Down arrows  ·  Enter to confirm  ·  j/k vi-style
+    Falls back to numbered list when stdin is not a TTY (e.g. curl | bash).
     """
-    is_tty = (hasattr(sys.stdin, "isatty") and sys.stdin.isatty() and
-              hasattr(sys.stdout, "isatty") and sys.stdout.isatty())
+    # Strip any ANSI codes from options for display length calculation
+    is_tty = False
+    try:
+        is_tty = sys.stdin.isatty() and sys.stdout.isatty()
+    except Exception:
+        pass
 
-    # Non-interactive fallback
+    # ── Non-interactive fallback (pipe / redirect) ──────────────
     if not is_tty:
         if title:
             print("  " + q(C.G2, title))
-        for i, opt in enumerate(options):
-            marker = q(C.B6, "→", bold=True) if i == default else q(C.G3, " ")
-            print("  " + marker + "  " + q(C.G2, str(i + 1) + ".") + "  " + q(C.W, opt))
         print()
-        print("  " + q(C.G3, "Select [1-" + str(len(options)) + "]: "), end="", flush=True)
+        for i, opt in enumerate(options):
+            marker = q(C.B6, "▸", bold=True) if i == default else "  "
+            label  = q(C.W, opt, bold=True) if i == default else q(C.G2, opt)
+            print("  " + marker + "  " + label)
+        print()
+        print("  " + q(C.G3, "Select [1-" + str(len(options)) + "]:") + "  ",
+              end="", flush=True)
         try:
             v = input().strip()
             if v.isdigit():
@@ -168,77 +178,81 @@ def _select(options, title="", default=0):
             pass
         return default
 
-    def _render(current, options, title):
-        # Move cursor up to redraw
-        lines = (1 if title else 0) + len(options) + 2
-        if hasattr(_render, "_drawn"):
-            sys.stdout.write("\033[" + str(lines) + "A\033[J")
-        _render._drawn = True
-
+    # ── Draw menu (always in NORMAL terminal mode) ───────────────
+    def _draw(current, first=False):
+        out = []
+        if not first:
+            n = (1 if title else 0) + 1 + len(options) + 1
+            out.append("\033[" + str(n) + "A\033[J")
         if title:
-            print("  " + q(C.G2, title))
-        print()
+            out.append("  " + q(C.G2, title) + "\n")
+        out.append("\n")
         for i, opt in enumerate(options):
             if i == current:
-                print("  " + q(C.B6, "▸", bold=True) + "  " + q(C.W, opt, bold=True))
+                out.append("  " + q(C.B6, "▸", bold=True) + "  " +
+                            q(C.W, opt, bold=True) + "\n")
             else:
-                print("  " + q(C.G3, "  ") + "  " + q(C.G2, opt))
-        print()
+                out.append("     " + q(C.G2, opt) + "\n")
+        out.append("\n")
+        sys.stdout.write("".join(out))
         sys.stdout.flush()
 
+    # ── Windows ─────────────────────────────────────────────────
     if sys.platform == "win32":
         import msvcrt
-
         current = default
-        _render(current, options, title)
-
+        _draw(current, first=True)
         while True:
             ch = msvcrt.getwch()
             if ch in ("\r", "\n"):
                 return current
-            if ch == "\x00" or ch == "\xe0":
+            if ch in ("\x00", "\xe0"):
                 ch2 = msvcrt.getwch()
-                if ch2 == "H":    # Up
-                    current = (current - 1) % len(options)
-                elif ch2 == "P":  # Down
-                    current = (current + 1) % len(options)
+                if   ch2 == "H": current = (current - 1) % len(options)
+                elif ch2 == "P": current = (current + 1) % len(options)
             elif ch == "\x03":
                 raise KeyboardInterrupt
-            _render(current, options, title)
-    else:
-        import termios, tty
+            _draw(current)
+        return current
 
-        fd  = sys.stdin.fileno()
-        old = termios.tcgetattr(fd)
-        current = default
+    # ── Unix / Linux / Mac ───────────────────────────────────────
+    import termios, tty
 
+    fd  = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+
+    def _read_key():
+        """Enter raw mode, read one keypress, restore immediately."""
+        tty.setraw(fd)
         try:
-            tty.setraw(fd)
-            _render(current, options, title)
-
-            while True:
-                ch = sys.stdin.read(1)
-                if ch in ("\r", "\n"):
-                    break
-                elif ch == "\x03":
-                    raise KeyboardInterrupt
-                elif ch == "\x1b":
-                    ch2 = sys.stdin.read(1)
-                    if ch2 == "[":
-                        ch3 = sys.stdin.read(1)
-                        if ch3 == "A":    # Up
-                            current = (current - 1) % len(options)
-                        elif ch3 == "B":  # Down
-                            current = (current + 1) % len(options)
-                elif ch in ("k", "K"):  # vi up
-                    current = (current - 1) % len(options)
-                elif ch in ("j", "J"):  # vi down
-                    current = (current + 1) % len(options)
-                _render(current, options, title)
+            ch = sys.stdin.read(1)
+            if ch == "\x1b":
+                ch2 = sys.stdin.read(1)
+                if ch2 == "[":
+                    ch3 = sys.stdin.read(1)
+                    if   ch3 == "A": return "UP"
+                    elif ch3 == "B": return "DOWN"
+                    return ch3
+                return ch2
+            return ch
         finally:
+            # Always restore BEFORE we write anything to screen
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
-        return current
+    current = default
+    _draw(current, first=True)
+
+    while True:
+        key = _read_key()
+        if key in ("\r", "\n"):
+            return current
+        elif key == "\x03":
+            raise KeyboardInterrupt
+        elif key in ("UP",   "k", "K"):
+            current = (current - 1) % len(options)
+        elif key in ("DOWN", "j", "J"):
+            current = (current + 1) % len(options)
+        _draw(current)
 
 
 def _select_lang():
@@ -342,7 +356,7 @@ class NovaAPI:
             try:    return {"error": json.loads(e.read().decode()).get("detail", str(e))}
             except: return {"error": "HTTP " + str(e.code)}
         except urllib.error.URLError:
-            return {"error": "No se puede conectar a " + self.url + " — ejecuta: docker ps"}
+            return {"error": "Cannot connect to " + self.url + " — run: docker ps"}
         except Exception as e:
             return {"error": str(e)}
 
@@ -491,15 +505,6 @@ def cmd_init(args):
 
     # ── [1/5] HOW IT WORKS ───────────────────────────────────────
     _step_header(1, 5, L["h_howworks"])
-    lines_how = [
-        ("  ┌─  " + L["how1"],    C.G2),
-        ("  │",                    C.G3),
-        ("  ├─  " + L["how_ev"],  C.G1),
-        ("  │",                    C.G3),
-        ("  ├─  ", None),
-        ("  ├─  ", None),
-        ("  └─  ", None),
-    ]
     # Print how-it-works with colored verdicts
     print("  " + q(C.G2,  "  ┌─  " + L["how1"]))
     print("  " + q(C.G3,  "  │"))
@@ -809,26 +814,26 @@ def cmd_agent_create(args):
     cfg = load_config()
     api = NovaAPI(cfg["api_url"], cfg["api_key"])
 
-    name = prompt("Agent name", "Mi Agente")
+    name = prompt("Agent name", "My Agent")
     desc = prompt("Brief description (optional)", "")
-    auth = prompt("Authorized by", "admin@empresa.com")
+    auth = prompt("Authorized by", "admin@company.com")
     print()
 
     print("  " + q(C.B7, "●", bold=True) + "  " + q(C.W, "ALLOWED actions:"))
-    can  = prompt_list("Una por línea")
+    can  = prompt_list("One per line")
     print()
     print("  " + q(C.RED, "●", bold=True) + "  " + q(C.W, "FORBIDDEN actions:"))
-    cant = prompt_list("Una por línea")
+    cant = prompt_list("One per line")
     print()
 
     can_preview  = (", ".join(can[:2])  + ("..." if len(can)  > 2 else "")) if can  else "none"
-    cant_preview = (", ".join(cant[:2]) + ("..." if len(cant) > 2 else "")) if cant else "ninguna"
+    cant_preview = (", ".join(cant[:2]) + ("..." if len(cant) > 2 else "")) if cant else "none"
     box([
-        "  Agente     " + name,
-        "  Puede      " + can_preview,
-        "  Prohibido  " + cant_preview,
-        "  Por        " + auth,
-    ], C.B4, title="Resumen")
+        "  Agent      " + name,
+        "  Can do     " + can_preview,
+        "  Forbidden  " + cant_preview,
+        "  By         " + auth,
+    ], C.B4, title="Summary")
     print()
 
     if not confirm("Create this agent?"):
@@ -870,7 +875,7 @@ def cmd_agent_list(args):
     cfg = load_config()
     api = NovaAPI(cfg["api_url"], cfg["api_key"])
 
-    loading("Cargando agentes...")
+    loading("Loading agents...")
     result = api.get("/tokens")
     clear_line()
 
@@ -878,8 +883,8 @@ def cmd_agent_list(args):
         print_error(result)
         return
     if not result:
-        warn("No hay agentes activos.")
-        info("Crea uno con:  nova agent create")
+        warn("No active agents.")
+        info("Create one with:  nova agent create")
         return
 
     default_id = cfg.get("default_token", "")
@@ -888,16 +893,16 @@ def cmd_agent_list(args):
     for t in result:
         is_def = str(t["id"]) == default_id
         badge  = "  " + q(C.B6, "default") if is_def else ""
-        st     = q(C.GRN, "● activo") if t.get("active") else q(C.G4, "○ inactivo")
+        st     = q(C.GRN, "● active") if t.get("active") else q(C.G4, "○ inactive")
         print()
         print("  " + q(C.W, t["agent_name"], bold=True) + "  " + st + badge)
         kv("  ID",         str(t["id"])[:22] + "...", C.G3)
         if t.get("can_do"):
             preview = ", ".join(t["can_do"][:3]) + ("..." if len(t["can_do"]) > 3 else "")
-            kv("  Puede",    preview, C.GRN)
+            kv("  Can do",    preview, C.GRN)
         if t.get("cannot_do"):
             preview = ", ".join(t["cannot_do"][:3]) + ("..." if len(t["cannot_do"]) > 3 else "")
-            kv("  Prohibido", preview, C.RED)
+            kv("  Forbidden", preview, C.RED)
     print()
 
 
@@ -909,7 +914,7 @@ def cmd_validate(args):
     ctx    = args.context or ""
 
     if not tid:
-        fail("No hay token. Pasa --token o crea un agente primero.")
+        fail("No token set. Pass --token or create an agent first.")
         return
 
     print()
@@ -935,10 +940,10 @@ def cmd_validate(args):
     print()
     print("  " + verdict_badge(verdict) + "   " + score_bar(score) + "   " + q(C.G4, str(ms) + "ms"))
     print()
-    kv("Razón",          reason, C.G2)
-    kv("Agente",         result.get("agent_name", ""), C.W)
+    kv("Reason",          reason, C.G2)
+    kv("Agent",         result.get("agent_name", ""), C.W)
     kv("Ledger",         "#" + str(result.get("ledger_id", "?")), C.G3)
-    kv("Memorias usadas", str(result.get("memories_used", 0)), C.B6)
+    kv("Memories used", str(result.get("memories_used", 0)), C.B6)
 
     if dup:
         print()
@@ -948,11 +953,11 @@ def cmd_validate(args):
             "  Duplicado del registro #" + str(dup.get("ledger_id")),
             "  Similitud  " + str(int(dup.get("similarity", 0) * 100)) + "%",
             "  Original   " + dup_short,
-        ], C.ORG, title="Duplicado detectado")
+        ], C.ORG, title="Duplicate detected")
 
     if resp:
         print()
-        section("Respuesta generada")
+        section("Generated response")
         print()
         for line in textwrap.wrap(resp, width=64):
             print("  " + q(C.G1, line))
@@ -966,12 +971,12 @@ def cmd_validate(args):
 def cmd_memory_save(args):
     cfg   = load_config()
     api   = NovaAPI(cfg["api_url"], cfg["api_key"])
-    agent = args.agent or prompt("Agente")
-    key   = args.key   or prompt("Clave", "dato_importante")
-    value = args.value or prompt("Valor")
+    agent = args.agent or prompt("Agent")
+    key   = args.key   or prompt("Key", "important_data")
+    value = args.value or prompt("Value")
     imp   = int(getattr(args, "importance", None) or "5")
 
-    loading("Guardando...")
+    loading("Saving...")
     r = api.post("/memory", {
         "agent_name": agent, "key": key, "value": value,
         "importance": imp, "tags": ["manual"],
@@ -981,16 +986,16 @@ def cmd_memory_save(args):
     if "error" in r:
         print_error(r)
         return
-    ok("Memoria guardada  —  ID " + str(r.get("id")) + "  importancia " + str(imp) + "/10")
+    ok("Memory saved  —  ID " + str(r.get("id")) + "  importance " + str(imp) + "/10")
     print()
 
 
 def cmd_memory_list(args):
     cfg   = load_config()
     api   = NovaAPI(cfg["api_url"], cfg["api_key"])
-    agent = args.agent or prompt("Agente")
+    agent = args.agent or prompt("Agent")
 
-    loading("Cargando memorias...")
+    loading("Loading memories...")
     result = api.get("/memory/" + urllib.parse.quote(agent))
     clear_line()
 
@@ -1001,10 +1006,10 @@ def cmd_memory_list(args):
         warn("'" + agent + "' no tiene memorias.")
         # Fixed: no backslash inside f-string — build string first
         cmd_hint = 'nova memory save --agent "' + agent + '"'
-        info("Guarda con:  " + q(C.B7, cmd_hint))
+        info("Save with:  " + q(C.B7, cmd_hint))
         return
 
-    section("Memorias de " + agent, str(len(result)) + " entradas")
+    section("Memories of " + agent, str(len(result)) + " entries")
     for m in result:
         imp = m.get("importance", 5)
         bar = q(C.B6, "█" * imp) + q(C.G4, "░" * (10 - imp))
@@ -1023,7 +1028,7 @@ def cmd_ledger(args):
     verdict = getattr(args, "verdict", "") or ""
     url     = "/ledger?limit=" + str(limit) + ("&verdict=" + verdict.upper() if verdict else "")
 
-    loading("Cargando ledger...")
+    loading("Loading ledger...")
     result = api.get(url)
     clear_line()
 
@@ -1031,7 +1036,7 @@ def cmd_ledger(args):
         print_error(result)
         return
 
-    section("Ledger", str(len(result)) + " entradas")
+    section("Ledger", str(len(result)) + " entries")
     vc_map = {
         "APPROVED": C.GRN, "BLOCKED": C.RED,
         "ESCALATED": C.YLW, "DUPLICATE": C.ORG,
@@ -1054,7 +1059,7 @@ def cmd_verify(args):
     cfg = load_config()
     api = NovaAPI(cfg["api_url"], cfg["api_key"])
 
-    loading("Verificando cadena criptográfica...")
+    loading("Verifying cryptographic chain...")
     r = api.get("/ledger/verify")
     clear_line()
 
@@ -1107,21 +1112,21 @@ def cmd_seed(args):
     cfg = load_config()
     api = NovaAPI(cfg["api_url"], cfg["api_key"])
 
-    warn("Insertará agentes y acciones de demostración.")
-    if not confirm("¿Continuar?"):
+    warn("This will insert demo agents and actions.")
+    if not confirm("Continue?"):
         return
 
-    loading("Sembrando datos demo...")
+    loading("Seeding demo data...")
     r = api.post("/demo/seed", {})
     clear_line()
 
     if "error" in r:
         print_error(r)
         return
-    ok("Datos demo cargados")
-    kv("Agentes",  str(r.get("tokens", 0)),   C.B7)
-    kv("Acciones", str(r.get("actions", 0)))
-    kv("Memorias", str(r.get("memories", 0)), C.B6)
+    ok("Demo data loaded.")
+    kv("Agents",  str(r.get("tokens", 0)),   C.B7)
+    kv("Actions", str(r.get("actions", 0)))
+    kv("Memories", str(r.get("memories", 0)), C.B6)
     print()
     info("Explore with:  " + q(C.B7, "nova status"))
     print()
@@ -1130,11 +1135,9 @@ def cmd_seed(args):
 def cmd_config(args):
     """Interactive configuration hub."""
     while True:
-        cfg        = load_config()
-        api_url    = cfg.get("api_url", "http://localhost:8000")
-        api_key    = cfg.get("api_key", "")
-        user_name  = cfg.get("user_name", "")
-
+        cfg       = load_config()
+        api_url   = cfg.get("api_url", "http://localhost:8000")
+        api_key   = cfg.get("api_key", "")
         installed = [k for k in SKILLS if skill_status(k) == "installed"]
 
         connected = False
@@ -1144,50 +1147,43 @@ def cmd_config(args):
         except Exception:
             pass
 
-        conn_badge  = q(C.GRN, "● connected", bold=True) if connected else q(C.YLW, "! check server")
-        key_display = ("*" * 8 + api_key[-4:]) if len(api_key) >= 4 else (q(C.G3, "not set") if not api_key else api_key)
-        skill_badge = (q(C.GRN, str(len(installed)) + " active") if installed else q(C.G2, "none")) + \
-                      q(C.G3, "  ·  " + str(len(SKILLS)) + " available")
+        key_display = ("*" * 8 + api_key[-4:]) if len(api_key) >= 4 else ("not set" if not api_key else api_key)
+        srv_status  = ("connected" if connected else "unreachable")
+        skill_count = str(len(installed)) + "/" + str(len(SKILLS)) + " installed"
 
         print_logo(compact=True)
         print("  " + q(C.G3, "─" * 52))
         print()
-
-        rows = [
-            ("1", "Server",      api_url[:36],               conn_badge),
-            ("2", "API Key",     key_display,                 ""),
-            ("3", "Skills  ✦",  "connect nova to the world", skill_badge),
-            ("4", "Preferences", "language · output",        ""),
-            ("5", "About",       "version · docs · support",  ""),
-            ("6", "Reset",       "clear all local settings",  ""),
-        ]
-
-        for num, title, sub, badge in rows:
-            b = "  " + badge if badge else ""
-            print("  " + q(C.G3, "[") + q(C.B6, num, bold=True) + q(C.G3, "]") +
-                  "  " + q(C.W, title.ljust(14), bold=True) +
-                  q(C.G2, sub[:36]) + b)
-
+        kv("  Server", api_url[:38], C.B6 if connected else C.YLW)
+        kv("  Status", srv_status,   C.GRN if connected else C.YLW)
+        kv("  API Key", key_display, C.G2)
+        kv("  Skills",  skill_count, C.GRN if installed else C.G2)
         print()
         print("  " + q(C.G3, "─" * 52))
         print()
 
+        opts = [
+            "Server        — update URL",
+            "API Key       — update credentials",
+            "Skills  ✦     — install integrations",
+            "Preferences   — language",
+            "About         — version · docs",
+            "Reset         — clear all settings",
+            "Exit",
+        ]
+
         try:
-            choice = _select(
-                ["Server", "API Key", "Skills  ✦", "Preferences", "About", "Reset", "Exit"],
-                default=0
-            )
+            choice = _select(opts, default=0)
         except KeyboardInterrupt:
             print(); break
 
-        if choice == 6:  # Exit
+        if choice == 6:
             break
 
-        # ── Server ─────────────────────────────────────────────
         if choice == 0:
             print()
-            section("Server & Connection")
-            kv("URL",    api_url,  C.B6)
+            section("Server")
+            kv("URL", api_url, C.B6)
             kv("Status", "Connected" if connected else "Unreachable",
                C.GRN if connected else C.RED)
             print()
@@ -1200,7 +1196,6 @@ def cmd_config(args):
             except (EOFError, KeyboardInterrupt):
                 pass
 
-        # ── API Key ────────────────────────────────────────────
         elif choice == 1:
             print()
             section("API Key")
@@ -1208,7 +1203,8 @@ def cmd_config(args):
             print()
             try:
                 import getpass
-                print("  " + q(C.B6, "?") + "  " + q(C.G1, "New API Key (Enter to keep)") + "  ", end="", flush=True)
+                print("  " + q(C.B6, "?") + "  " + q(C.G1, "New API Key (Enter to keep)") +
+                      "  ", end="", flush=True)
                 new_key = getpass.getpass("").strip()
                 if new_key:
                     cfg["api_key"] = new_key
@@ -1217,47 +1213,42 @@ def cmd_config(args):
             except (EOFError, KeyboardInterrupt):
                 pass
 
-        # ── Skills ─────────────────────────────────────────────
         elif choice == 2:
             _config_skills_hub()
 
-        # ── Preferences ────────────────────────────────────────
         elif choice == 3:
             print()
             section("Preferences")
             lang = cfg.get("lang", "en")
-            kv("Language", lang, C.W)
+            kv("Language", "English" if lang == "en" else "Español", C.W)
             print()
             try:
-                lang_idx = _select(["English", "Español"], default=0 if lang == "en" else 1)
-                new_lang = "en" if lang_idx == 0 else "es"
-                cfg["lang"] = new_lang
+                lang_idx = _select(["English", "Español"],
+                                   default=0 if lang == "en" else 1)
+                cfg["lang"] = "en" if lang_idx == 0 else "es"
                 save_config(cfg)
-                ok("Preference saved.")
+                ok("Saved.")
             except (EOFError, KeyboardInterrupt):
                 pass
 
-        # ── About ──────────────────────────────────────────────
         elif choice == 4:
             print()
             section("About nova")
-            kv("Version",  NOVA_VERSION,        C.B6)
-            kv("Config",   CONFIG_FILE,          C.G2)
-            kv("Skills",   str(len(installed)) + " installed", C.G2)
-            kv("Docs",     "https://github.com/Santiagorubioads/nova-os", C.B6)
-            kv("Support",  "https://nova-os.com/support", C.B6)
+            kv("Version", NOVA_VERSION, C.B6)
+            kv("Config",  CONFIG_FILE,  C.G2)
+            kv("Skills",  skill_count,  C.G2)
+            kv("Docs",    "https://github.com/Santiagorubioads/nova-os", C.B6)
+            kv("Support", "https://nova-os.com/support", C.B6)
             print()
-            try:
-                input("  " + q(C.G3, "  Enter to go back  "))
-            except (EOFError, KeyboardInterrupt):
-                pass
+            _pause("go back")
 
-        # ── Reset ──────────────────────────────────────────────
         elif choice == 5:
             print()
             warn("This will erase all local nova config and installed skills.")
+            print()
             try:
-                if confirm("Continue?", default=False):
+                idx = _select(["Cancel", "Yes, reset everything"], default=0)
+                if idx == 1:
                     import shutil
                     shutil.rmtree(NOVA_DIR, ignore_errors=True)
                     ok("nova reset. Run " + q(C.B7, "nova init") + " to start fresh.")
@@ -1285,13 +1276,13 @@ def _config_skills_hub():
         print("  " + q(C.G2, "  Install what you need. Nothing else runs."))
         print()
 
-        # Build arrow-key options
+        # Build arrow-key options (NO ANSI codes inside option strings)
         opts = []
         for k in all_keys:
             s   = SKILLS[k]
             st  = skill_status(k)
-            tag = q(C.GRN, " ✓") if st == "installed" else ""
-            opts.append(s["icon"] + "  " + s["name"].ljust(16) + s["desc"][:30] + tag)
+            tag = " ✓" if st == "installed" else "  "
+            opts.append(s["icon"] + "  " + s["name"].ljust(14) + tag + "  " + s["desc"][:28])
         opts.append("← Back")
 
         try:
@@ -1616,9 +1607,9 @@ def cmd_skill_list(args):
 
     print("  " + q(C.G4, "─" * 54))
     print()
-    print("  " + q(C.B7, "nova skill add <nombre>", bold=True) + q(C.G3, "   instalar un skill"))
-    print("  " + q(C.B5, "nova skill info <nombre>") + q(C.G3, "   ver detalles"))
-    print("  " + q(C.B5, "nova skill remove <nombre>") + q(C.G3, " desinstalar"))
+    print("  " + q(C.B7, "nova skill add <nombre>", bold=True) + q(C.G3, "   install a skill"))
+    print("  " + q(C.B5, "nova skill info <nombre>") + q(C.G3, "   view details"))
+    print("  " + q(C.B5, "nova skill remove <nombre>") + q(C.G3, "   uninstall"))
     print()
 
 
@@ -1627,9 +1618,9 @@ def cmd_skill_info(args):
     name = getattr(args, "third", "") or args.subcommand or args.agent or ""
     if name in ("info", "add", "list", "remove", ""):
         name = getattr(args, "third", "") or args.agent or ""
-        fail("Skill no encontrado: " + (name or "?"))
+        fail("Skill not found: " + (name or "?"))
         print()
-        info("Skills disponibles: " + ", ".join(SKILLS.keys()))
+        info("Available skills: " + ", ".join(SKILLS.keys()))
         return
 
     s  = SKILLS[name]
@@ -1645,7 +1636,7 @@ def cmd_skill_info(args):
     kv("What it does",  s["what"], C.G2)
     kv("MCP",          s["mcp"], C.G3)
     kv("Docs",         s["docs"], C.B6)
-    kv("Status",       ("✓ instalado" if st == "installed" else "not installed"),
+    kv("Status",       ("✓ installed" if st == "installed" else "not installed"),
        C.GRN if st == "installed" else C.G4)
 
     if data and data.get("installed_at"):
@@ -1679,7 +1670,7 @@ def cmd_skill_add(args):
     if not name:
         # Interactive picker
         print()
-        print("  " + q(C.W, "¿Qué skill quieres agregar?", bold=True))
+        print("  " + q(C.W, "Which skill do you want to install?", bold=True))
         print()
         for i, (k, s) in enumerate(SKILLS.items()):
             sc = _skill_color(s)
@@ -1690,7 +1681,7 @@ def cmd_skill_add(args):
         print()
         print("  ", end="")
         try:
-            choice = input(q(C.B6, "Número o nombre: ")).strip()
+            choice = input(q(C.B6, "Number or name: ")).strip()
         except (EOFError, KeyboardInterrupt):
             print(); return
 
@@ -1703,8 +1694,8 @@ def cmd_skill_add(args):
             name = choice.lower()
 
     if name not in SKILLS:
-        fail("Skill '" + name + "' no existe.")
-        info("Skills disponibles: " + ", ".join(SKILLS.keys()))
+        fail("Skill '" + name + "' not found.")
+        info("Available skills: " + ", ".join(SKILLS.keys()))
         return
 
     s   = SKILLS[name]
@@ -1722,8 +1713,8 @@ def cmd_skill_add(args):
     print()
 
     if st == "installed" and not reconfigure:
-        ok("Ya instalado.")
-        info("Para reconfigurar:  " + q(C.B7, "nova skill add " + name + " --reconfigure"))
+        ok("Already installed.")
+        info("To reconfigure:  " + q(C.B7, "nova skill add " + name + " --reconfigure"))
         print()
         return
 
@@ -1735,7 +1726,7 @@ def cmd_skill_add(args):
     print()
     if not confirm("Do you have the credentials ready?", default=False):
         print()
-        info("Cuando las tengas, vuelve con:  " + q(C.B7, "nova skill add " + name))
+        info("Once ready, come back with:  " + q(C.B7, "nova skill add " + name))
         print()
         return
 
@@ -1801,7 +1792,7 @@ def cmd_skill_remove(args):
         name = args.agent or ""
 
     if not name or name not in SKILLS:
-        fail("Especifica un skill válido.")
+        fail("Specify a valid skill name.")
         return
 
     if skill_status(name) != "installed":
@@ -1809,7 +1800,7 @@ def cmd_skill_remove(args):
         return
 
     warn("This will remove credentials for " + SKILLS[name]["name"] + " from this machine.")
-    if not confirm("¿Continuar?", default=False):
+    if not confirm("Continue?", default=False):
         return
 
     path = os.path.join(SKILLS_DIR, name + ".json")
