@@ -39,20 +39,20 @@ AI agents are powerful—but without oversight, they're a **liability**. Nova OS
 
 ```bash
 # Linux / macOS
-curl -sSL https://raw.githubusercontent.com/Nova/nova-os/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh | bash
 
 # Windows (PowerShell)
-irm https://raw.githubusercontent.com/Nova/nova-os/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.ps1 | iex
 
 # Docker (Recommended for production)
-docker-compose -f https://raw.githubusercontent.com/Nova/nova-os/main/docker-compose.yml up -d
+docker-compose -f https://raw.githubusercontent.com/sxrubyo/nova-os/main/docker-compose.yml up -d
 ```
 
 ### **Manual Installation**
 
 ```bash
 # Clone repository
-git clone https://github.com/Nova/nova-os.git
+git clone https://github.com/sxrubyo/nova-os.git
 cd nova-os
 
 # Install CLI
