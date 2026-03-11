@@ -528,7 +528,7 @@ def print_logo(tagline=True, compact=False, animated=False, minimal=False):
     # Full logo
     for i in range(6):
         nova_part = _NOVA_COLORS[i] + C.BOLD + _NOVA_BLOCK[i] + C.R
-        cli_part = C.W + C.BOLD + _CLI_BLOCK[i] + C.R
+        cli_part = C.GLD_BRIGHT + C.BOLD + _CLI_BLOCK[i] + C.R
         
         # Premium star on designated line
         if i == _STAR_LINE:
