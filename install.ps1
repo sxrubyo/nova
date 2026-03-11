@@ -2,7 +2,7 @@
 # Maintained by @sxrubyo
 # irm https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.ps1 | iex
 $ErrorActionPreference = "Stop"
-$NOVA_VERSION = "3.1.0"
+$NOVA_VERSION = "3.1.5"
 $NOVA_DIR = "$env:USERPROFILE\.nova"
 $NOVA_PY  = "$NOVA_DIR\nova.py"
 $NOVA_CMD = "$NOVA_DIR\nova.cmd"

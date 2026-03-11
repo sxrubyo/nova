@@ -27,7 +27,6 @@ import re
 import shutil
 import platform
 import subprocess
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -128,15 +127,15 @@ class C:
     HIDDEN = _e("8")     # Hidden
     STRIKE = _e("9")     # Strikethrough
 
-    # Blues — logo gradient (midnight → electric)
-    B1 = _e("38;5;18")   # Darkest blue (logo only)
-    B2 = _e("38;5;19")   # Dark blue (logo only)
-    B3 = _e("38;5;20")   # Medium-dark blue
-    B4 = _e("38;5;21")   # Medium blue
-    B5 = _e("38;5;27")   # Bright blue
-    B6 = _e("38;5;33")   # Nova accent blue — interactive
-    B7 = _e("38;5;39")   # Electric blue — commands/links
-    B8 = _e("38;5;45")   # Cyan-blue — highlights
+    # Blues — flat, desaturated (OpenClaw-dark)
+    B1 = _e("38;5;67")
+    B2 = _e("38;5;67")
+    B3 = _e("38;5;67")
+    B4 = _e("38;5;67")
+    B5 = _e("38;5;67")
+    B6 = _e("38;5;67")
+    B7 = _e("38;5;73")
+    B8 = _e("38;5;109")
 
     # Text hierarchy (NEVER darker than G3 for body text)
     W   = _e("38;5;255")  # Pure white — titles, emphasis
@@ -146,20 +145,20 @@ class C:
     G3  = _e("38;5;240")  # Dark gray — MINIMUM for visible text
     
     # Semantic colors
-    GRN  = _e("38;5;84")   # Success, approved, positive
-    YLW  = _e("38;5;220")  # Warning, caution, pending
-    RED  = _e("38;5;196")  # Error, blocked, danger
-    ORG  = _e("38;5;208")  # Duplicate, attention
-    MGN  = _e("38;5;141")  # Special, magic
-    CYN  = _e("38;5;87")   # Info, neutral highlight
-    PNK  = _e("38;5;213")  # Accent, premium
-    GLD  = _e("38;5;220")  # Gold — premium, star
+    GRN  = _e("38;5;108")  # Muted success
+    YLW  = _e("38;5;179")  # Muted warning
+    RED  = _e("38;5;167")  # Muted error
+    ORG  = _e("38;5;173")  # Muted attention
+    MGN  = _e("38;5;139")  # Muted special
+    CYN  = _e("38;5;109")  # Muted info
+    PNK  = _e("38;5;174")  # Muted accent
+    GLD  = _e("38;5;179")  # Muted gold
     
     # Backgrounds (use sparingly)
-    BG_RED = _e("48;5;196")
-    BG_GRN = _e("48;5;84")
-    BG_BLU = _e("48;5;33")
-    BG_YLW = _e("48;5;220")
+    BG_RED = _e("48;5;167")
+    BG_GRN = _e("48;5;108")
+    BG_BLU = _e("48;5;67")
+    BG_YLW = _e("48;5;179")
     BG_GRY = _e("48;5;236")
 
 
@@ -257,8 +256,8 @@ _AGENT_WAKE_MESSAGES = [
     "Systems coming online...",
 ]
 
-NOVA_VERSION = "3.1.0"
-NOVA_BUILD = "2026.03.enterprise"
+NOVA_VERSION = "3.1.5"
+NOVA_BUILD = "2026.03.shadow"
 NOVA_CODENAME = "Constellation"
 
 # Command aliases for power users
@@ -481,7 +480,7 @@ class ProgressBar:
         filled = int(self.width * pct)
         empty = self.width - filled
         
-        bar = q(self.color, "█" * filled) + q(C.G3, "░" * empty)
+        bar = q(self.color, "█" * filled) + q(C.G3, "·" * empty)
         pct_str = f"{int(pct * 100):3d}%"
         
         # ETA calculation
@@ -640,7 +639,7 @@ def health_meter(score, width=28):
     filled = int((score / 100) * width)
     empty = width - filled
     color = C.GRN if score >= 80 else C.YLW if score >= 55 else C.RED
-    bar = q(color, "█" * filled) + q(C.G3, "░" * empty)
+    bar = q(color, "█" * filled) + q(C.G3, "·" * empty)
     return f"{bar}  {q(color, f'{score:3d}%')}"
 
 def nl(count=1):
@@ -719,7 +718,7 @@ def score_bar(score, width=20):
     else:
         c = C.RED
     
-    bar = q(c, "█" * filled, bold=True) + q(C.G3, "░" * empty)
+    bar = q(c, "█" * filled, bold=True) + q(C.G3, "·" * empty)
     num = q(c, str(score), bold=True)
     return q(C.G3, "[") + bar + q(C.G3, "]") + " " + num
 
@@ -1407,7 +1406,7 @@ def step_header(current, total, title, subtitle=""):
     
     # Progress bar
     filled = "█" * current
-    empty = "░" * (total - current)
+    empty = "·" * (total - current)
     bar = q(C.B6, filled, bold=True) + q(C.G3, empty)
     
     progress = q(C.G2, f"{current}/{total}")
@@ -2008,6 +2007,45 @@ def _http_post_json(url, payload, headers=None, timeout=20):
 # ══════════════════════════════════════════════════════════════════════════════
 
 _VERSION_CACHE = {}
+_LOCAL_POLICY_CACHE = {}
+
+
+SAFE_READ_VERBS = (
+    "read", "view", "open", "cat", "head", "tail",
+    "list", "ls", "stat", "grep", "show",
+)
+UNSAFE_VERBS = (
+    "write", "delete", "remove", "rm", "move", "rename",
+    "chmod", "chown", "copy", "create", "update",
+    "edit", "append", "truncate", "touch",
+)
+
+
+def local_policy_decision(action):
+    """Fast in-memory policy decision for safe read-only actions."""
+    if not action:
+        return None
+    key = action.strip().lower()
+    cached = _LOCAL_POLICY_CACHE.get(key)
+    if cached:
+        return cached
+    
+    if any(bad in key for bad in UNSAFE_VERBS):
+        return None
+    
+    if any(good in key for good in SAFE_READ_VERBS) and (
+        "file" in key or "/" in key or "." in key or "path" in key
+    ):
+        decision = {
+            "verdict": "APPROVED",
+            "score": 100,
+            "reason": "Local policy cache: read-only action",
+            "policy": "local-cache",
+        }
+        _LOCAL_POLICY_CACHE[key] = decision
+        return decision
+    
+    return None
 
 
 def check_for_updates(force=False):
@@ -3428,8 +3466,130 @@ def cmd_status(args):
     print()
 
 
+def _extract_run_command():
+    if "--" in sys.argv:
+        idx = sys.argv.index("--")
+        return sys.argv[idx + 1:]
+    return []
+
+
+def _proposed_command(line):
+    line = line.strip()
+    if not line:
+        return ""
+    m = re.match(r"^(?:CMD|EXEC|RUN|SHELL)[:>]\s*(.+)$", line, re.I)
+    if m:
+        return m.group(1).strip()
+    if line.startswith("$ "):
+        return line[2:].strip()
+    return ""
+
+
+SENSITIVE_CMD_PATTERNS = [
+    re.compile(r"\\brm\\s+-rf\\b", re.I),
+    re.compile(r"\\bsudo\\b", re.I),
+    re.compile(r"\\bchmod\\b|\\bchown\\b", re.I),
+    re.compile(r"\\bmkfs\\b|\\bdd\\s+", re.I),
+    re.compile(r"(curl|wget)\\s+.+\\|\\s*(sh|bash)", re.I),
+    re.compile(r"\\bscp\\b|\\bssh\\b", re.I),
+    re.compile(r"\\baws\\b|\\bgsutil\\b|\\baz\\b", re.I),
+    re.compile(r"\\bbase64\\b", re.I),
+]
+
+
+def cmd_run(args):
+    """Run external processes with STDOUT/STDERR governance."""
+    cmd = _extract_run_command()
+    if not cmd:
+        fail("Usage: nova run -- <command>")
+        return
+    
+    api, cfg = get_api()
+    token_default = args.token or cfg.get("default_token", "")
+    execute = getattr(args, "execute", False)
+    
+    print_logo(compact=True)
+    print()
+    ok("Process wrapper active")
+    dim("Monitoring stdout/stderr for proposed commands")
+    print()
+    
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+        universal_newlines=True,
+    )
+    
+    def handle_command(command):
+        if not command:
+            return
+        if any(p.search(command) for p in SENSITIVE_CMD_PATTERNS):
+            warn(f"Sensitive command detected: {command}")
+            return
+        
+        local_decision = local_policy_decision(command)
+        if local_decision:
+            ok(f"Approved (local): {command}")
+            if execute:
+                subprocess.run(command, shell=True)
+            return
+        
+        if not token_default:
+            warn(f"Blocked (no token): {command}")
+            return
+        
+        payload = {
+            "token_id": token_default,
+            "action": command,
+            "context": "nova run wrapper",
+            "generate_response": False,
+            "check_duplicates": True,
+        }
+        result = api.post("/validate", payload)
+        if "error" in result:
+            warn(f"Validation error: {format_api_error(result)}")
+            return
+        if result.get("verdict") == "APPROVED":
+            ok(f"Approved: {command}")
+            if execute:
+                subprocess.run(command, shell=True)
+        else:
+            warn(f"Blocked: {command} ({result.get('verdict')})")
+    
+    def stream_reader(stream, is_err=False):
+        for line in iter(stream.readline, ""):
+            line = line.rstrip("\n")
+            if is_err:
+                print("  " + q(C.RED, line))
+            else:
+                print("  " + q(C.G1, line))
+                proposed = _proposed_command(line)
+                if proposed:
+                    handle_command(proposed)
+    
+    threads = [
+        threading.Thread(target=stream_reader, args=(proc.stdout, False), daemon=True),
+        threading.Thread(target=stream_reader, args=(proc.stderr, True), daemon=True),
+    ]
+    for t in threads:
+        t.start()
+    
+    try:
+        proc.wait()
+    except KeyboardInterrupt:
+        proc.terminate()
+    
+    print()
+    ok(f"Process exited with code {proc.returncode}")
+    print()
+
+
 def cmd_shield(args):
     """Proxy mode for external agent calls with Nova validation."""
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     api, cfg = get_api()
     token_default = args.token or cfg.get("default_token", "")
     upstream = (args.upstream or "").strip()
@@ -3478,6 +3638,17 @@ def cmd_shield(args):
             if not token_id:
                 self._send(400, {"error": "Missing token_id"})
                 return
+            local_decision = local_policy_decision(action)
+            if local_decision and not upstream:
+                response_payload = {
+                    "verdict": local_decision["verdict"],
+                    "score": local_decision["score"],
+                    "reason": local_decision["reason"],
+                    "agent_name": "Local Policy",
+                    "ledger_id": None,
+                }
+                self._send(200, response_payload)
+                return
             
             validation_payload = {
                 "token_id": token_id,
@@ -3488,8 +3659,17 @@ def cmd_shield(args):
             }
             if payload.get("dry_run") or dry_run:
                 validation_payload["dry_run"] = True
-            
-            result = api.post("/validate", validation_payload)
+            result = None
+            if local_decision:
+                result = {
+                    "verdict": local_decision["verdict"],
+                    "score": local_decision["score"],
+                    "reason": local_decision["reason"],
+                    "agent_name": "Local Policy",
+                    "ledger_id": None,
+                }
+            else:
+                result = api.post("/validate", validation_payload)
             if "error" in result:
                 self._send(502, {"error": format_api_error(result)})
                 return
@@ -3677,6 +3857,11 @@ def cmd_doctor(args):
             _harden_file_permissions(f, 0o600)
         fixes.append("permissions: hardened")
     
+    detected = []
+    for binary in ("openclaw", "aider", "aider-chat"):
+        if shutil.which(binary):
+            detected.append(binary)
+    
     print_logo(compact=True)
     print()
     if fixes:
@@ -3684,6 +3869,11 @@ def cmd_doctor(args):
             ok(item)
     else:
         ok("No repairs needed.")
+    
+    if detected:
+        print()
+        warn("Detected agent binaries in PATH: " + ", ".join(detected))
+        dim("Suggested profile: tighten outbound network + require approvals for EXEC actions")
     print()
 
 
@@ -4066,6 +4256,16 @@ def cmd_validate(args):
         if not action:
             return
     
+    local_decision = local_policy_decision(action)
+    if local_decision:
+        print()
+        print("  " + verdict_badge(local_decision["verdict"]) + "   " +
+              score_bar(local_decision["score"]) + "   " + q(C.G3, "0ms"))
+        print()
+        kv("Reason", local_decision["reason"], C.G2)
+        kv("Agent", "Local Policy", C.W)
+        return
+    
     if not token_id:
         fail("No token set. Pass --token or create an agent first.")
         hint("Run:  nova agent create")
@@ -4402,7 +4602,7 @@ def cmd_memory_list(args):
         source = memory.get("source", "manual")
         ts = time_ago(memory.get("created_at", ""))
         
-        bar = q(C.B6, "█" * importance) + q(C.G3, "░" * (10 - importance))
+        bar = q(C.B6, "█" * importance) + q(C.G3, "·" * (10 - importance))
         
         print()
         print("  " + q(C.W, key, bold=True) + "  " + bar + "  " + 
@@ -5525,6 +5725,7 @@ def cmd_help(args=None):
             ("sync", "Process offline queue"),
             ("seed", "Load demo data"),
             ("alerts", "View pending alerts"),
+            ("run", "Wrap external process execution"),
             ("shield", "Proxy validation for external agents"),
             ("scout", "Scan skills for exfil signals"),
             ("doctor", "Auto-repair config & permissions"),
@@ -5599,7 +5800,7 @@ def cmd_completion(args):
         "agent", "validate", "test",
         "memory", "ledger", "verify", "watch", "export", "audit",
         "keys", "skill", "sync", "seed", "alerts",
-        "shield", "scout", "doctor", "mcp",
+        "run", "shield", "scout", "doctor", "mcp",
         "help", "completion"
     ]
     
@@ -5664,6 +5865,7 @@ _nova() {{
         'sync:Process queue'
         'seed:Load demo data'
         'alerts:View alerts'
+        'run:Process wrapper'
         'shield:Proxy validation'
         'scout:Skills security scan'
         'doctor:Auto-repair'
@@ -5699,6 +5901,7 @@ complete -c nova -n __fish_use_subcommand -a skill -d 'Skill catalog'
 complete -c nova -n __fish_use_subcommand -a sync -d 'Process queue'
 complete -c nova -n __fish_use_subcommand -a seed -d 'Demo data'
 complete -c nova -n __fish_use_subcommand -a alerts -d 'View alerts'
+complete -c nova -n __fish_use_subcommand -a run -d 'Process wrapper'
 complete -c nova -n __fish_use_subcommand -a shield -d 'Proxy validation'
 complete -c nova -n __fish_use_subcommand -a scout -d 'Skills security scan'
 complete -c nova -n __fish_use_subcommand -a doctor -d 'Auto-repair'
@@ -5750,6 +5953,7 @@ def main():
     parser.add_argument("--upstream", default="")
     parser.add_argument("--path", default="")
     parser.add_argument("--fix-perms", action="store_true")
+    parser.add_argument("--execute", action="store_true")
     parser.add_argument("--verbose", "-v", action="store_true")
     parser.add_argument("--help", "-h", action="store_true")
     parser.add_argument("--version", "-V", action="store_true")
@@ -5816,6 +6020,7 @@ def main():
         
         # Sync
         ("sync", ""): cmd_sync,
+        ("run", ""): cmd_run,
         ("shield", ""): cmd_shield,
         ("scout", ""): cmd_scout,
         ("doctor", ""): cmd_doctor,

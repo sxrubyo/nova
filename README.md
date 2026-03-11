@@ -2,7 +2,7 @@
 **Maintained by @sxrubyo**
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.1.0-black?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.1.5-black?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/python-3.8+-blue?style=for-the-badge" alt="Python">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-green?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/dependencies-zero-red?style=for-the-badge" alt="Zero Dependencies">
@@ -112,12 +112,12 @@ nova status
 ```
 
 ```
-  ✦ Nova OS v3.1.0
+  ✦ Nova OS v3.1.5
   ════════════════════════════════════════════════
 
   Server: https://api.nova-os.com
   Status: Connected
-  Version: 3.1.0-enterprise
+  Version: 3.1.5-shadow
 
   Activity
   ────────────────────────────────

@@ -4,7 +4,7 @@
 # curl -sSL https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh | bash
 set -euo pipefail
 
-NOVA_VERSION="3.1.0"
+NOVA_VERSION="3.1.5"
 NOVA_DIR="$HOME/.nova"
 NOVA_PY="$NOVA_DIR/nova.py"
 NOVA_BIN="$NOVA_DIR/nova"
