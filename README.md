@@ -2,14 +2,15 @@
 **Maintained by Nova Governance**
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.1.5-black?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.2.0-black?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/python-3.8+-blue?style=for-the-badge" alt="Python">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-green?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/dependencies-zero-red?style=for-the-badge" alt="Zero Dependencies">
 </p>
 
 <p align="center">
-  <strong>The firewall between your AI agents and the real world.</strong>
+  <strong>The firewall between your AI agents and the real world.</strong><br>
+  <em>Nova finds your agents. Nova validates every action.</em>
 </p>
 
 ---
@@ -66,18 +67,24 @@ python nova.py --help
 
 ## 🚀 Quick Start
 
-### **1. Initialize Nova**
+### **1. Initialize Nova** (Auto-Detection Mode)
 ```bash
 nova init
 ```
-Follow the interactive wizard (7 steps, ~2 minutes). You will configure:
-1. How Nova works (validation, ledger, scoring)
-2. Risks & terms (safety guardrails)
-3. Identity (name and org)
-4. API key setup + documentation link
-5. Server selection (local or custom)
-6. Connection test
-7. Skills setup (optional)
+Nova will automatically detect running agents (Melissa, n8n, etc.) and configure itself. 
+
+**9-Step Flow**:
+1. **Scan** — Nova finds your agents automatically
+2. **Confirm** — Verify detected services
+3. **Demo** — If nothing found, activate demo ledger for evaluation
+4. **Identity** — Your name and organization
+5. **Server** — Choose local, cloud, or custom
+6. **Skills** — 1-click integrations (Slack, GitHub, Stripe)
+7. **Test** — Run your first validation with live ledger entry
+8. **Review** — See dashboard preview with metrics
+9. **Complete** — Ready to validate agent actions in production
+
+**Time**: ~90 seconds from `nova init` to first ledger entry.
 
 ### **2. Create Your First Agent**
 ```bash

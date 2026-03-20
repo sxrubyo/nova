@@ -296,6 +296,7 @@ ALIASES = {
     "e": "export",
     "k": "keys",
     "?": "help",
+    "mod": "model",
 }
 
 
@@ -1621,7 +1622,7 @@ LOGS_DIR = NOVA_DIR / "logs"
 # Default configuration
 DEFAULT_CONFIG = {
     "version": NOVA_VERSION,
-    "api_url": "http://localhost:8000",
+    "api_url": "http://localhost:9002",
     "api_key": "",
     "default_token": "",
     "user_name": "",
@@ -1634,7 +1635,265 @@ DEFAULT_CONFIG = {
     "default_profile": "default",
     "created_at": "",
     "last_updated": "",
+    # LLM Intelligence
+    "llm_provider": "",
+    "llm_model": "",
+    "llm_api_key": "",
+    "llm_effort": "medium",  # low / medium / high (Claude extended thinking)
 }
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LLM PROVIDERS — Choose your intelligence
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Tier badges ──────────────────────────────────────────────────────────────
+TIER_BADGE = {
+    "premium":    "🔥 premium",
+    "reasoning":  "🧠 reasoning",
+    "balanced":   "★  balanced",
+    "fast":       "⚡ fast",
+    "flexible":   "🌐 flexible",
+    "local":      "🏠 local",
+    "free":       "🆓 free",
+}
+
+# ── Priority recommendation map ───────────────────────────────────────────────
+# Used in init wizard: "what matters most?" → recommended model
+PRIORITY_RECOMMEND = {
+    "quality":  ("anthropic", "anthropic/claude-opus-4-6"),
+    "balance":  ("anthropic", "anthropic/claude-sonnet-4-6"),
+    "speed":    ("groq",      "groq/llama-3.3-70b-versatile"),
+    "cost":     ("google",    "gemini/gemini-2.0-flash"),
+    "local":    ("ollama",    "ollama/qwen3.5:27b"),
+    "privacy":  ("mistral",   "mistral/mistral-large-latest"),
+}
+
+# ── Full 2026 model catalog — synced with integrations.py MODEL_OPTIONS ───────
+LLM_PROVIDERS = {
+    "anthropic": {
+        "name": "Anthropic",
+        "tagline": "Claude 4 family — best reasoning & coding in 2026",
+        "icon": "◆",
+        "color": "GLD_BRIGHT",
+        "key_url": "https://console.anthropic.com/settings/keys",
+        "litellm_prefix": "anthropic",
+        "models": [
+            # model_id (litellm format), label, tier, description
+            ("anthropic/claude-opus-4-6",           "Claude Opus 4.6",         "premium",   "Most capable — complex reasoning, 1M ctx"),
+            ("anthropic/claude-opus-4-6[1m]",       "Claude Opus 4.6 [1M]",    "premium",   "Opus with 1 million token context window"),
+            ("anthropic/claude-sonnet-4-6",         "Claude Sonnet 4.6  ★",    "balanced",  "Best balance — recommended for most tasks"),
+            ("anthropic/claude-sonnet-4-6[1m]",     "Claude Sonnet 4.6 [1M]",  "balanced",  "Sonnet with 1M context — long codebases"),
+            ("anthropic/claude-haiku-4-5-20251001", "Claude Haiku 4.5",        "fast",      "Fastest Claude — lightweight & cheap"),
+        ],
+        "default_model": "anthropic/claude-sonnet-4-6",
+        "effort_levels": ["low", "medium", "high"],  # extended thinking
+        "has_effort_slider": True,
+    },
+    "openai": {
+        "name": "OpenAI",
+        "tagline": "GPT-4o & o3 — industry standard",
+        "icon": "◈",
+        "color": "W",
+        "key_url": "https://platform.openai.com/api-keys",
+        "litellm_prefix": "openai",
+        "models": [
+            ("openai/gpt-4o",          "GPT-4o",          "premium",   "Most capable GPT — vision, code, analysis"),
+            ("openai/gpt-4o-mini",     "GPT-4o mini",     "fast",      "Fast & affordable — 80% of 4o at 10x less"),
+            ("openai/o3-mini",         "o3-mini",         "reasoning", "Advanced reasoning — math, science, code"),
+            ("openai/o3",              "o3",              "reasoning", "Full o3 — top reasoning model in 2026"),
+            ("openai/gpt-4.1",         "GPT-4.1",         "premium",   "Latest GPT-4 variant — 1M context"),
+            ("openai/gpt-4.1-mini",    "GPT-4.1 mini",    "fast",      "GPT-4.1 mini — fast & efficient"),
+        ],
+        "default_model": "openai/gpt-4o",
+        "has_effort_slider": False,
+    },
+    "google": {
+        "name": "Google Gemini",
+        "tagline": "Gemini 2.5 Pro — massive context, free tier available",
+        "icon": "◉",
+        "color": "CYN",
+        "key_url": "https://aistudio.google.com/app/apikey",
+        "litellm_prefix": "gemini",
+        "models": [
+            ("gemini/gemini-2.5-pro",          "Gemini 2.5 Pro",        "premium",   "Most capable Gemini — 1M context"),
+            ("gemini/gemini-2.5-flash",        "Gemini 2.5 Flash",      "balanced",  "Fast & smart — great cost/quality ratio"),
+            ("gemini/gemini-2.0-flash",        "Gemini 2.0 Flash",      "fast",      "Ultra-fast — free tier in AI Studio"),
+            ("gemini/gemini-2.0-flash-lite",   "Gemini 2.0 Flash Lite", "free",      "Free tier — basic tasks, high limits"),
+        ],
+        "default_model": "gemini/gemini-2.0-flash",
+        "has_effort_slider": False,
+    },
+    "groq": {
+        "name": "Groq",
+        "tagline": "Llama 3.3 70B — fastest inference on earth (~500 tok/s)",
+        "icon": "◐",
+        "color": "ORG",
+        "key_url": "https://console.groq.com/keys",
+        "litellm_prefix": "groq",
+        "models": [
+            ("groq/llama-3.3-70b-versatile",  "Llama 3.3 70B",          "fast",     "Best Llama — fastest for most tasks"),
+            ("groq/llama-3.1-70b-specdec",    "Llama 3.1 70B SpecDec",  "fast",     "Speculative decoding — even faster"),
+            ("groq/mixtral-8x7b-32768",       "Mixtral 8x7B",           "fast",     "MoE architecture — efficient"),
+            ("groq/llama-3.1-8b-instant",     "Llama 3.1 8B Instant",   "fast",     "Smallest & fastest — instant responses"),
+            ("groq/deepseek-r1-distill-llama-70b", "DeepSeek R1 70B",   "reasoning","R1 reasoning via Groq speed"),
+        ],
+        "default_model": "groq/llama-3.3-70b-versatile",
+        "has_effort_slider": False,
+    },
+    "xai": {
+        "name": "xAI — Grok",
+        "tagline": "Grok 3 — real-time knowledge, X/Twitter data",
+        "icon": "✕",
+        "color": "W",
+        "key_url": "https://console.x.ai/",
+        "litellm_prefix": "xai",
+        "models": [
+            ("xai/grok-3",              "Grok 3",              "premium",   "Most capable Grok — real-time knowledge"),
+            ("xai/grok-3-mini",         "Grok 3 mini",         "balanced",  "Fast Grok with reasoning"),
+            ("xai/grok-2-latest",       "Grok 2",              "balanced",  "Proven Grok 2 — stable & reliable"),
+            ("xai/grok-2-vision-latest","Grok 2 Vision",       "balanced",  "Grok 2 with image understanding"),
+        ],
+        "default_model": "xai/grok-3",
+        "has_effort_slider": False,
+    },
+    "mistral": {
+        "name": "Mistral AI",
+        "tagline": "European privacy — GDPR compliant, data stays in EU",
+        "icon": "◇",
+        "color": "B7",
+        "key_url": "https://console.mistral.ai/api-keys/",
+        "litellm_prefix": "mistral",
+        "models": [
+            ("mistral/mistral-large-latest",  "Mistral Large 2",    "premium",  "Most capable — complex tasks, multilingual"),
+            ("mistral/mistral-medium-latest", "Mistral Medium",     "balanced", "Balance of speed and capability"),
+            ("mistral/mistral-small-latest",  "Mistral Small 3.1",  "fast",     "Fast & cheap — simple tasks"),
+            ("mistral/codestral-latest",      "Codestral",          "balanced", "Specialized for code generation"),
+            ("mistral/pixtral-large-latest",  "Pixtral Large",      "premium",  "Vision + text — multimodal tasks"),
+        ],
+        "default_model": "mistral/mistral-large-latest",
+        "has_effort_slider": False,
+    },
+    "deepseek": {
+        "name": "DeepSeek",
+        "tagline": "DeepSeek V3 — top coding model, ultra affordable",
+        "icon": "◈",
+        "color": "B8",
+        "key_url": "https://platform.deepseek.com/api_keys",
+        "litellm_prefix": "deepseek",
+        "models": [
+            ("deepseek/deepseek-chat",    "DeepSeek V3",      "balanced",  "Top coding — rivals GPT-4o at 10x less cost"),
+            ("deepseek/deepseek-reasoner","DeepSeek R1",      "reasoning", "Chain-of-thought reasoning — math & science"),
+        ],
+        "default_model": "deepseek/deepseek-chat",
+        "has_effort_slider": False,
+    },
+    "cohere": {
+        "name": "Cohere",
+        "tagline": "Command R+ — enterprise RAG & search optimized",
+        "icon": "◉",
+        "color": "MGN",
+        "key_url": "https://dashboard.cohere.com/api-keys",
+        "litellm_prefix": "cohere",
+        "models": [
+            ("cohere/command-r-plus-08-2024", "Command R+",    "premium",   "Best for RAG, grounding, enterprise search"),
+            ("cohere/command-r-08-2024",      "Command R",     "balanced",  "Fast RAG — cost effective"),
+        ],
+        "default_model": "cohere/command-r-plus-08-2024",
+        "has_effort_slider": False,
+    },
+    "openrouter": {
+        "name": "OpenRouter",
+        "tagline": "One key — access ALL models above + 200+ more",
+        "icon": "◎",
+        "color": "GRN",
+        "key_url": "https://openrouter.ai/keys",
+        "litellm_prefix": "openrouter",
+        "models": [
+            ("openrouter/anthropic/claude-opus-4-6",          "Claude Opus 4.6",       "premium",   "Best reasoning via OpenRouter"),
+            ("openrouter/anthropic/claude-sonnet-4-6",        "Claude Sonnet 4.6",     "balanced",  "Best balance via OpenRouter"),
+            ("openrouter/openai/gpt-4o",                      "GPT-4o",                "premium",   "OpenAI flagship via OpenRouter"),
+            ("openrouter/openai/o3",                          "o3",                    "reasoning", "Top reasoning via OpenRouter"),
+            ("openrouter/google/gemini-2.5-pro",              "Gemini 2.5 Pro",        "premium",   "Google flagship via OpenRouter"),
+            ("openrouter/deepseek/deepseek-chat",             "DeepSeek V3",           "balanced",  "Best value coding via OpenRouter"),
+            ("openrouter/meta-llama/llama-3.3-70b-instruct",  "Llama 3.3 70B",         "fast",      "Open source via OpenRouter"),
+            ("openrouter/auto",                               "Auto (router picks)",   "flexible",  "OpenRouter picks best model per request"),
+        ],
+        "default_model": "openrouter/anthropic/claude-sonnet-4-6",
+        "has_effort_slider": False,
+    },
+    "ollama": {
+        "name": "Ollama (Local)",
+        "tagline": "100% local — no API key, no cost, full privacy",
+        "icon": "🏠",
+        "color": "GRN",
+        "key_url": "https://ollama.com/download",
+        "litellm_prefix": "ollama",
+        "models": [
+            ("ollama/qwen3.5:27b",         "Qwen 3.5 27B",      "local",   "Best local model 2026 — rivals GPT-4o"),
+            ("ollama/qwen3.5:9b",          "Qwen 3.5 9B",       "local",   "Sweet spot — 16GB RAM, great quality"),
+            ("ollama/qwen3.5:4b",          "Qwen 3.5 4B",       "local",   "Minimal RAM — 8GB machines"),
+            ("ollama/llama3.3:70b",        "Llama 3.3 70B",     "local",   "Meta open source — 64GB RAM"),
+            ("ollama/deepseek-r1:14b",     "DeepSeek R1 14B",   "local",   "Local reasoning — 16GB RAM"),
+            ("ollama/mistral:latest",      "Mistral 7B",        "local",   "Classic local model"),
+            ("ollama/custom",              "Custom model...",   "local",   "Enter any Ollama model name"),
+        ],
+        "default_model": "ollama/qwen3.5:27b",
+        "needs_api_key": False,
+        "base_url": "http://localhost:11434",
+        "has_effort_slider": False,
+    },
+}
+
+# ── Model lookup by litellm ID (used by skill_executor/backend) ───────────────
+def get_model_info(litellm_model_id: str) -> dict:
+    """Return provider + tier info for any model ID."""
+    for prov_key, prov in LLM_PROVIDERS.items():
+        for m in prov["models"]:
+            if m[0] == litellm_model_id:
+                return {
+                    "provider": prov_key,
+                    "provider_name": prov["name"],
+                    "model": m[0],
+                    "label": m[1],
+                    "tier": m[2] if len(m) > 2 else "balanced",
+                    "description": m[3] if len(m) > 3 else "",
+                }
+    return {}
+
+# ── Flat MODEL_OPTIONS list — compatible with integrations.py format ──────────
+def get_model_options() -> list:
+    """Returns flat list compatible with integrations.py MODEL_OPTIONS."""
+    # Try to import from integrations.py if available (server-side)
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "integrations",
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "integrations.py")
+        )
+        if spec:
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            if hasattr(mod, "MODEL_OPTIONS"):
+                return mod.MODEL_OPTIONS
+    except Exception:
+        pass
+
+    # Fallback: build from LLM_PROVIDERS
+    opts = []
+    for prov_key, prov in LLM_PROVIDERS.items():
+        if prov_key == "ollama":
+            continue  # local models not synced to server
+        for m in prov["models"]:
+            if "custom" in m[0]:
+                continue
+            opts.append({
+                "provider": prov_key,
+                "model": m[0],
+                "label": m[1].replace("  ★", "").replace(" ★", "").strip(),
+                "tier": m[2] if len(m) > 2 else "balanced",
+            })
+    return opts
+
 
 def _harden_file_permissions(path, mode=0o600):
     """Best-effort file permission hardening (POSIX only)."""
@@ -1656,6 +1915,133 @@ def ensure_dirs():
     """Ensure all nova directories exist."""
     for d in [NOVA_DIR, SESSIONS_DIR, SKILLS_DIR, LOGS_DIR]:
         d.mkdir(parents=True, exist_ok=True)
+
+
+def _probe_url(url, timeout=1.2):
+    """Best-effort HTTP probe used by init scan."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": f"nova-cli/{NOVA_VERSION}"})
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            body = response.read().decode(errors="ignore")
+            return {
+                "ok": True,
+                "status": getattr(response, "status", 200),
+                "body": body[:400],
+            }
+    except urllib.error.HTTPError as e:
+        try:
+            body = e.read().decode(errors="ignore")
+        except Exception:
+            body = ""
+        return {"ok": True, "status": e.code, "body": body[:400]}
+    except Exception:
+        return {"ok": False, "status": None, "body": ""}
+
+
+def _looks_like_n8n(body):
+    body = (body or "").lower()
+    return "n8n" in body or "workflow automation" in body
+
+
+def _scan_known_ports():
+    """Detect common local services relevant to Nova."""
+    findings = []
+    probes = [
+        ("nova-api", "Nova API", "http://127.0.0.1:9002/health"),
+        ("nova-core", "Nova Core", "http://127.0.0.1:9003/health"),
+        ("melissa", "Melissa", "http://127.0.0.1:8001/health"),
+        ("n8n", "n8n", "http://127.0.0.1:5678/"),
+    ]
+
+    for kind, label, url in probes:
+        result = _probe_url(url)
+        if not result.get("ok"):
+            continue
+        body = result.get("body", "")
+        if kind == "n8n" and not _looks_like_n8n(body):
+            continue
+        findings.append({
+            "kind": kind,
+            "label": label,
+            "url": url.rsplit("/", 1)[0] if kind != "n8n" else url.rstrip("/"),
+            "status": result.get("status"),
+        })
+    return findings
+
+
+def _scan_workspace_files(root, max_depth=3):
+    """Find likely agent/workflow assets near the current working directory."""
+    root = Path(root).resolve()
+    findings = []
+    ignore = {".git", "node_modules", "venv", ".venv", "__pycache__", ".next", "dist", "build"}
+
+    for current_root, dirs, files in os.walk(root):
+        current_path = Path(current_root)
+        depth = len(current_path.relative_to(root).parts)
+        dirs[:] = [d for d in dirs if d not in ignore]
+        if depth > max_depth:
+            dirs[:] = []
+            continue
+
+        file_set = set(files)
+        if "melissa.py" in file_set:
+            findings.append({"kind": "melissa-file", "label": "Melissa codebase", "path": str(current_path / "melissa.py")})
+        if "docker-compose.yml" in file_set:
+            compose_path = current_path / "docker-compose.yml"
+            try:
+                compose_text = compose_path.read_text(encoding="utf-8", errors="ignore").lower()
+            except Exception:
+                compose_text = ""
+            if "n8n" in compose_text:
+                findings.append({"kind": "n8n-compose", "label": "n8n docker stack", "path": str(compose_path)})
+        if ".env" in file_set:
+            findings.append({"kind": "env-file", "label": ".env file", "path": str(current_path / ".env")})
+        if "nova_rules" in dirs or (current_path.name == "nova_rules"):
+            rule_dir = current_path / "nova_rules" if "nova_rules" in dirs else current_path
+            findings.append({"kind": "rules-dir", "label": "nova_rules", "path": str(rule_dir)})
+
+    return findings
+
+
+def scan_local_stack(base_dir=None):
+    """Scan the local machine for likely agents and workflow tools."""
+    base_dir = Path(base_dir or os.getcwd()).resolve()
+    port_findings = _scan_known_ports()
+    file_findings = _scan_workspace_files(base_dir)
+
+    workspace_root = base_dir
+    melissa_file = next((f for f in file_findings if f["kind"] == "melissa-file"), None)
+    if melissa_file:
+        workspace_root = Path(melissa_file["path"]).parent
+    else:
+        rules_dir = next((f for f in file_findings if f["kind"] == "rules-dir"), None)
+        if rules_dir:
+            workspace_root = Path(rules_dir["path"]).parent if Path(rules_dir["path"]).name == "nova_rules" else Path(rules_dir["path"])
+
+    return {
+        "workspace_root": str(workspace_root),
+        "ports": port_findings,
+        "files": file_findings,
+        "has_melissa": any(f["kind"] == "melissa-file" for f in file_findings) or any(p["kind"] == "melissa" for p in port_findings),
+        "has_n8n": any(f["kind"] == "n8n-compose" for f in file_findings) or any(p["kind"] == "n8n" for p in port_findings),
+        "has_rules_dir": any(f["kind"] == "rules-dir" for f in file_findings),
+    }
+
+
+def _ensure_workspace_rules_dir(base_path):
+    """Create nova_rules/ in the detected workspace if missing."""
+    base = Path(base_path).resolve()
+    rules_dir = base / "nova_rules"
+    rules_dir.mkdir(parents=True, exist_ok=True)
+    readme = rules_dir / "README.md"
+    if not readme.exists():
+        readme.write_text(
+            "# Nova Rules\n\n"
+            "This folder stores human-readable governance rules for Nova.\n"
+            "Rules can be created from chat, CLI, or dashboard actions.\n",
+            encoding="utf-8",
+        )
+    return rules_dir
 
 
 def load_config():
@@ -1806,7 +2192,7 @@ def load_profiles():
         "profiles": {
             "default": {
                 "name": "Default",
-                "api_url": "http://localhost:8000",
+                "api_url": "http://localhost:9002",
                 "description": "Local development server",
             }
         },
@@ -2302,7 +2688,7 @@ def get_strings(lang="en"):
             # Server
             "server_title": "Connect to server",
             "server_sub": "nova CLI talks to a nova server.",
-            "server_local": "Local server (localhost:8000)",
+            "server_local": "Local server (localhost:9002)",
             "server_custom": "Enter custom URL",
             "server_saved": "Use saved configuration",
             
@@ -2381,7 +2767,7 @@ def get_strings(lang="en"):
             
             "server_title": "Conectar servidor",
             "server_sub": "nova CLI habla con un servidor nova.",
-            "server_local": "Servidor local (localhost:8000)",
+            "server_local": "Servidor local (localhost:9002)",
             "server_custom": "Ingresar URL personalizada",
             "server_saved": "Usar configuración guardada",
             
@@ -3147,6 +3533,7 @@ def cmd_init(args):
     First-run setup wizard — enterprise onboarding experience.
     """
     cfg = load_config()
+    total_steps = 9
     
     # ── Language Selection ────────────────────────────────────────────────────
     lang = cfg.get("lang", "")
@@ -3196,8 +3583,8 @@ def cmd_init(args):
     
     pause(L["continue"])
     
-    # ── [1/7] How It Works ────────────────────────────────────────────────────
-    step_header(1, 7, L["how_it_works"])
+    # ── [1/9] How It Works ────────────────────────────────────────────────────
+    step_header(1, total_steps, L["how_it_works"])
     
     print("  " + q(C.W, "  ┌─  " + L["how_step_1"]))
     print("  " + q(C.W, "  │"))
@@ -3216,8 +3603,8 @@ def cmd_init(args):
     
     pause(L["continue"])
     
-    # ── [2/7] Risks & Terms ───────────────────────────────────────────────────
-    step_header(2, 7, L["risks_title"])
+    # ── [2/9] Risks & Terms ───────────────────────────────────────────────────
+    step_header(2, total_steps, L["risks_title"])
     
     print("  " + q(C.YLW, "  !") + "  " + q(C.W, L["risks_warning"], bold=True))
     print("       " + q(C.W, L["risks_sub"]))
@@ -3248,8 +3635,8 @@ def cmd_init(args):
         print()
         return
     
-    # ── [3/7] Identity ────────────────────────────────────────────────────────
-    step_header(3, 7, L["identity_title"])
+    # ── [3/9] Identity ────────────────────────────────────────────────────────
+    step_header(3, total_steps, L["identity_title"])
     
     print("  " + q(C.W, f"  {L['identity_sub']}"))
     print()
@@ -3263,8 +3650,8 @@ def cmd_init(args):
         name = "Explorer"
         org = ""
     
-    # ── [4/7] API Key Setup ───────────────────────────────────────────────────
-    step_header(4, 7, L["apikey_title"])
+    # ── [4/9] API Key Setup ───────────────────────────────────────────────────
+    step_header(4, total_steps, L["apikey_title"])
     
     print("  " + q(C.W, f"  {L['apikey_sub']}"))
     print()
@@ -3344,8 +3731,8 @@ def cmd_init(args):
         print()
         ok("Using saved key")
     
-    # ── [5/7] Server Connection ───────────────────────────────────────────────
-    step_header(5, 7, L["server_title"])
+    # ── [5/9] Server Connection ───────────────────────────────────────────────
+    step_header(5, total_steps, L["server_title"])
     
     print("  " + q(C.W, f"  {L['server_sub']}"))
     print()
@@ -3358,7 +3745,7 @@ def cmd_init(args):
     srv_descs = [
         "Default development server",
         "Enter a custom URL (production/cloud)",
-        f"Keep {cfg.get('api_url', 'http://localhost:8000')}",
+        f"Keep {cfg.get('api_url', 'http://localhost:9002')}",
     ]
     
     try:
@@ -3368,7 +3755,7 @@ def cmd_init(args):
         return
     
     if srv_choice == 0:
-        server_url = "http://localhost:8000"
+        server_url = "http://localhost:9002"
         print()
         info(f"Using {server_url}")
     
@@ -3376,18 +3763,18 @@ def cmd_init(args):
         print()
         server_url = prompt(
             "Server URL",
-            default=cfg.get("api_url", "http://localhost:8000"),
+            default=cfg.get("api_url", "http://localhost:9002"),
             validator=lambda x: True if x.startswith(("http://", "https://")) 
                                 else "URL must start with http:// or https://"
         )
     
     else:
-        server_url = cfg.get("api_url", "http://localhost:8000")
+        server_url = cfg.get("api_url", "http://localhost:9002")
         print()
         info(f"Using {server_url}")
     
-    # ── [6/7] Connect ─────────────────────────────────────────────────────────
-    step_header(6, 7, L["connecting_title"])
+    # ── [6/9] Connect ─────────────────────────────────────────────────────────
+    step_header(6, total_steps, L["connecting_title"])
     
     animate_connection(server_url)
     
@@ -3426,8 +3813,292 @@ def cmd_init(args):
     save_config(cfg)
     set_active_key(api_key)
     
-    # ── [7/7] Skills Setup (Optional) ─────────────────────────────────────────
-    step_header(7, 7, L["skills_title"])
+    # ── [7/9] Scan & Wrap ─────────────────────────────────────────────────────
+    step_header(7, total_steps, "Scan & Wrap", "Nova scans your stack and suggests the next move")
+
+    with Spinner("Scanning local stack..."):
+        scan = scan_local_stack()
+
+    print("  " + q(C.W, "Nova looked for running tools and local workspaces.", bold=True))
+    print()
+
+    if scan["ports"]:
+        print("  " + q(C.W, "Detected services", bold=True))
+        for item in scan["ports"]:
+            bullet(f"{item['label']}  {item['url']}  [HTTP {item['status']}]", C.G1)
+        print()
+
+    if scan["files"]:
+        print("  " + q(C.W, "Detected files", bold=True))
+        shown = 0
+        for item in scan["files"][:6]:
+            bullet(f"{item['label']}  {item['path']}", C.G2)
+            shown += 1
+        if len(scan["files"]) > shown:
+            bullet(f"... and {len(scan['files']) - shown} more", C.G3)
+        print()
+
+    if not scan["ports"] and not scan["files"]:
+        warn("Nothing obvious was detected.")
+        info("Nova will still configure a workspace and you can connect an agent later.")
+        print()
+
+    workspace_root = scan.get("workspace_root") or os.getcwd()
+    kv("Workspace root", workspace_root, C.B7)
+    print()
+
+    if not scan.get("has_rules_dir"):
+        if confirm("Create a nova_rules folder in this workspace?", default=True):
+            rules_dir = _ensure_workspace_rules_dir(workspace_root)
+            ok(f"Created rules folder: {rules_dir}")
+            print()
+    else:
+        ok("Found an existing nova_rules folder.")
+        print()
+
+    if connected and scan.get("has_melissa") and not cfg.get("default_token"):
+        print("  " + q(C.W, "Melissa was detected.", bold=True))
+        print("  " + q(C.G2, "Nova can bootstrap a first agent token automatically."))
+        print()
+        if confirm("Create an initial Melissa agent now?", default=True):
+            melissa_description = (
+                "Melissa is a receptionist agent for a clinic. "
+                "She can answer general questions, capture contact data, "
+                "and help schedule appointments. She must never provide diagnoses, "
+                "promise prices or discounts, prescribe medication, or share other people's data."
+            )
+            with Spinner("Creating Melissa agent from description..."):
+                auto_result = api.post("/tokens/from-description", {
+                    "description": melissa_description,
+                    "authorized_by": name or cfg.get("user_name", "") or "cli",
+                })
+
+            if "error" in auto_result:
+                warn("Could not auto-create Melissa agent.")
+                hint(format_api_error(auto_result))
+            else:
+                cfg["default_token"] = auto_result.get("token_id", "")
+                save_config(cfg)
+                ok(f"Agent created: {auto_result.get('agent_name', 'Melissa')}")
+                kv("Token ID", auto_result.get("token_id", ""), C.B7)
+                print()
+
+    if scan.get("has_n8n"):
+        info("n8n was detected. Nova can wrap workflows through webhook/proxy validation.")
+        hint("Next: use nova shield or add a native Nova node in your n8n flow.")
+        print()
+
+    # ── [8/9] Choose Your Intelligence ───────────────────────────────────────
+    step_header(8, total_steps, "Choose your Intelligence")
+    
+    print("  " + q(C.W, "  The AI brain that powers nova's validation engine."))
+    print("  " + q(C.G2, "  9 providers · 40+ models · local & cloud · 2026 edition"))
+    print()
+    
+    # ── Step 1: What matters most to you? (like Claude Code's opusplan strategy)
+    priority_opts = [
+        "★  Best quality — I want the most powerful model",
+        "⚡  Fastest — sub-second validation, no latency",
+        "💰  Best value — great quality, minimal cost",
+        "🔒  Privacy — data stays local or in EU",
+        "🌐  One key — access everything via OpenRouter",
+        "🏠  Local — no API key, runs on my machine",
+        "→  Let me pick manually",
+    ]
+    priority_descs = [
+        "Recommends Claude Opus 4.6 — top reasoning in 2026",
+        "Recommends Groq + Llama 3.3 — ~500 tokens/sec",
+        "Recommends Gemini 2.0 Flash — free tier available",
+        "Recommends Mistral Large (EU) or Ollama (local)",
+        "One OpenRouter key unlocks all 200+ models",
+        "Qwen 3.5 27B — rivals GPT-4o, zero cost, full privacy",
+        "Browse all 9 providers and 40+ models",
+    ]
+    
+    print("  " + q(C.W, "  What matters most to you?", bold=True))
+    print()
+    
+    try:
+        priority_idx = _select(priority_opts, descriptions=priority_descs, default=0)
+    except KeyboardInterrupt:
+        priority_idx = 6  # manual
+    
+    # Map priority → (provider_key, model_id)
+    priority_map = [
+        ("anthropic",   "anthropic/claude-opus-4-6"),
+        ("groq",        "groq/llama-3.3-70b-versatile"),
+        ("google",      "gemini/gemini-2.0-flash"),
+        ("mistral",     "mistral/mistral-large-latest"),
+        ("openrouter",  "openrouter/anthropic/claude-sonnet-4-6"),
+        ("ollama",      "ollama/qwen3.5:27b"),
+        None,  # manual
+    ]
+    
+    auto_pick = priority_map[priority_idx] if priority_idx < len(priority_map) else None
+    
+    llm_provider = ""
+    llm_model = ""
+    llm_api_key = ""
+    
+    if auto_pick:
+        # Show the recommended model clearly
+        rec_prov_key, rec_model_id = auto_pick
+        rec_prov = LLM_PROVIDERS.get(rec_prov_key, {})
+        model_info = get_model_info(rec_model_id)
+        
+        print()
+        print("  " + q(C.GLD, "✦") + "  " + q(C.W, "Recommended for you:", bold=True))
+        print()
+        print("       " + q(C.GLD_BRIGHT, f"{rec_prov.get('icon','·')}  {rec_prov.get('name','')}", bold=True))
+        print("       " + q(C.W, model_info.get("label", rec_model_id)))
+        print("       " + q(C.G2, model_info.get("description", "")))
+        tier = model_info.get("tier","")
+        if tier in TIER_BADGE:
+            print("       " + q(C.B7, TIER_BADGE[tier]))
+        print()
+        
+        use_rec_opts = ["Yes — use this model", "No — let me pick manually"]
+        use_rec_descs = ["Quick setup with recommended model", "Browse all providers and models"]
+        try:
+            use_rec = _select(use_rec_opts, descriptions=use_rec_descs, default=0)
+        except KeyboardInterrupt:
+            use_rec = 1
+        
+        if use_rec == 0:
+            llm_provider = rec_prov_key
+            llm_model    = rec_model_id
+        else:
+            auto_pick = None  # fall through to manual
+    
+    if not auto_pick:
+        # ── Manual provider selection ─────────────────────────────────────────
+        print()
+        print("  " + q(C.W, "  Select provider:", bold=True))
+        print()
+        
+        provider_keys = list(LLM_PROVIDERS.keys())
+        provider_opts = []
+        provider_descs = []
+        
+        for pk in provider_keys:
+            pv = LLM_PROVIDERS[pk]
+            n_models = len(pv["models"])
+            provider_opts.append(f"{pv['icon']}  {pv['name']}  ({n_models} models)")
+            provider_descs.append(pv["tagline"])
+        
+        provider_opts.append("·  Skip for now")
+        provider_descs.append("Configure later with  nova config model")
+        
+        try:
+            prov_idx = _select(provider_opts, descriptions=provider_descs, default=0)
+        except KeyboardInterrupt:
+            prov_idx = len(provider_opts) - 1
+        
+        if prov_idx < len(provider_keys):
+            llm_provider = provider_keys[prov_idx]
+    
+    # ── Model selection (shown when provider is known) ─────────────────────────
+    if llm_provider and not llm_model:
+        prov_data = LLM_PROVIDERS[llm_provider]
+        
+        print()
+        print("  " + q(C.W, "  Select model:", bold=True))
+        print()
+        
+        model_entries = prov_data["models"]
+        model_opts  = []
+        model_descs = []
+        
+        for m in model_entries:
+            tier_badge = ("  " + TIER_BADGE.get(m[2], "")) if len(m) > 2 else ""
+            label = m[1] + tier_badge
+            model_opts.append(label)
+            model_descs.append(m[3] if len(m) > 3 else "")
+        
+        default_midx = 0
+        default_id = prov_data.get("default_model", "")
+        for mi, m in enumerate(model_entries):
+            if m[0] == default_id:
+                default_midx = mi
+                break
+        
+        try:
+            model_idx = _select(model_opts, descriptions=model_descs, default=default_midx)
+        except KeyboardInterrupt:
+            model_idx = default_midx
+        
+        llm_model = model_entries[model_idx][0]
+        
+        # Handle custom Ollama model
+        if llm_model == "ollama/custom":
+            print()
+            try:
+                custom = prompt("Enter Ollama model name", default="qwen3.5:27b")
+                llm_model = f"ollama/{custom}" if custom else "ollama/qwen3.5:27b"
+            except (EOFError, KeyboardInterrupt):
+                llm_model = "ollama/qwen3.5:27b"
+    
+    # ── API Key ────────────────────────────────────────────────────────────────
+    if llm_provider:
+        prov_data = LLM_PROVIDERS[llm_provider]
+        needs_key = prov_data.get("needs_api_key", True)
+        
+        if needs_key:
+            print()
+            print("  " + q(C.G2, "Get your key at:  ") +
+                  q(C.B7, prov_data["key_url"], underline=True))
+            print()
+            
+            try:
+                llm_api_key = prompt(f"{prov_data['name']} API Key", secret=True)
+            except (EOFError, KeyboardInterrupt):
+                llm_api_key = ""
+        else:
+            # Ollama — no key needed
+            llm_api_key = "ollama"
+            base_url = prov_data.get("base_url", "http://localhost:11434")
+            print()
+            info(f"Local Ollama — no API key needed")
+            info(f"Make sure Ollama is running: ollama serve")
+        
+        # Effort level for Claude models with extended thinking
+        llm_effort = "medium"
+        if prov_data.get("has_effort_slider") and "claude" in llm_model.lower():
+            print()
+            print("  " + q(C.G2, "Reasoning effort  ") +
+                  q(C.G3, "(like Claude Code's effort slider)"))
+            print()
+            effort_opts  = ["⚡  low    — fastest, cheapest",
+                            "★  medium — recommended balance",
+                            "🔥  high   — deepest reasoning, slowest"]
+            effort_descs = [
+                "Quick decisions — simple validations",
+                "Most tasks — best cost/quality ratio",
+                "Complex edge cases — maximum accuracy",
+            ]
+            try:
+                eff_idx = _select(effort_opts, descriptions=effort_descs, default=1)
+                llm_effort = ["low", "medium", "high"][eff_idx]
+            except KeyboardInterrupt:
+                llm_effort = "medium"
+        
+        if llm_api_key or not needs_key:
+            minfo = get_model_info(llm_model)
+            ok(f"{prov_data['name']} · {minfo.get('label', llm_model)}")
+            if llm_effort != "medium":
+                ok(f"Effort: {llm_effort}")
+        else:
+            warn("No key entered — you can add it later with  nova config model")
+        
+        # Persist to config
+        cfg["llm_provider"]  = llm_provider
+        cfg["llm_model"]     = llm_model
+        cfg["llm_api_key"]   = llm_api_key
+        cfg["llm_effort"]    = llm_effort
+        save_config(cfg)
+    
+    # ── [9/9] Skills Setup (Optional) ─────────────────────────────────────────
+    step_header(9, total_steps, L["skills_title"])
     
     print("  " + q(C.W, f"  {L['skills_sub']}"))
     print("  " + q(C.W, "  Skills connect nova to external systems like Gmail, Slack, GitHub."))
@@ -3463,24 +4134,52 @@ def cmd_init(args):
     print("     " + q(C.W, f"nova CLI {NOVA_VERSION} {L['ready']}"))
     if org:
         print("     " + q(C.W, org))
+    
+    # Show chosen model
+    _llm_prov  = cfg.get("llm_provider", "")
+    _llm_model = cfg.get("llm_model", "")
+    if _llm_prov in LLM_PROVIDERS and _llm_model:
+        pv_name = LLM_PROVIDERS[_llm_prov]["name"]
+        print("     " + q(C.MGN, f"⟁  {pv_name} / {_llm_model}"))
+    
     print("     " + q(C.W, "Nova Governance"))
     print()
     hr_bold()
     print()
+    
+    # Global install hint
+    _nova_path = sys.argv[0]
+    _is_installed = any(_nova_path.startswith(p) for p in ("/usr/local/bin", "/usr/bin", str(Path.home() / ".local/bin")))
+    if not _is_installed:
+        print("  " + q(C.GLD, "✦") + "  " + q(C.W, "Make nova available everywhere:", bold=True))
+        print()
+        if IS_WINDOWS:
+            print("       " + q(C.G3, "# Add to PATH or copy to a directory already in PATH"))
+            print("       " + q(C.B7, "copy " + _nova_path + r" C:\Windows\System32\nova.py"))
+        else:
+            print("       " + q(C.B7, f"sudo cp {_nova_path} /usr/local/bin/nova"))
+            print("       " + q(C.B7, "sudo chmod +x /usr/local/bin/nova"))
+        print()
+        hr()
+        print()
     
     # Next steps
     print("  " + q(C.W, L["next_steps"]))
     print()
     
     next_cmds = [
-        ("nova agent create", "Create your first agent"),
-        ("nova status", "System health & metrics"),
-        ("nova skill", "Browse available integrations"),
-        ("nova help", "See all commands"),
+        ("nova watch",         "See live ledger entries"),
+        ("nova status",        "System health & metrics"),
+        ("nova agent auto",    "Create an agent from description"),
+        ("nova agent create",  "Create your first agent manually"),
+        ("nova rules create",  "Add a governance rule in plain language"),
+        ("nova config model",  "Change AI provider or model"),
+        ("nova skill",         "Browse available integrations"),
+        ("nova help",          "See all commands"),
     ]
     
     for cmd, desc in next_cmds:
-        print("    " + q(C.W, cmd.ljust(22), bold=True) + q(C.W, desc))
+        print("    " + q(C.W, cmd.ljust(24), bold=True) + q(C.W, desc))
     
     print()
     
@@ -3648,14 +4347,14 @@ def _proposed_command(line):
 
 
 SENSITIVE_CMD_PATTERNS = [
-    re.compile(r"\\brm\\s+-rf\\b", re.I),
-    re.compile(r"\\bsudo\\b", re.I),
-    re.compile(r"\\bchmod\\b|\\bchown\\b", re.I),
-    re.compile(r"\\bmkfs\\b|\\bdd\\s+", re.I),
-    re.compile(r"(curl|wget)\\s+.+\\|\\s*(sh|bash)", re.I),
-    re.compile(r"\\bscp\\b|\\bssh\\b", re.I),
-    re.compile(r"\\baws\\b|\\bgsutil\\b|\\baz\\b", re.I),
-    re.compile(r"\\bbase64\\b", re.I),
+    re.compile(r"\brm\s+-rf\b", re.I),
+    re.compile(r"\bsudo\b", re.I),
+    re.compile(r"\bchmod\b|\bchown\b", re.I),
+    re.compile(r"\bmkfs\b|\bdd\s+", re.I),
+    re.compile(r"(curl|wget)\s+.+\|\s*(sh|bash)", re.I),
+    re.compile(r"\bscp\b|\bssh\b", re.I),
+    re.compile(r"\baws\b|\bgsutil\b|\baz\b", re.I),
+    re.compile(r"\bbase64\b", re.I),
 ]
 
 
@@ -3991,7 +4690,7 @@ def cmd_doctor(args):
         "profiles": {
             "default": {
                 "name": "Default",
-                "api_url": "http://localhost:8000",
+                "api_url": "http://localhost:9002",
                 "description": "Local development server",
             }
         },
@@ -4179,6 +4878,20 @@ def cmd_whoami(args):
     if cfg.get("default_token"):
         kv("Default agent", mask_key(cfg["default_token"]), C.G3)
     
+    # Intelligence
+    llm_prov  = cfg.get("llm_provider", "")
+    llm_model = cfg.get("llm_model", "")
+    llm_key   = cfg.get("llm_api_key", "")
+    section("Intelligence")
+    if llm_prov in LLM_PROVIDERS:
+        pv = LLM_PROVIDERS[llm_prov]
+        kv("Provider", f"{pv['icon']}  {pv['name']}", C.MGN)
+        kv("Model",    llm_model or "—",              C.W)
+        kv("API Key",  mask_key(llm_key) if llm_key else "not set", C.G3)
+    else:
+        kv("Provider", "not configured", C.G3)
+        hint("Run  " + q(C.B7, "nova config model") + "  to select a provider")
+    
     # Skills
     installed = get_installed_skills()
     if installed:
@@ -4354,6 +5067,70 @@ def cmd_agent_create(args):
     print()
 
 
+def cmd_agent_auto(args):
+    """Create an agent automatically from a natural-language description."""
+    api, cfg = get_api()
+
+    description = (getattr(args, "description", "") or "").strip()
+    if not description and getattr(args, "file", ""):
+        try:
+            description = Path(args.file).read_text(encoding="utf-8").strip()
+        except Exception as e:
+            fail(f"Could not read description file: {e}")
+            return
+
+    if not description:
+        print()
+        print("  " + q(C.G2, "Describe the agent in natural language."))
+        print("  " + q(C.G3, "Example: Melissa es mi recepcionista virtual, agenda citas,"))
+        print("  " + q(C.G3, "responde dudas generales y nunca da diagnosticos ni promete precios."))
+        print()
+        description = prompt("Agent description", required=True)
+
+    if not description:
+        return
+
+    authorized_by = getattr(args, "sender", "") or cfg.get("user_name", "") or "cli"
+
+    with Spinner("Generating agent rules from description..."):
+        result = api.post("/tokens/from-description", {
+            "description": description,
+            "authorized_by": authorized_by,
+        })
+
+    if "error" in result:
+        fail(format_api_error(result))
+        hint("This flow requires the backend LLM to be configured.")
+        return
+
+    token_id = result.get("token_id", "")
+    agent_name = result.get("agent_name", "Agent")
+
+    ok(f"Agent created automatically: {agent_name}")
+    print()
+    kv("Token ID", token_id, C.B7)
+    kv("Authorized by", authorized_by, C.G3)
+    kv("Source", result.get("parsed_from", "natural_language"), C.MGN)
+    print()
+
+    if result.get("can_do"):
+        print("  " + q(C.GRN, "●", bold=True) + "  " + q(C.W, "ALLOWED", bold=True))
+        for item in result.get("can_do", [])[:8]:
+            print("       " + q(C.G2, f"+ {item}"))
+        print()
+
+    if result.get("cannot_do"):
+        print("  " + q(C.RED, "●", bold=True) + "  " + q(C.W, "FORBIDDEN", bold=True))
+        for item in result.get("cannot_do", [])[:8]:
+            print("       " + q(C.G2, f"- {item}"))
+        print()
+
+    cfg["default_token"] = token_id
+    save_config(cfg)
+    hint("Default agent updated in local config.")
+    print()
+
+
 def cmd_agent_list(args):
     """List all active agents."""
     api, cfg = get_api()
@@ -4404,6 +5181,103 @@ def cmd_agent_list(args):
                 preview += "..."
             kv("  Forbidden", preview, C.RED)
     
+    print()
+
+
+def cmd_agent_show(args):
+    """Show details for a specific agent token."""
+    api, cfg = get_api()
+    token_id = args.token or prompt("Agent token ID", required=True)
+    if not token_id:
+        return
+
+    with Spinner("Loading agent..."):
+        result = api.get(f"/tokens/{urllib.parse.quote(token_id)}")
+
+    if "error" in result:
+        fail(format_api_error(result))
+        return
+
+    section(result.get("agent_name", "Agent"), mask_key(token_id))
+    kv("Description", result.get("description", "") or "—", C.G2)
+    kv("Authorized by", result.get("authorized_by", ""), C.G3)
+    kv("Active", "yes" if result.get("active", True) else "no",
+       C.GRN if result.get("active", True) else C.RED)
+    kv("Version", result.get("version", 1), C.G2)
+    kv("Policy ID", result.get("policy_id") or "—", C.G3)
+
+    if result.get("can_do"):
+        print()
+        print("  " + q(C.W, "Allowed", bold=True))
+        for item in result.get("can_do", [])[:12]:
+            bullet(item, C.G1)
+
+    if result.get("cannot_do"):
+        print()
+        print("  " + q(C.W, "Forbidden", bold=True))
+        for item in result.get("cannot_do", [])[:12]:
+            bullet(item, C.G1)
+
+    print()
+
+
+def cmd_agent_history(args):
+    """Show version history for an agent token."""
+    api, cfg = get_api()
+    token_id = args.token or prompt("Agent token ID", required=True)
+    if not token_id:
+        return
+
+    with Spinner("Loading agent history..."):
+        result = api.get(f"/tokens/{urllib.parse.quote(token_id)}/history")
+
+    if "error" in result:
+        fail(format_api_error(result))
+        return
+
+    if not result:
+        warn("No token history available.")
+        print()
+        return
+
+    section("Agent History", mask_key(token_id))
+    for entry in result:
+        print()
+        print("  " + q(C.W, f"v{entry.get('version', '?')}", bold=True) +
+              "  " + q(C.G3, str(entry.get("changed_at", ""))[:19].replace("T", " ")))
+        kv("  Changed by", entry.get("changed_by", "—"), C.G3)
+        kv("  Reason", entry.get("change_reason", "—"), C.G2)
+    print()
+
+
+def cmd_agent_toggle(args):
+    """Enable or disable an agent token."""
+    api, cfg = get_api()
+    token_id = args.token or prompt("Agent token ID", required=True)
+    if not token_id:
+        return
+
+    enable = (args.subcommand or "").lower() == "enable"
+    label = "enable" if enable else "disable"
+
+    if not confirm(f"{label.capitalize()} agent {token_id}?", default=False):
+        warn("Cancelled.")
+        return
+
+    if enable:
+        result = api.patch(f"/tokens/{urllib.parse.quote(token_id)}", {
+            "active": True,
+            "changed_by": cfg.get("user_name") or "cli",
+            "change_reason": "re-enabled from nova CLI",
+        })
+    else:
+        result = api.delete(f"/tokens/{urllib.parse.quote(token_id)}")
+
+    if "error" in result:
+        fail(format_api_error(result))
+        return
+
+    ok(f"Agent {label}d: {token_id}")
     print()
 
 
@@ -4627,48 +5501,136 @@ def cmd_verify(args):
 
 
 def cmd_watch(args):
-    """Live stream of ledger entries."""
+    """Live stream of validation events with SSE fallback."""
     api, cfg = get_api()
     interval = getattr(args, "interval", 3) or 3
-    
+
     print_logo(compact=True)
-    print("  " + q(C.W, "Watching ledger...", bold=True) + "  " + 
+    print("  " + q(C.W, "Watching Nova events...", bold=True) + "  " +
           q(C.G3, "Ctrl+C to stop"))
+    print("  " + q(C.G2, "Real-time validation stream when available, polling fallback otherwise."))
     hr()
     print()
-    
-    seen = set()
+
     verdict_colors = {
         "APPROVED": C.GRN,
         "BLOCKED": C.RED,
         "ESCALATED": C.YLW,
         "DUPLICATE": C.ORG,
     }
-    
+
+    def render_validation(payload, timestamp=None):
+        verdict = payload.get("verdict", "?")
+        score = payload.get("score", 0)
+        action = str(payload.get("action", ""))[:56]
+        agent = str(payload.get("agent_name", ""))[:20]
+        ledger_id = payload.get("ledger_id")
+        risk = payload.get("risk_level", "")
+        vc = verdict_colors.get(verdict, C.G2)
+        stamp = time_ago(timestamp) if timestamp else "live"
+        ledger_label = f"#{ledger_id}" if ledger_id is not None else "—"
+
+        print("  " + q(vc, "■") + "  " + q(C.W, action) + "  " + q(vc, verdict))
+        print("     " + score_bar(score, 8) + "  " + q(C.G3, agent) +
+              "  " + q(C.G3, ledger_label) + "  " + q(C.G3, stamp) +
+              ("  " + q(C.G2, risk) if risk else ""))
+
+    def render_alert(payload, timestamp=None):
+        severity = str(payload.get("severity", "medium")).upper()
+        message = str(payload.get("message", ""))[:72]
+        agent = str(payload.get("agent_name", ""))[:20]
+        score = payload.get("score", 0)
+        color_map = {
+            "CRITICAL": C.RED,
+            "HIGH": C.RED,
+            "MEDIUM": C.YLW,
+            "LOW": C.ORG,
+        }
+        ac = color_map.get(severity, C.YLW)
+        stamp = time_ago(timestamp) if timestamp else "live"
+
+        print("  " + q(ac, "▲") + "  " + q(C.W, message))
+        print("     " + q(ac, severity) + "  " + q(C.G3, agent) +
+              "  " + q(C.G3, f"score {score}") + "  " + q(C.G3, stamp))
+
+    def render_event(event):
+        if not isinstance(event, dict):
+            return
+        event_type = event.get("type", "")
+        payload = event.get("payload", {}) if isinstance(event.get("payload"), dict) else {}
+        timestamp = event.get("timestamp")
+
+        if event_type == "validation":
+            render_validation(payload, timestamp)
+        elif event_type == "alert":
+            render_alert(payload, timestamp)
+        else:
+            info(f"{event_type or 'event'}  {json.dumps(payload, ensure_ascii=False)[:120]}")
+
+    # First try SSE
+    if cfg.get("api_key"):
+        stream_url = f"{cfg['api_url'].rstrip('/')}/stream/events?x_api_key={urllib.parse.quote(cfg['api_key'])}"
+        req = urllib.request.Request(stream_url, headers={"User-Agent": f"nova-cli/{NOVA_VERSION}"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as response:
+                ok("Connected to real-time event stream")
+                print()
+                buffer = []
+                while True:
+                    raw = response.readline()
+                    if not raw:
+                        break
+                    line = raw.decode(errors="ignore").strip()
+
+                    if not line:
+                        if buffer:
+                            data = "\n".join(buffer)
+                            buffer = []
+                            try:
+                                event = json.loads(data)
+                            except Exception:
+                                continue
+                            render_event(event)
+                        continue
+
+                    if line.startswith("event:"):
+                        event_name = line.split(":", 1)[1].strip()
+                        if event_name in ("ping", "heartbeat"):
+                            continue
+                    elif line.startswith("data:"):
+                        buffer.append(line.split(":", 1)[1].strip())
+                return
+        except KeyboardInterrupt:
+            print()
+            info("Stopped watching.")
+            print()
+            return
+        except Exception:
+            warn("Real-time stream unavailable — falling back to polling.")
+            print()
+
+    # Polling fallback
+    seen = set()
     try:
         while True:
             result = api.get("/ledger?limit=10")
-            
-            if isinstance(result, list):
-                for entry in reversed(result):
+            entries = result.get("entries", []) if isinstance(result, dict) else result if isinstance(result, list) else []
+
+            if isinstance(entries, list):
+                for entry in reversed(entries):
                     entry_id = entry.get("id", "")
-                    
                     if entry_id and entry_id not in seen:
                         seen.add(entry_id)
-                        
-                        verdict = entry.get("verdict", "?")
-                        score = entry.get("score", 0)
-                        action = entry.get("action", "")[:50]
-                        ts = time_ago(entry.get("executed_at", ""))
-                        
-                        vc = verdict_colors.get(verdict, C.G2)
-                        
-                        print("  " + q(vc, "■") + "  " + q(C.W, action) + "  " +
-                              q(vc, verdict) + "  " + score_bar(score, 8) + 
-                              "  " + q(C.G3, ts))
-            
+                        render_validation({
+                            "verdict": entry.get("verdict", "?"),
+                            "score": entry.get("score", 0),
+                            "action": entry.get("action", ""),
+                            "agent_name": entry.get("agent_name", ""),
+                            "ledger_id": entry.get("id"),
+                        }, entry.get("executed_at", ""))
+
             time.sleep(interval)
-    
+
     except KeyboardInterrupt:
         print()
         info("Stopped watching.")
@@ -4714,6 +5676,569 @@ def cmd_alerts(args):
     print()
     dim("Resolve:  nova alerts resolve <id>")
     print()
+
+
+def cmd_rules(args):
+    """Manage governance rules exposed by nova_core."""
+    api, cfg = get_api()
+    sub = (args.subcommand or "list").lower()
+    scope = getattr(args, "scope", "") or "global"
+
+    if sub in ("", "list"):
+        with Spinner("Loading rules..."):
+            result = api.get(f"/rules?scope={urllib.parse.quote(scope)}")
+        if "error" in result:
+            fail(format_api_error(result))
+            return
+
+        rules = result.get("rules", []) if isinstance(result, dict) else []
+        total = result.get("total", len(rules)) if isinstance(result, dict) else len(rules)
+        if not rules:
+            warn(f"No rules found for scope '{scope}'.")
+            hint('Create one with:  nova rules create --description "no hagas X"')
+            return
+
+        section("Rules", f"{total} active · scope {scope}")
+        for rule in rules:
+            print()
+            print("  " + q(C.W, rule.get("name", "Unnamed Rule"), bold=True) +
+                  "  " + q(C.G3, rule.get("id", "")))
+            kv("  Action", rule.get("action", "block"), C.YLW)
+            kv("  Priority", str(rule.get("priority", "?")), C.G2)
+            kv("  Source", rule.get("source", "manual"), C.G3)
+            if rule.get("original_instruction"):
+                for line in textwrap.wrap(rule["original_instruction"], width=62):
+                    print("    " + q(C.G2, line))
+        print()
+        return
+
+    if sub == "stats":
+        with Spinner("Loading rule stats..."):
+            result = api.get("/rules/stats")
+        if "error" in result:
+            fail(format_api_error(result))
+            return
+
+        section("Rule Stats")
+        for key, value in result.items():
+            kv(str(key).replace("_", " ").title(), value, C.G2 if isinstance(value, (int, float)) else C.W)
+        print()
+        return
+
+    if sub in ("show", "get"):
+        rule_id = getattr(args, "third", "") or getattr(args, "rule_id", "")
+        if not rule_id:
+            fail("Specify a rule id.")
+            hint("Use:  nova rules show <rule-id>")
+            return
+
+        with Spinner(f"Loading rule {rule_id}..."):
+            result = api.get(f"/rules/{urllib.parse.quote(rule_id)}")
+        if "error" in result:
+            fail(format_api_error(result))
+            return
+
+        section(result.get("name", "Rule"), result.get("id", ""))
+        kv("Scope", result.get("scope", "global"), C.G2)
+        kv("Action", result.get("action", "block"), C.YLW)
+        kv("Priority", result.get("priority", "?"), C.G2)
+        kv("Created by", result.get("created_by", "unknown"), C.G3)
+        kv("Source", result.get("source", "manual"), C.G3)
+        if result.get("original_instruction"):
+            print()
+            print("  " + q(C.W, "Instruction", bold=True))
+            for line in textwrap.wrap(result["original_instruction"], width=64):
+                print("  " + q(C.G2, line))
+        print()
+        return
+
+    if sub in ("create", "add", "new"):
+        description = getattr(args, "description", "") or getattr(args, "message", "")
+        if not description:
+            description = prompt("Rule description", required=True)
+        if not description:
+            return
+
+        payload = {
+            "description": description,
+            "scope": scope,
+            "created_by": getattr(args, "sender", "") or cfg.get("user_name") or "cli",
+            "action": getattr(args, "rule_action", "") or "block",
+            "priority": int(getattr(args, "priority", 7) or 7),
+        }
+        with Spinner("Creating rule..."):
+            result = api.post("/rules", payload)
+        if "error" in result:
+            fail(format_api_error(result))
+            return
+
+        ok(f"Rule created: {result.get('name', 'Unnamed Rule')}")
+        kv("Rule ID", result.get("id", ""), C.G3)
+        kv("Scope", result.get("scope", scope), C.G2)
+        kv("Action", result.get("action", payload["action"]), C.YLW)
+        if result.get("file"):
+            kv("File", result["file"], C.B7)
+        print()
+        return
+
+    if sub in ("delete", "remove"):
+        rule_id = getattr(args, "third", "") or getattr(args, "rule_id", "")
+        if not rule_id:
+            fail("Specify a rule id.")
+            hint("Use:  nova rules delete <rule-id>")
+            return
+        if not confirm(f"Delete rule {rule_id}?", default=False):
+            warn("Cancelled.")
+            return
+
+        result = api.delete(f"/rules/{urllib.parse.quote(rule_id)}")
+        if "error" in result:
+            fail(format_api_error(result))
+            return
+
+        ok(f"Rule deleted: {rule_id}")
+        print()
+        return
+
+    fail(f"Unknown rules subcommand: {sub}")
+    hint("Use: list, stats, show, create, delete")
+
+
+def cmd_policies(args):
+    """Manage reusable governance policies."""
+    api, cfg = get_api()
+    sub = (getattr(args, "subcommand", "") or "list").lower()
+
+    if sub in ("", "list"):
+        with Spinner("Loading policies..."):
+            result = api.get("/policies")
+        if "error" in result:
+            fail(format_api_error(result))
+            return
+        if not result:
+            warn("No policies found.")
+            hint("Create one with:  nova policies create")
+            print()
+            return
+
+        section("Policies", f"{len(result)} active")
+        for policy in result:
+            print()
+            print("  " + q(C.W, policy.get("name", "Unnamed Policy"), bold=True) +
+                  "  " + q(C.G3, f"#{policy.get('id', '?')}"))
+            kv("  Category", policy.get("category", "general"), C.MGN)
+            kv("  Version", policy.get("version", 1), C.G2)
+            kv("  Created by", policy.get("created_by", "unknown"), C.G3)
+            if policy.get("description"):
+                for line in textwrap.wrap(policy["description"], width=62):
+                    print("    " + q(C.G2, line))
+        print()
+        return
+
+    if sub in ("create", "new", "add"):
+        name = prompt("Policy name", required=True)
+        if not name:
+            return
+        description = prompt("Description", default="")
+        category = prompt("Category", default="general")
+        print()
+        print("  " + q(C.GRN, "●", bold=True) + "  " + q(C.W, "ALLOWED actions", bold=True))
+        can_do = prompt_list("One per line", min_items=0)
+        print()
+        print("  " + q(C.RED, "●", bold=True) + "  " + q(C.W, "FORBIDDEN actions", bold=True))
+        cannot_do = prompt_list("One per line", min_items=0)
+        tags_raw = prompt("Tags (comma separated)", default="")
+        tags = [t.strip() for t in tags_raw.split(",") if t.strip()]
+        payload = {
+            "name": name,
+            "description": description,
+            "category": category or "general",
+            "can_do": can_do,
+            "cannot_do": cannot_do,
+            "tags": tags,
+            "is_template": True,
+            "created_by": cfg.get("user_name") or "cli",
+            "metadata": {},
+        }
+        with Spinner("Creating policy..."):
+            result = api.post("/policies", payload)
+        if "error" in result:
+            fail(format_api_error(result))
+            return
+        ok(f"Policy created: {result.get('name', name)}")
+        kv("Policy ID", result.get("id", "?"), C.B7)
+        print()
+        return
+
+    fail(f"Unknown policies subcommand: {sub}")
+    hint("Use: list, create")
+
+
+def _render_workspace_overview():
+    api, cfg = get_api()
+    stats = api.get("/stats")
+    alerts = api.get("/alerts")
+    if "error" in stats:
+        warn(format_api_error(stats))
+        return
+    unresolved = 0
+    if isinstance(alerts, list):
+        unresolved = len([a for a in alerts if not a.get("resolved")])
+
+    section("Workspace", cfg.get("org_name", "") or cfg.get("user_name", "") or "default")
+    rows = [
+        ["Actions", f"{stats.get('total_actions', 0):,}"],
+        ["Approval Rate", f"{stats.get('approval_rate', 0)}%"],
+        ["Avg Score", str(stats.get("avg_score", 0))],
+        ["Agents", str(stats.get("active_agents", 0))],
+        ["Alerts", str(unresolved)],
+    ]
+    render_table("Overview", ["Metric", "Value"], rows)
+    print()
+
+
+def _render_timeline_summary(hours=24):
+    api, cfg = get_api()
+    result = api.get(f"/stats/timeline?hours={hours}")
+    if "error" in result:
+        fail(format_api_error(result))
+        return
+    timeline = result.get("timeline", []) if isinstance(result, dict) else []
+    if not timeline:
+        warn("No timeline data yet.")
+        print()
+        return
+    counts = [int(item.get("count", 0)) for item in timeline]
+    section("Timeline", f"last {hours}h")
+    print("  " + q(C.W, sparkline(counts)))
+    print()
+    rows = []
+    for item in timeline[-8:]:
+        rows.append([
+            item.get("bucket", "")[-5:] if item.get("bucket") else str(item.get("hour", "")),
+            item.get("count", 0),
+            item.get("approved", 0),
+            item.get("blocked", 0),
+        ])
+    render_table("Recent Buckets", ["Time", "Total", "Approved", "Blocked"], rows)
+    print()
+
+
+def _render_risk_summary():
+    api, cfg = get_api()
+    result = api.get("/stats/risk")
+    if "error" in result:
+        fail(format_api_error(result))
+        return
+    if not result:
+        warn("No risk data available.")
+        print()
+        return
+    section("Risk Profile")
+    rows = []
+    for item in result[:10]:
+        rows.append([
+            item.get("agent_name", ""),
+            item.get("risk_level", ""),
+            item.get("avg_score", 0),
+            f"{item.get('approval_rate', 0)}%",
+        ])
+    render_table("Agents", ["Agent", "Risk", "Avg Score", "Approval"], rows)
+    print()
+
+
+def _chat_banner():
+    print_logo(compact=True)
+    print("  " + q(C.W, "Nova Chat", bold=True) + "  " + q(C.G2, "talk to Nova in plain language"))
+    print("  " + q(C.G3, "Create rules, inspect agents, and manage governance from one place."))
+    print()
+    print("  " + q(C.G2, "/help") + "  " + q(C.G3, "shortcuts"))
+    print("  " + q(C.G2, "/exit") + "  " + q(C.G3, "leave chat"))
+    print()
+    hr()
+    print()
+
+
+def _chat_shortcuts():
+    section("Shortcuts")
+    rows = [
+        ["/help", "Show chat shortcuts"],
+        ["/home", "Workspace overview"],
+        ["/status", "System health"],
+        ["/agents", "List agents"],
+        ["/rules", "List governance rules"],
+        ["/policies", "List reusable policies"],
+        ["/timeline", "Activity timeline"],
+        ["/risk", "Risk profile by agent"],
+        ["/alerts", "Pending alerts"],
+        ["/watch", "Live ledger stream"],
+        ["/new-rule", "Guided rule creation"],
+        ["/new-policy", "Guided policy creation"],
+        ["/new-agent", "Bootstrap agent from description"],
+        ["/exit", "Leave Nova Chat"],
+    ]
+    render_table("Nova Chat", ["Shortcut", "Action"], rows)
+    print()
+
+
+def _chat_dispatch_shortcut(raw):
+    cmd = raw.strip().lower()
+    if cmd in ("/exit", "/quit", "/q"):
+        return "exit"
+    if cmd in ("/help", "/?"):
+        _chat_shortcuts()
+        return "handled"
+    if cmd == "/home":
+        _render_workspace_overview()
+        return "handled"
+    if cmd == "/status":
+        cmd_status(argparse.Namespace())
+        return "handled"
+    if cmd == "/agents":
+        cmd_agent_list(argparse.Namespace())
+        return "handled"
+    if cmd == "/rules":
+        cmd_rules(argparse.Namespace(subcommand="list", scope=""))
+        return "handled"
+    if cmd == "/policies":
+        cmd_policies(argparse.Namespace(subcommand="list"))
+        return "handled"
+    if cmd == "/timeline":
+        _render_timeline_summary()
+        return "handled"
+    if cmd == "/risk":
+        _render_risk_summary()
+        return "handled"
+    if cmd == "/alerts":
+        cmd_alerts(argparse.Namespace())
+        return "handled"
+    if cmd == "/watch":
+        cmd_watch(argparse.Namespace(interval=3))
+        return "handled"
+    if cmd == "/new-rule":
+        cmd_rules(argparse.Namespace(subcommand="create", scope="", description="", message="", sender="", rule_action="", priority=7))
+        return "handled"
+    if cmd == "/new-policy":
+        cmd_policies(argparse.Namespace(subcommand="create"))
+        return "handled"
+    if cmd == "/new-agent":
+        cmd_agent_auto(argparse.Namespace(description="", file="", sender="", token=""))
+        return "handled"
+    return None
+
+
+def cmd_chat(args):
+    """Natural-language governance chat backed by nova_core."""
+    api, cfg = get_api()
+    message = getattr(args, "message", "") or getattr(args, "action", "")
+    session_id = getattr(args, "session", "") or ("cli_" + secrets.token_hex(4))
+    scope = getattr(args, "scope", "") or "global"
+
+    def _send_chat_message(text):
+        payload = {
+            "message": text,
+            "session_id": session_id,
+            "scope": scope,
+        }
+        with Spinner("Thinking..."):
+            result = api.post("/chat", payload)
+        if "error" in result:
+            fail(format_api_error(result))
+            return
+
+        print()
+        print("  " + q(C.B6, "nova", bold=True))
+        print()
+        for line in textwrap.wrap(result.get("message", ""), width=68):
+            print("  " + q(C.G1, line))
+        if result.get("rule"):
+            print()
+            kv("Rule", result["rule"].get("name", ""), C.W)
+            kv("Rule ID", result["rule"].get("id", ""), C.G3)
+        if result.get("rules"):
+            print()
+            kv("Rules returned", str(len(result.get("rules", []))), C.G2)
+        print()
+
+    if message:
+        _send_chat_message(message)
+        return
+
+    _chat_banner()
+    while True:
+        try:
+            raw = input("  you> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+
+        if not raw:
+            continue
+
+        if raw.startswith("/"):
+            shortcut = _chat_dispatch_shortcut(raw)
+            if shortcut == "exit":
+                print()
+                info("Leaving Nova Chat.")
+                print()
+                return
+            if shortcut == "handled":
+                continue
+
+        _send_chat_message(raw)
+
+
+def cmd_failsafe(args):
+    """Guaranteed response pipeline exposed by nova_core."""
+    api, cfg = get_api()
+    question = getattr(args, "question", "") or getattr(args, "message", "")
+    if not question:
+        question = prompt("Question", required=True)
+    if not question:
+        return
+
+    payload = {
+        "question": question,
+        "user_id": getattr(args, "user_id", "") or "default",
+        "context": getattr(args, "context", "") or "",
+        "escalate_on_failure": not getattr(args, "no_escalate", False),
+    }
+    with Spinner("Running failsafe pipeline..."):
+        result = api.post("/failsafe", payload)
+    if "error" in result:
+        fail(format_api_error(result))
+        return
+
+    print()
+    ok("Guaranteed response generated")
+    kv("Layer", result.get("layer", "?"), C.MGN)
+    kv("Latency", f"{result.get('ms', 0)}ms", C.G3)
+    kv("Escalated", "yes" if result.get("escalated") else "no",
+       C.YLW if result.get("escalated") else C.GRN)
+    if result.get("ticket_id"):
+        kv("Ticket", result.get("ticket_id"), C.G3)
+    print()
+    section("Response")
+    print()
+    for line in textwrap.wrap(result.get("response", ""), width=66):
+        print("  " + q(C.G1, line))
+    print()
+
+
+def cmd_refine(args):
+    """Refine a blocked agent response through nova_core."""
+    api, cfg = get_api()
+    original = getattr(args, "message", "") or getattr(args, "action", "")
+    if not original:
+        original = prompt("Original message", required=True)
+    rule_id = getattr(args, "rule_id", "") or prompt("Rule ID", required=True)
+    rule_name = getattr(args, "rule_name", "") or prompt("Rule name", required=True)
+    reason = getattr(args, "reason", "") or prompt("Violation reason", required=True)
+    if not all((original, rule_id, rule_name, reason)):
+        return
+
+    payload = {
+        "original_message": original,
+        "rule_id": rule_id,
+        "rule_name": rule_name,
+        "violation_reason": reason,
+        "agent_name": getattr(args, "agent", "") or "agent",
+        "context": getattr(args, "context", "") or "",
+        "attempt_agent_refinement": not getattr(args, "no_agent_refinement", False),
+    }
+    with Spinner("Refining response..."):
+        result = api.post("/refine", payload)
+    if "error" in result:
+        fail(format_api_error(result))
+        return
+
+    print()
+    ok("Response refined")
+    kv("Strategy", result.get("strategy", "?"), C.MGN)
+    kv("Refinement ID", result.get("refinement_id", ""), C.G3)
+    kv("Latency", f"{result.get('ms', 0)}ms", C.G3)
+    print()
+    section("Refined Message")
+    print()
+    for line in textwrap.wrap(result.get("refined_message", ""), width=66):
+        print("  " + q(C.G1, line))
+    print()
+
+
+def cmd_prompt_stack(args):
+    """Manage prompt stack operations exposed by nova_core."""
+    api, cfg = get_api()
+    sub = (args.subcommand or "stats").lower()
+    agent_name = getattr(args, "agent", "") or "agent"
+
+    if sub in ("update", "deploy", "rebuild"):
+        payload = {
+            "agent_name": agent_name,
+            "force_rebuild": getattr(args, "force_rebuild", False),
+            "dry_run": getattr(args, "dry_run", False),
+        }
+        with Spinner("Updating prompt stack..."):
+            result = api.post("/prompt-stack/update", payload)
+        if "error" in result:
+            fail(format_api_error(result))
+            return
+
+        print()
+        ok(f"Prompt stack updated for {result.get('agent_name', agent_name)}")
+        kv("Version", result.get("version", "?"), C.W)
+        kv("Rules applied", result.get("rules_applied", 0), C.G2)
+        kv("Total tokens", result.get("total_tokens", 0), C.G2)
+        kv("Deployment", result.get("deployment_status", "unknown"), C.MGN)
+        print()
+        return
+
+    if sub == "stats":
+        with Spinner("Loading prompt stack stats..."):
+            result = api.get(f"/prompt-stack/stats?agent_name={urllib.parse.quote(agent_name)}")
+        if "error" in result:
+            fail(format_api_error(result))
+            return
+
+        stats = result.get("stats", {})
+        section("Prompt Stack Stats", agent_name)
+        if not stats:
+            warn("No prompt stack stats available.")
+            print()
+            return
+        for key, value in stats.items():
+            kv(str(key).replace("_", " ").title(), value, C.G2 if isinstance(value, (int, float)) else C.W)
+        print()
+        return
+
+    if sub in ("versions", "history"):
+        limit = getattr(args, "limit", 20) or 20
+        with Spinner("Loading prompt versions..."):
+            result = api.get(
+                f"/prompt-stack/versions?agent_name={urllib.parse.quote(agent_name)}&limit={limit}"
+            )
+        if "error" in result:
+            fail(format_api_error(result))
+            return
+
+        versions = result.get("versions", [])
+        if not versions:
+            warn(f"No prompt versions found for '{agent_name}'.")
+            print()
+            return
+
+        section("Prompt Versions", f"{len(versions)} entries · {agent_name}")
+        for version in versions:
+            print()
+            print("  " + q(C.W, version.get("version", "?"), bold=True) +
+                  "  " + q(C.G3, version.get("created_at", "")[:19].replace("T", " ")))
+            kv("  Rules", version.get("applied_rules_count", 0), C.G2)
+            kv("  Tokens", version.get("total_tokens", 0), C.G2)
+            kv("  Hash", version.get("hash", ""), C.G3)
+        print()
+        return
+
+    fail(f"Unknown prompt-stack subcommand: {sub}")
+    hint("Use: update, stats, versions")
 
 
 def cmd_memory_save(args):
@@ -5535,7 +7060,7 @@ def cmd_config(args):
     """Interactive configuration hub."""
     while True:
         cfg = load_config()
-        api_url = cfg.get("api_url", "http://localhost:8000")
+        api_url = cfg.get("api_url", "http://localhost:9002")
         api_key = cfg.get("api_key", "")
         keys_data = load_keys()
         num_keys = len(keys_data.get("keys", []))
@@ -5569,10 +7094,21 @@ def cmd_config(args):
         hr()
         print()
         
+        # Current model info
+        llm_prov  = cfg.get("llm_provider", "")
+        llm_model = cfg.get("llm_model", "")
+        llm_label = f"{LLM_PROVIDERS[llm_prov]['name']} / {llm_model}" if llm_prov in LLM_PROVIDERS else "not configured"
+        kv("  Model", llm_label, C.MGN if llm_prov else C.G3)
+        
+        print()
+        hr()
+        print()
+        
         # Menu options
         opts = [
             "Server",
             "API Keys",
+            "Model",
             "Skills",
             "Templates",
             "Profiles",
@@ -5585,6 +7121,7 @@ def cmd_config(args):
         descs = [
             "Update server URL",
             f"Manage API keys ({num_keys} saved)",
+            f"AI provider & model ({llm_label})",
             f"Browse integrations ({len(installed_skills)} installed)",
             "Pre-built agent rule sets",
             "Switch environments (dev/staging/prod)",
@@ -5600,7 +7137,7 @@ def cmd_config(args):
             print()
             break
         
-        if choice == 8:  # Exit
+        if choice == 9:  # Exit
             break
         
         if choice == 0:  # Server
@@ -5609,26 +7146,196 @@ def cmd_config(args):
         elif choice == 1:  # API Keys
             cmd_keys(args)
         
-        elif choice == 2:  # Skills
+        elif choice == 2:  # Model
+            _config_model(cfg)
+        
+        elif choice == 3:  # Skills
             cmd_skill_browse(args)
         
-        elif choice == 3:  # Templates
+        elif choice == 4:  # Templates
             _config_templates()
         
-        elif choice == 4:  # Profiles
+        elif choice == 5:  # Profiles
             _config_profiles()
         
-        elif choice == 5:  # Preferences
+        elif choice == 6:  # Preferences
             _config_preferences(cfg)
         
-        elif choice == 6:  # About
+        elif choice == 7:  # About
             _config_about()
         
-        elif choice == 7:  # Reset
+        elif choice == 8:  # Reset
             _config_reset()
             break
         
         print()
+
+
+def _config_model(cfg):
+    """Configure AI provider, model, and effort level — full 2026 catalog."""
+    while True:
+        print()
+        section("Intelligence", f"{len(LLM_PROVIDERS)} providers · 40+ models")
+        
+        current_prov   = cfg.get("llm_provider", "")
+        current_model  = cfg.get("llm_model", "")
+        current_key    = cfg.get("llm_api_key", "")
+        current_effort = cfg.get("llm_effort", "medium")
+        
+        if current_prov in LLM_PROVIDERS:
+            pv = LLM_PROVIDERS[current_prov]
+            minfo = get_model_info(current_model)
+            tier = minfo.get("tier", "")
+            kv("Provider", f"{pv['icon']}  {pv['name']}", C.GLD_BRIGHT)
+            kv("Model",    minfo.get("label", current_model) + (
+                "  " + TIER_BADGE.get(tier, "") if tier in TIER_BADGE else ""), C.W)
+            if pv.get("has_effort_slider"):
+                kv("Effort",   current_effort, C.MGN)
+            kv("API Key",  mask_key(current_key) if current_key and current_key != "ollama" else
+               ("local" if current_key == "ollama" else "not set"), C.G3)
+        else:
+            print("  " + q(C.G3, "No AI provider configured."))
+        
+        print()
+        hr()
+        print()
+        
+        # All providers with model count
+        provider_keys = list(LLM_PROVIDERS.keys())
+        provider_opts  = []
+        provider_descs = []
+        
+        for pk in provider_keys:
+            pv    = LLM_PROVIDERS[pk]
+            badge = "  ★ active" if pk == current_prov else ""
+            n     = len(pv["models"])
+            provider_opts.append(f"{pv['icon']}  {pv['name']}{badge}")
+            provider_descs.append(f"{pv['tagline']}  ({n} models)")
+        
+        provider_opts.append("← Back")
+        provider_descs.append("Return to config menu")
+        
+        default_prov_idx = provider_keys.index(current_prov) if current_prov in provider_keys else 0
+        
+        try:
+            prov_idx = _select(provider_opts, descriptions=provider_descs,
+                               default=default_prov_idx)
+        except KeyboardInterrupt:
+            print()
+            return
+        
+        if prov_idx == len(provider_keys):
+            return
+        
+        chosen_prov = provider_keys[prov_idx]
+        prov_data   = LLM_PROVIDERS[chosen_prov]
+        
+        # ── Model selection ──────────────────────────────────────────────────
+        print()
+        print("  " + q(C.W, f"{prov_data['icon']}  {prov_data['name']}", bold=True))
+        print("  " + q(C.G2, prov_data["tagline"]))
+        print()
+        
+        model_entries = prov_data["models"]
+        model_opts    = []
+        model_descs   = []
+        
+        default_midx = 0
+        default_id = current_model if chosen_prov == current_prov else prov_data.get("default_model","")
+        
+        for mi, m in enumerate(model_entries):
+            tier_badge = ("  " + TIER_BADGE.get(m[2], "")) if len(m) > 2 else ""
+            active_mark = "  ← current" if m[0] == current_model else ""
+            model_opts.append(m[1] + tier_badge + active_mark)
+            model_descs.append(m[3] if len(m) > 3 else "")
+            if m[0] == default_id:
+                default_midx = mi
+        
+        try:
+            model_idx = _select(model_opts, descriptions=model_descs, default=default_midx)
+        except KeyboardInterrupt:
+            continue
+        
+        chosen_model = model_entries[model_idx][0]
+        
+        # Custom Ollama model name
+        if chosen_model == "ollama/custom":
+            print()
+            try:
+                custom = prompt("Ollama model name", default="qwen3.5:27b")
+                chosen_model = f"ollama/{custom}" if custom else "ollama/qwen3.5:27b"
+            except (EOFError, KeyboardInterrupt):
+                chosen_model = "ollama/qwen3.5:27b"
+        
+        # ── Effort level (Claude extended thinking) ──────────────────────────
+        chosen_effort = current_effort
+        if prov_data.get("has_effort_slider") and "claude" in chosen_model.lower():
+            print()
+            print("  " + q(C.W, "Reasoning effort", bold=True) + "  " +
+                  q(C.G3, "(Claude Code-style effort slider)"))
+            print()
+            effort_opts  = ["⚡  low    — fastest, cheapest",
+                            "★  medium — recommended",
+                            "🔥  high   — deepest, slowest"]
+            effort_descs = ["Quick decisions, minimal thinking",
+                            "Best cost/quality balance for most tasks",
+                            "Complex edge cases, maximum accuracy"]
+            cur_eff_idx = ["low","medium","high"].index(current_effort) if current_effort in ["low","medium","high"] else 1
+            try:
+                eff_idx = _select(effort_opts, descriptions=effort_descs, default=cur_eff_idx)
+                chosen_effort = ["low","medium","high"][eff_idx]
+            except KeyboardInterrupt:
+                pass
+        
+        # ── API Key ──────────────────────────────────────────────────────────
+        needs_key = prov_data.get("needs_api_key", True)
+        new_key = current_key if chosen_prov == current_prov else ""
+        
+        if needs_key:
+            print()
+            print("  " + q(C.G2, "Get your key at:  ") +
+                  q(C.B7, prov_data["key_url"], underline=True))
+            print()
+            
+            hint_text = "keep existing" if (chosen_prov == current_prov and current_key) else ""
+            try:
+                typed = prompt(f"{prov_data['name']} API Key",
+                               default=hint_text, secret=True)
+            except (EOFError, KeyboardInterrupt):
+                typed = ""
+            
+            if typed and typed != "keep existing":
+                new_key = typed
+            elif not typed and chosen_prov == current_prov:
+                new_key = current_key  # keep existing
+        else:
+            new_key = "ollama"
+            print()
+            info("Local mode — no API key needed")
+            info("Make sure Ollama is running:  ollama serve")
+        
+        # Save
+        cfg["llm_provider"] = chosen_prov
+        cfg["llm_model"]    = chosen_model
+        cfg["llm_api_key"]  = new_key
+        cfg["llm_effort"]   = chosen_effort
+        save_config(cfg)
+        
+        minfo = get_model_info(chosen_model)
+        print()
+        ok(f"{prov_data['name']} · {minfo.get('label', chosen_model)}")
+        if chosen_effort != "medium" and prov_data.get("has_effort_slider"):
+            ok(f"Effort: {chosen_effort}")
+        if new_key and new_key != "ollama":
+            ok("API key saved")
+        elif new_key == "ollama":
+            ok("Local mode — no key needed")
+        else:
+            warn("No key entered")
+        
+        print()
+        return
+
 
 
 def _config_server(cfg):
@@ -5636,7 +7343,7 @@ def _config_server(cfg):
     print()
     section("Server Configuration")
     
-    current_url = cfg.get("api_url", "http://localhost:8000")
+    current_url = cfg.get("api_url", "http://localhost:9002")
     kv("Current URL", current_url, C.B7)
     
     # Test current connection
@@ -5733,7 +7440,7 @@ def _config_profiles():
         if not name:
             return
         
-        url = prompt("Server URL", default="http://localhost:8000")
+        url = prompt("Server URL", default="http://localhost:9002")
         desc = prompt("Description (optional)")
         
         profiles_data["profiles"][name.lower().replace(" ", "-")] = {
@@ -5843,6 +7550,43 @@ def _config_reset():
 # HELP COMMAND
 # ══════════════════════════════════════════════════════════════════════════════
 
+def cmd_model_list(args=None):
+    """Show all available models across all providers."""
+    print_logo(compact=True)
+    section("Available Models", f"{len(LLM_PROVIDERS)} providers · 2026 edition")
+    
+    cfg = load_config()
+    current_model = cfg.get("llm_model", "")
+    
+    for prov_key, prov in LLM_PROVIDERS.items():
+        print()
+        print("  " + q(C.GLD_BRIGHT, prov.get("icon","·"), bold=True) +
+              "  " + q(C.W, prov["name"], bold=True) +
+              "  " + q(C.G3, prov["tagline"]))
+        print()
+        
+        for m in prov["models"]:
+            model_id = m[0]
+            label    = m[1]
+            tier     = m[2] if len(m) > 2 else "balanced"
+            desc     = m[3] if len(m) > 3 else ""
+            badge    = TIER_BADGE.get(tier, "")
+            active   = " ← active" if model_id == current_model else ""
+            
+            print("    " + q(C.G3, "·") + "  " +
+                  q(C.W if model_id == current_model else C.G1, label, bold=(model_id == current_model)) +
+                  "  " + q(C.B7, badge) +
+                  q(C.GRN, active))
+            if desc:
+                print("       " + q(C.G3, desc))
+    
+    print()
+    hr()
+    print()
+    hint("Switch model:  " + q(C.W, "nova model") + "  or  " + q(C.W, "nova config model"))
+    print()
+
+
 def cmd_help(args=None):
     """Display comprehensive help."""
     print_logo()
@@ -5856,17 +7600,26 @@ def cmd_help(args=None):
     sections = [
         ("Getting Started", [
             ("init", "First-run setup wizard"),
+            ("chat", "Talk to Nova in plain language"),
             ("status", "System health and metrics"),
             ("config", "Interactive settings hub"),
             ("whoami", "Current identity and config"),
+            ("model", "Switch AI model (like /model in Claude Code)"),
         ]),
         ("Agents", [
             ("agent create", "Create agent with rules"),
+            ("agent auto", "Create agent from natural language"),
             ("agent list", "List all agents"),
+            ("agent show", "Inspect one agent token"),
+            ("agent history", "View token rule history"),
+            ("agent disable", "Deactivate an agent token"),
+            ("agent enable", "Re-enable an agent token"),
         ]),
         ("Validation", [
             ("validate", "Validate an action"),
             ("test", "Dry-run validation"),
+            ("failsafe", "Guaranteed response pipeline"),
+            ("refine", "Repair a blocked response"),
         ]),
         ("Memory", [
             ("memory save", "Store agent context"),
@@ -5888,6 +7641,14 @@ def cmd_help(args=None):
             ("skill", "Browse catalog (↑↓)"),
             ("skill add <name>", "Install a skill"),
             ("skill info <name>", "View skill details"),
+        ]),
+        ("Governance", [
+            ("rules", "List governance rules"),
+            ("rules create", "Create rule from natural language"),
+            ("policies", "List reusable policies"),
+            ("policies create", "Create a reusable policy"),
+            ("chat", "Natural-language governance console"),
+            ("prompt-stack", "Prompt stack operations"),
         ]),
         ("GOBERNANZA", [
             ("run", "wrapper"),
@@ -5921,6 +7682,12 @@ def cmd_help(args=None):
     print("  " + q(C.W, "Aliases") + "  " + 
           q(C.W, "s=status  v=validate  a=agent  c=config  l=ledger  w=watch"))
     print()
+
+    print("  " + q(C.W, "Conversational Mode"))
+    print()
+    print("    " + q(C.W, "nova".ljust(20), bold=True) + q(C.W, "Open Nova Chat when configured"))
+    print("    " + q(C.W, "nova chat".ljust(20), bold=True) + q(C.W, "Interactive governance console"))
+    print()
     
     # Examples
     print("  " + q(C.W, "Examples"))
@@ -5928,6 +7695,11 @@ def cmd_help(args=None):
     
     examples = [
         'nova validate --action "Send email to john@example.com"',
+        'nova agent auto --description "Melissa agenda citas y nunca da diagnosticos"',
+        'nova rules create --description "no prometas precios sin admin"',
+        'nova policies',
+        'nova chat --message "muestrame todas las reglas"',
+        'nova prompt-stack update --agent melissa',
         "nova ledger --limit 50 --verdict BLOCKED",
         "nova export --format csv --limit 1000",
         "nova watch --interval 5",
@@ -5972,6 +7744,7 @@ def cmd_completion(args):
         "agent", "validate", "test",
         "memory", "ledger", "verify", "watch", "export", "audit",
         "keys", "skill", "sync", "seed", "alerts",
+        "rules", "policies", "chat", "failsafe", "refine", "prompt-stack",
         "run", "shield", "scout", "doctor", "mcp",
         "help", "completion"
     ]
@@ -5987,10 +7760,19 @@ _nova_completions() {{
     
     case "$prev" in
         agent)
-            COMPREPLY=($(compgen -W "create list" -- "$cur"))
+            COMPREPLY=($(compgen -W "create auto list show history disable enable" -- "$cur"))
             ;;
         memory)
             COMPREPLY=($(compgen -W "save list" -- "$cur"))
+            ;;
+        rules)
+            COMPREPLY=($(compgen -W "list stats show create delete" -- "$cur"))
+            ;;
+        policies)
+            COMPREPLY=($(compgen -W "list create" -- "$cur"))
+            ;;
+        prompt-stack)
+            COMPREPLY=($(compgen -W "update stats versions" -- "$cur"))
             ;;
         skill)
             COMPREPLY=($(compgen -W "add remove info list" -- "$cur"))
@@ -6026,6 +7808,8 @@ _nova() {{
         'agent:Agent management'
         'validate:Validate action'
         'test:Dry-run validation'
+        'failsafe:Guaranteed response pipeline'
+        'refine:Repair blocked response'
         'memory:Agent memory'
         'ledger:Action history'
         'verify:Check integrity'
@@ -6034,6 +7818,10 @@ _nova() {{
         'audit:Generate report'
         'keys:API key management'
         'skill:Skill catalog'
+        'rules:Governance rules'
+        'policies:Reusable governance policies'
+        'chat:Natural-language governance'
+        'prompt-stack:Prompt stack management'
         'sync:Process queue'
         'seed:Load demo data'
         'alerts:View alerts'
@@ -6062,6 +7850,8 @@ complete -c nova -n __fish_use_subcommand -a whoami -d 'Current identity'
 complete -c nova -n __fish_use_subcommand -a agent -d 'Agent management'
 complete -c nova -n __fish_use_subcommand -a validate -d 'Validate action'
 complete -c nova -n __fish_use_subcommand -a test -d 'Dry-run validation'
+complete -c nova -n __fish_use_subcommand -a failsafe -d 'Guaranteed response pipeline'
+complete -c nova -n __fish_use_subcommand -a refine -d 'Repair blocked response'
 complete -c nova -n __fish_use_subcommand -a memory -d 'Agent memory'
 complete -c nova -n __fish_use_subcommand -a ledger -d 'Action history'
 complete -c nova -n __fish_use_subcommand -a verify -d 'Check integrity'
@@ -6070,6 +7860,10 @@ complete -c nova -n __fish_use_subcommand -a export -d 'Export ledger'
 complete -c nova -n __fish_use_subcommand -a audit -d 'Generate report'
 complete -c nova -n __fish_use_subcommand -a keys -d 'API keys'
 complete -c nova -n __fish_use_subcommand -a skill -d 'Skill catalog'
+complete -c nova -n __fish_use_subcommand -a rules -d 'Governance rules'
+complete -c nova -n __fish_use_subcommand -a policies -d 'Reusable governance policies'
+complete -c nova -n __fish_use_subcommand -a chat -d 'Natural-language governance'
+complete -c nova -n __fish_use_subcommand -a prompt-stack -d 'Prompt stack management'
 complete -c nova -n __fish_use_subcommand -a sync -d 'Process queue'
 complete -c nova -n __fish_use_subcommand -a seed -d 'Demo data'
 complete -c nova -n __fish_use_subcommand -a alerts -d 'View alerts'
@@ -6080,8 +7874,11 @@ complete -c nova -n __fish_use_subcommand -a doctor -d 'Auto-repair'
 complete -c nova -n __fish_use_subcommand -a mcp -d 'MCP export'
 complete -c nova -n __fish_use_subcommand -a help -d 'Show help'
 
-complete -c nova -n '__fish_seen_subcommand_from agent' -a 'create list'
+complete -c nova -n '__fish_seen_subcommand_from agent' -a 'create auto list show history disable enable'
 complete -c nova -n '__fish_seen_subcommand_from memory' -a 'save list'
+complete -c nova -n '__fish_seen_subcommand_from rules' -a 'list stats show create delete'
+complete -c nova -n '__fish_seen_subcommand_from policies' -a 'list create'
+complete -c nova -n '__fish_seen_subcommand_from prompt-stack' -a 'update stats versions'
 complete -c nova -n '__fish_seen_subcommand_from skill' -a 'add remove info list'
 complete -c nova -n '__fish_seen_subcommand_from keys' -a 'create delete use list'
 complete -c nova -n '__fish_seen_subcommand_from mcp' -a 'export list import'
@@ -6112,7 +7909,19 @@ def main():
     parser.add_argument("--agent", default="")
     parser.add_argument("--key", default="")
     parser.add_argument("--value", default="")
+    parser.add_argument("--message", default="")
+    parser.add_argument("--question", default="")
+    parser.add_argument("--scope", default="")
+    parser.add_argument("--session", default="")
+    parser.add_argument("--sender", default="")
+    parser.add_argument("--description", default="")
+    parser.add_argument("--rule-id", default="")
+    parser.add_argument("--rule-name", default="")
+    parser.add_argument("--reason", default="")
+    parser.add_argument("--user-id", default="")
+    parser.add_argument("--rule-action", default="")
     parser.add_argument("--importance", default="5")
+    parser.add_argument("--priority", type=int, default=7)
     parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--verdict", default="")
     parser.add_argument("--format", default="json")
@@ -6126,6 +7935,9 @@ def main():
     parser.add_argument("--path", default="")
     parser.add_argument("--fix-perms", action="store_true")
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--force-rebuild", action="store_true")
+    parser.add_argument("--no-escalate", action="store_true")
+    parser.add_argument("--no-agent-refinement", action="store_true")
     parser.add_argument("--verbose", "-v", action="store_true")
     parser.add_argument("--help", "-h", action="store_true")
     parser.add_argument("--version", "-V", action="store_true")
@@ -6141,6 +7953,10 @@ def main():
     if args.command in ALIASES:
         args.command = ALIASES[args.command]
     
+    # Default entry: open chat when configured
+    if args.command == "help" and not args.help and CONFIG_FILE.exists() and len(sys.argv) == 1:
+        args.command = "chat"
+
     # Help flag or command
     if args.help or args.command in ("help", "--help", "-h", "?"):
         cmd_help(args)
@@ -6168,19 +7984,52 @@ def main():
         
         # Agents
         ("agent", "create"): cmd_agent_create,
+        ("agent", "auto"): cmd_agent_auto,
         ("agent", "list"): cmd_agent_list,
+        ("agent", "show"): cmd_agent_show,
+        ("agent", "history"): cmd_agent_history,
+        ("agent", "disable"): cmd_agent_toggle,
+        ("agent", "delete"): cmd_agent_toggle,
+        ("agent", "enable"): cmd_agent_toggle,
         ("agent", ""): cmd_agent_list,
         ("agents", ""): cmd_agent_list,
-        
+
         # Validation
         ("validate", ""): cmd_validate,
         ("test", ""): cmd_test,
-        
+        ("failsafe", ""): cmd_failsafe,
+        ("refine", ""): cmd_refine,
+
         # Memory
         ("memory", "save"): cmd_memory_save,
         ("memory", "list"): cmd_memory_list,
         ("memory", ""): cmd_memory_list,
-        
+
+        # Governance
+        ("rules", ""): cmd_rules,
+        ("rules", "list"): cmd_rules,
+        ("rules", "stats"): cmd_rules,
+        ("rules", "show"): cmd_rules,
+        ("rules", "get"): cmd_rules,
+        ("rules", "create"): cmd_rules,
+        ("rules", "add"): cmd_rules,
+        ("rules", "new"): cmd_rules,
+        ("rules", "delete"): cmd_rules,
+        ("rules", "remove"): cmd_rules,
+        ("policies", ""): cmd_policies,
+        ("policies", "list"): cmd_policies,
+        ("policies", "create"): cmd_policies,
+        ("policies", "new"): cmd_policies,
+        ("policies", "add"): cmd_policies,
+        ("chat", ""): cmd_chat,
+        ("prompt-stack", ""): cmd_prompt_stack,
+        ("prompt-stack", "update"): cmd_prompt_stack,
+        ("prompt-stack", "deploy"): cmd_prompt_stack,
+        ("prompt-stack", "rebuild"): cmd_prompt_stack,
+        ("prompt-stack", "stats"): cmd_prompt_stack,
+        ("prompt-stack", "versions"): cmd_prompt_stack,
+        ("prompt-stack", "history"): cmd_prompt_stack,
+
         # Ledger
         ("ledger", ""): cmd_ledger,
         ("ledger", "verify"): cmd_verify,
@@ -6206,6 +8055,11 @@ def main():
         
         # Config
         ("config", ""): cmd_config,
+        ("config", "model"): lambda a: _config_model(load_config()),
+        ("config", "server"): lambda a: _config_server(load_config()),
+        # nova model — shortcut like /model in Claude Code
+        ("model", ""): lambda a: _config_model(load_config()),
+        ("model", "list"): cmd_model_list,
         
         # Keys
         ("keys", ""): cmd_keys,

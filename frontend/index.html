@@ -656,6 +656,50 @@ td { padding: 0.875rem 1.25rem; font-size: 0.8rem; color: var(--t2); vertical-al
   min-width: 260px; transition: border-color var(--fast), box-shadow var(--fast);
 }
 .cfg-input:focus { border-color: var(--b3); box-shadow: 0 0 0 3px rgba(255,255,255,0.04); }
+.cfg-hd-sub { font-family: var(--sans); font-size: 0.68rem; color: var(--t3); letter-spacing: 0; text-transform: none; font-weight: 400; margin-left: 0.75rem; }
+
+/* Provider pills */
+.provider-pill {
+  background: transparent; border: 1px solid rgba(255,255,255,0.08);
+  color: var(--t3); font-family: var(--mono); font-size: 0.63rem;
+  letter-spacing: 0.08em; padding: 0.4rem 0.875rem;
+  border-radius: 2px; cursor: pointer; transition: all 0.15s;
+}
+.provider-pill:hover { border-color: rgba(255,255,255,0.18); color: var(--t1); }
+.provider-pill.on { border-color: rgba(255,255,255,0.35); color: var(--t1); background: rgba(255,255,255,0.06); }
+
+/* Model option cards */
+.model-grid-inner { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px,1fr)); gap: 0.5rem; }
+.model-card {
+  border: 1px solid rgba(255,255,255,0.07); border-radius: 3px;
+  padding: 0.75rem 0.875rem; cursor: pointer; transition: all 0.15s;
+  background: transparent;
+}
+.model-card:hover { border-color: rgba(255,255,255,0.18); background: rgba(255,255,255,0.03); }
+.model-card.on { border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.05); }
+.model-card-name { font-size: 0.78rem; font-weight: 450; color: var(--t1); margin-bottom: 3px; }
+.model-card-tier { font-family: var(--mono); font-size: 0.58rem; letter-spacing: 0.1em; color: var(--t4); text-transform: uppercase; }
+.model-card.on .model-card-tier { color: var(--green); }
+
+/* Integration rows */
+.int-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1rem 1.25rem; border-bottom: 1px solid var(--b1); gap: 1rem; flex-wrap: wrap;
+}
+.int-row:last-child { border-bottom: none; }
+.int-name { font-size: 0.8rem; font-weight: 450; color: var(--t1); margin-bottom: 2px; }
+.int-desc { font-family: var(--mono); font-size: 0.62rem; color: var(--t3); }
+.int-status { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.06em; }
+.int-status.connected { color: var(--green); }
+.int-status.disconnected { color: var(--t4); }
+.int-actions { display: flex; gap: 0.4rem; }
+
+/* Integration credential panel (expandable) */
+.int-panel {
+  display: none; background: rgba(255,255,255,0.02);
+  border-top: 1px solid var(--b1); padding: 1rem 1.25rem;
+}
+.int-panel.open { display: block; }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ VALIDATE */
 .val-result { display: none; }
@@ -711,6 +755,7 @@ td { padding: 0.875rem 1.25rem; font-size: 0.8rem; color: var(--t2); vertical-al
 }
 .form-input:focus { border-color: var(--b3); box-shadow: 0 0 0 3px rgba(255,255,255,0.04); }
 .form-input::placeholder { color: var(--t4); }
+.form-input[rows] { line-height: 1.65; }
 .form-hint { font-family: var(--mono); font-size: 0.62rem; color: var(--t4); margin-top: 0.4rem; }
 
 .form-select {
@@ -1542,16 +1587,17 @@ th { color: var(--t3); font-size: 0.57rem; letter-spacing: 0.13em; }
             <div class="ph-top">
               <div>
                 <h1><span>Settings</span></h1>
-                <div class="ph-sub">Connection and console preferences</div>
+                <div class="ph-sub">Connection, models, and integrations</div>
               </div>
             </div>
             <div class="ph-line"></div>
           </div>
 
+          <!-- Connection -->
           <div class="cfg-card">
             <div class="cfg-hd">Connection</div>
             <div class="cfg-row">
-              <div><div class="cfg-lbl">Server URL</div><div class="cfg-hint">Your API endpoint</div></div>
+              <div><div class="cfg-lbl">Server URL</div><div class="cfg-hint">Your nova API endpoint</div></div>
               <input class="cfg-input" id="cfg-url" type="text">
             </div>
             <div class="cfg-row">
@@ -1564,6 +1610,59 @@ th { color: var(--t3); font-size: 0.57rem; letter-spacing: 0.13em; }
             </div>
           </div>
 
+          <!-- LLM Model -->
+          <div class="cfg-card">
+            <div class="cfg-hd">
+              Intelligence Model
+              <span class="cfg-hd-sub">Powers skill evaluation for all agents</span>
+            </div>
+
+            <!-- Provider pills -->
+            <div style="padding:1rem 1.25rem 0.5rem;display:flex;gap:0.5rem;flex-wrap:wrap;" id="provider-pills">
+              <button class="provider-pill on" data-p="openai"    onclick="selectProvider('openai')">OpenAI</button>
+              <button class="provider-pill"    data-p="anthropic" onclick="selectProvider('anthropic')">Anthropic</button>
+              <button class="provider-pill"    data-p="gemini"    onclick="selectProvider('gemini')">Google</button>
+              <button class="provider-pill"    data-p="groq"      onclick="selectProvider('groq')">Groq</button>
+              <button class="provider-pill"    data-p="xai"       onclick="selectProvider('xai')">xAI</button>
+              <button class="provider-pill"    data-p="mistral"   onclick="selectProvider('mistral')">Mistral</button>
+              <button class="provider-pill"    data-p="openrouter" onclick="selectProvider('openrouter')">OpenRouter</button>
+            </div>
+
+            <!-- Model options grid -->
+            <div style="padding:0.75rem 1.25rem;" id="model-grid"></div>
+
+            <!-- API Key input -->
+            <div class="cfg-row" style="border-top:1px solid var(--b1);">
+              <div>
+                <div class="cfg-lbl">API Key</div>
+                <div class="cfg-hint" id="api-key-hint">Stored securely on your server</div>
+              </div>
+              <div style="display:flex;gap:0.5rem;align-items:center;flex:1;max-width:320px;">
+                <input class="cfg-input" id="cfg-model-key" type="password" placeholder="sk-… or key-…" style="flex:1;">
+                <button class="btn-ghost" style="white-space:nowrap;font-size:0.7rem;padding:0.5rem 0.875rem;" onclick="testModel()">Test</button>
+              </div>
+            </div>
+
+            <div class="cfg-row">
+              <div>
+                <div id="model-status" style="font-family:var(--mono);font-size:0.68rem;color:var(--t4);min-height:1rem;"></div>
+              </div>
+              <button class="btn-primary" onclick="saveModel()">Apply Model</button>
+            </div>
+          </div>
+
+          <!-- Integrations -->
+          <div class="cfg-card">
+            <div class="cfg-hd">
+              Integrations
+              <span class="cfg-hd-sub">Connect external services for skill execution</span>
+            </div>
+            <div style="padding:0.75rem 0;" id="integrations-list">
+              <!-- rendered by JS -->
+            </div>
+          </div>
+
+          <!-- Webhook -->
           <div class="cfg-card">
             <div class="cfg-hd">Webhook</div>
             <div class="cfg-row">
@@ -1572,6 +1671,7 @@ th { color: var(--t3); font-size: 0.57rem; letter-spacing: 0.13em; }
             </div>
           </div>
 
+          <!-- Danger -->
           <div class="cfg-card">
             <div class="cfg-hd">Danger Zone</div>
             <div class="cfg-row">
@@ -1624,13 +1724,13 @@ th { color: var(--t3); font-size: 0.57rem; letter-spacing: 0.13em; }
           <a href="#" onclick="showTerms();return false">Terms of Service</a>
           <a href="#" onclick="showPrivacy();return false">Privacy Policy</a>
           <a href="#" onclick="showPrivacy();return false">Data Processing</a>
-          <a href="mailto:hello@getnova.ai">Contact Us</a>
+          <a href="/cdn-cgi/l/email-protection#6c04090000032c0b091802031a0d420d05">Contact Us</a>
         </div>
         <div class="footer-links-col">
           <span class="footer-links-hd">Connect</span>
           <a href="https://instagram.com/getnova.ai" target="_blank">Instagram</a>
-          <a href="mailto:hello@getnova.ai">hello@getnova.ai</a>
-          <a href="mailto:support@getnova.ai">support@getnova.ai</a>
+          <a href="/cdn-cgi/l/email-protection#432b262f2f2c032426372d2c35226d222a"><span class="__cf_email__" data-cfemail="82eae7eeeeedc2e5e7f6ecedf4e3ace3eb">[email&#160;protected]</span></a>
+          <a href="/cdn-cgi/l/email-protection#0b787e7b7b64797f4b6c6e7f65647d6a256a62"><span class="__cf_email__" data-cfemail="7b080e0b0b14090f3b1c1e0f15140d1a551a12">[email&#160;protected]</span></a>
         </div>
       </div>
 
@@ -1643,7 +1743,7 @@ th { color: var(--t3); font-size: 0.57rem; letter-spacing: 0.13em; }
           @getnova.ai
         </a>
         <span>·</span>
-        <a href="mailto:hello@getnova.ai">hello@getnova.ai</a>
+        <a href="/cdn-cgi/l/email-protection#076f626b6b68476062736968716629666e"><span class="__cf_email__" data-cfemail="81e9e4ededeec1e6e4f5efeef7e0afe0e8">[email&#160;protected]</span></a>
       </span>
     </div>
   </footer>
@@ -1686,7 +1786,7 @@ th { color: var(--t3); font-size: 0.57rem; letter-spacing: 0.13em; }
       <p style="margin-bottom:0.875rem">All decisions are logged permanently by design — this is a core feature, not a bug. You own your data. We do not sell it. Ledger records may not be deleted.</p>
       <p style="margin-bottom:0.5rem;color:var(--t1);font-size:0.68rem;letter-spacing:0.1em;text-transform:uppercase">Liability</p>
       <p style="margin-bottom:0.875rem">Nova is provided as-is. We are not liable for decisions made by your AI agents, whether blocked or approved by our scoring engine.</p>
-      <p style="color:var(--t3)">Questions? <a href="mailto:hello@getnova.ai" style="color:var(--t2)">hello@getnova.ai</a></p>
+      <p style="color:var(--t3)">Questions? <a href="/cdn-cgi/l/email-protection#254d4049494a654240514b4a53440b444c" style="color:var(--t2)"><span class="__cf_email__" data-cfemail="8ce4e9e0e0e3ccebe9f8e2e3faeda2ede5">[email&#160;protected]</span></a></p>
     </div>
     <div class="modal-ft"><button class="btn-primary" onclick="eid('terms-modal').classList.remove('open')">Close</button></div>
   </div>
@@ -1706,7 +1806,7 @@ th { color: var(--t3); font-size: 0.57rem; letter-spacing: 0.13em; }
       <p style="margin-bottom:0.875rem">We collect the minimum data needed to operate the Service: server URL, API key (hashed), agent names, and decision logs.</p>
       <p style="margin-bottom:0.875rem">We do not sell, rent, or share your data with third parties. Ledger data is stored encrypted at rest. You may export your full ledger at any time as PDF.</p>
       <p style="margin-bottom:0.875rem">Email addresses collected for updates are used solely for product updates and are never shared. You can unsubscribe at any time.</p>
-      <p style="color:var(--t3)">Contact: <a href="mailto:hello@getnova.ai" style="color:var(--t2)">hello@getnova.ai</a></p>
+      <p style="color:var(--t3)">Contact: <a href="/cdn-cgi/l/email-protection#1d75787171725d7a786973726b7c337c74" style="color:var(--t2)"><span class="__cf_email__" data-cfemail="e58d8089898aa58280918b8a9384cb848c">[email&#160;protected]</span></a></p>
     </div>
     <div class="modal-ft"><button class="btn-primary" onclick="eid('privacy-modal').classList.remove('open')">Close</button></div>
   </div>
@@ -1758,6 +1858,18 @@ th { color: var(--t3); font-size: 0.57rem; letter-spacing: 0.13em; }
         <div class="form-hint">Comma-separated list of permitted actions</div>
       </div>
       <div class="form-group">
+        <label class="form-label">Skills — Evaluation Rules</label>
+        <textarea class="form-input" id="ca-skills" rows="4" placeholder="One rule per line. Examples:&#10;Never send to addresses outside the authorized domain&#10;Block any action involving amounts above $1,000&#10;Verify no duplicate records exist before creating&#10;Require explicit confirmation before deleting data" style="resize:vertical;font-family:var(--mono);font-size:0.75rem;line-height:1.7;"></textarea>
+        <div class="form-hint">Each line becomes a scoring rule. The more specific, the more accurate the score.</div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Hard Constraints</label>
+        <textarea class="form-input" id="ca-constraints" rows="2" placeholder="Actions that are ALWAYS blocked regardless of score. One per line." style="resize:vertical;font-family:var(--mono);font-size:0.75rem;line-height:1.7;"></textarea>
+        <div class="form-hint">These override everything — score 100 still gets blocked if it violates a constraint.</div>
+      </div>
+
+      <div class="form-group">
         <label class="form-label">Trust Level</label>
         <select class="form-select" id="ca-trust">
           <option value="high">High — Auto-approve above 70</option>
@@ -1781,7 +1893,7 @@ th { color: var(--t3); font-size: 0.57rem; letter-spacing: 0.13em; }
 
 <div id="toasts"></div>
 
-<script>
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
 // ═══════════════════════════════════════════════ STATE
 const S = { url:'', key:'', live:false, ledger:[], agents:[], verdict:'ALL', cur:null };
 
@@ -2004,7 +2116,7 @@ function renderAgGrid() {
 // ═══════════════════════════════════════════════ CREATE AGENT
 function openCreateAgent() {
   // Reset form
-  ['ca-name','ca-role','ca-actions'].forEach(id => eid(id).value = '');
+  ['ca-name','ca-role','ca-actions','ca-skills','ca-constraints'].forEach(id => eid(id).value = '');
   eid('ca-trust').value = 'medium';
   const preview = eid('ca-token-preview');
   preview.classList.remove('show'); preview.textContent = '';
@@ -2014,10 +2126,15 @@ function openCreateAgent() {
 function closeCreateAgent() { eid('create-agent-modal').classList.remove('open'); }
 
 async function createAgent() {
-  const name    = eid('ca-name').value.trim();
-  const role    = eid('ca-role').value.trim();
-  const actions = eid('ca-actions').value.trim();
-  const trust   = eid('ca-trust').value;
+  const name        = eid('ca-name').value.trim();
+  const role        = eid('ca-role').value.trim();
+  const actions     = eid('ca-actions').value.trim();
+  const trust       = eid('ca-trust').value;
+  const skillsRaw   = eid('ca-skills').value.trim();
+  const constRaw    = eid('ca-constraints').value.trim();
+  const skills      = skillsRaw ? skillsRaw.split('\n').map(s=>s.trim()).filter(Boolean) : [];
+  const constraints = constRaw  ? constRaw.split('\n').map(s=>s.trim()).filter(Boolean) : [];
+
   if (!name) { toast('Agent name is required','err'); return; }
 
   const btn = eid('ca-btn');
@@ -2028,15 +2145,29 @@ async function createAgent() {
 
   try {
     if (S.live) {
-      await api('/agents','POST',{ name, role, allowed_actions:actions, trust_level:trust, token_id:token });
+      await api('/agents','POST',{
+        name,
+        role,
+        allowed_actions: actions,
+        trust_level: trust,
+        token_id: token,
+        skills,
+        constraints,
+      });
     } else {
       await delay(900);
     }
     // Add to local list
-    S.agents.unshift({ id:'ag'+Date.now(), name, token_id:token, validations:0, approved:0, blocked:0, role, trust });
+    S.agents.unshift({ id:'ag'+Date.now(), name, token_id:token, validations:0, approved:0, blocked:0, role, trust, skills, constraints });
     // Show token
     const preview = eid('ca-token-preview');
-    preview.textContent = '✓ Agent created  ·  Token: ' + token;
+    const skillsLine = skills.length ? `  ·  ${skills.length} rule${skills.length>1?'s':''} loaded` : '';
+    const constLine  = constraints.length ? `  ·  ${constraints.length} hard constraint${constraints.length>1?'s':''}` : '';
+    preview.innerHTML = `
+      <div style="margin-bottom:0.5rem;color:var(--green);font-size:0.72rem;">Agent created</div>
+      <div style="font-family:var(--mono);font-size:0.68rem;color:var(--t2);word-break:break-all;margin-bottom:0.3rem;">${token}</div>
+      <div style="font-family:var(--mono);font-size:0.62rem;color:var(--t4);">Trust: ${trust}${skillsLine}${constLine}</div>
+    `;
     preview.classList.add('show');
     btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Created`;
     btn.style.background = '#3ecf8e';
@@ -2072,6 +2203,309 @@ async function runValidate() {
 }
 
 // ═══════════════════════════════════════════════ SETTINGS
+// ═══════════════════════════════════════════════ MODEL SELECTOR
+
+const MODELS = {
+  openai: [
+    { model:'openai/gpt-4o',      label:'GPT-4o',      tier:'premium' },
+    { model:'openai/gpt-4o-mini', label:'GPT-4o mini', tier:'fast' },
+    { model:'openai/o3-mini',     label:'o3-mini',      tier:'reasoning' },
+  ],
+  anthropic: [
+    { model:'anthropic/claude-opus-4-6',          label:'Claude Opus 4.6',   tier:'premium' },
+    { model:'anthropic/claude-sonnet-4-6',        label:'Claude Sonnet 4.6', tier:'balanced' },
+    { model:'anthropic/claude-haiku-4-5-20251001',label:'Claude Haiku 4.5',  tier:'fast' },
+  ],
+  gemini: [
+    { model:'gemini/gemini-2.5-pro',   label:'Gemini 2.5 Pro',   tier:'premium' },
+    { model:'gemini/gemini-2.0-flash', label:'Gemini 2.0 Flash', tier:'fast' },
+  ],
+  groq: [
+    { model:'groq/llama-3.3-70b-versatile', label:'Llama 3.3 70B',  tier:'fast' },
+    { model:'groq/mixtral-8x7b-32768',      label:'Mixtral 8x7B',   tier:'fast' },
+  ],
+  xai: [
+    { model:'xai/grok-2-latest', label:'Grok 2', tier:'balanced' },
+    { model:'xai/grok-3-mini',   label:'Grok 3 mini', tier:'fast' },
+  ],
+  mistral: [
+    { model:'mistral/mistral-large-latest', label:'Mistral Large',  tier:'balanced' },
+    { model:'mistral/mistral-small-latest', label:'Mistral Small',  tier:'fast' },
+  ],
+  openrouter: [
+    { model:'openrouter/auto', label:'Auto (best available)', tier:'flexible' },
+    { model:'openrouter/openai/gpt-4o', label:'GPT-4o via OR', tier:'premium' },
+    { model:'openrouter/google/gemini-2.0-flash', label:'Gemini 2.0 via OR', tier:'fast' },
+  ],
+};
+
+const API_KEY_HINTS = {
+  openai:     'platform.openai.com/api-keys',
+  anthropic:  'console.anthropic.com/settings/keys',
+  gemini:     'aistudio.google.com/app/apikey',
+  groq:       'console.groq.com/keys',
+  xai:        'console.x.ai',
+  mistral:    'console.mistral.ai/api-keys',
+  openrouter: 'openrouter.ai/settings/keys',
+};
+
+let S_model = { provider: 'openai', model: 'openai/gpt-4o' };
+
+function selectProvider(p) {
+  S_model.provider = p;
+  document.querySelectorAll('.provider-pill').forEach(el => {
+    el.classList.toggle('on', el.dataset.p === p);
+  });
+  renderModelGrid(p);
+  const hint = API_KEY_HINTS[p] || '';
+  eid('api-key-hint').textContent = hint ? `Get key at ${hint}` : 'Your API key';
+  eid('cfg-model-key').placeholder = p === 'openai' ? 'sk-…' : p === 'anthropic' ? 'sk-ant-…' : p === 'gemini' ? 'AIza…' : 'Your API key';
+}
+
+function renderModelGrid(provider) {
+  const list = MODELS[provider] || [];
+  const el = eid('model-grid');
+  el.innerHTML = `<div class="model-grid-inner">${list.map(m => `
+    <div class="model-card ${S_model.model === m.model ? 'on' : ''}" onclick="selectModel('${m.model}')">
+      <div class="model-card-name">${m.label}</div>
+      <div class="model-card-tier">${m.tier}</div>
+    </div>`).join('')}</div>`;
+}
+
+function selectModel(m) {
+  S_model.model = m;
+  document.querySelectorAll('.model-card').forEach(el => {
+    el.classList.toggle('on', el.onclick?.toString().includes(m));
+  });
+  renderModelGrid(S_model.provider);
+}
+
+async function testModel() {
+  const key = eid('cfg-model-key').value.trim();
+  if (!key) { toast('Enter an API key first', 'err'); return; }
+  const st = eid('model-status');
+  st.textContent = 'Testing connection…';
+  st.style.color = 'var(--t4)';
+  try {
+    const res = await api('/models/config', 'GET');
+    st.textContent = `Connected — ${S_model.model}`;
+    st.style.color = 'var(--green)';
+  } catch(e) {
+    // Try direct ping if server endpoint not available
+    st.textContent = 'Key saved — server will validate on first use';
+    st.style.color = 'var(--t3)';
+  }
+}
+
+async function saveModel() {
+  const key = eid('cfg-model-key').value.trim();
+  if (!key) { toast('API key required', 'err'); return; }
+  if (!S_model.model) { toast('Select a model first', 'err'); return; }
+  try {
+    await api('/models/config', 'POST', {
+      model: S_model.model,
+      api_key: key,
+      provider: S_model.provider,
+    });
+    toast(`Model set: ${S_model.model}`, 'ok');
+    eid('model-status').textContent = `Active — ${S_model.model}`;
+    eid('model-status').style.color = 'var(--green)';
+    localStorage.setItem('_model', S_model.model);
+    localStorage.setItem('_provider', S_model.provider);
+  } catch(e) {
+    // Offline — save locally
+    localStorage.setItem('_model', S_model.model);
+    localStorage.setItem('_model_key', key);
+    localStorage.setItem('_provider', S_model.provider);
+    toast('Saved locally — will sync when online', 'ok');
+    eid('model-status').textContent = `Saved locally — ${S_model.model}`;
+    eid('model-status').style.color = 'var(--t3)';
+  }
+}
+
+// ═══════════════════════════════════════════════ INTEGRATIONS
+
+const INTEGRATIONS = [
+  {
+    id: 'gmail',
+    name: 'Gmail',
+    desc: 'Duplicate detection, sent email verification',
+    credentials: [
+      { key: 'gmail_token', label: 'OAuth Token (JSON)', type: 'textarea', placeholder: 'Paste your Google OAuth token JSON here' }
+    ],
+    setupUrl: 'https://console.cloud.google.com/apis/credentials',
+  },
+  {
+    id: 'slack',
+    name: 'Slack',
+    desc: 'Message history, channel verification',
+    credentials: [
+      { key: 'slack_token', label: 'Bot Token', type: 'password', placeholder: 'xoxb-…' }
+    ],
+    setupUrl: 'https://api.slack.com/apps',
+  },
+  {
+    id: 'notion',
+    name: 'Notion',
+    desc: 'Database lookups, record deduplication',
+    credentials: [
+      { key: 'notion_token', label: 'Integration Token', type: 'password', placeholder: 'secret_…' }
+    ],
+    setupUrl: 'https://www.notion.so/my-integrations',
+  },
+  {
+    id: 'airtable',
+    name: 'Airtable',
+    desc: 'Base queries, record checks',
+    credentials: [
+      { key: 'airtable_token', label: 'Personal Access Token', type: 'password', placeholder: 'pat…' },
+      { key: 'airtable_base_id', label: 'Base ID (optional)', type: 'text', placeholder: 'appXXXXXXXXXXXXXX' }
+    ],
+    setupUrl: 'https://airtable.com/create/tokens',
+  },
+  {
+    id: 'hubspot',
+    name: 'HubSpot',
+    desc: 'CRM contact and deal verification',
+    credentials: [
+      { key: 'hubspot_token', label: 'Private App Token', type: 'password', placeholder: 'pat-…' }
+    ],
+    setupUrl: 'https://developers.hubspot.com/docs/api/private-apps',
+  },
+  {
+    id: 'webhook',
+    name: 'Custom API / Webhook',
+    desc: 'Any REST endpoint for custom verification',
+    credentials: [
+      { key: 'webhook_url',   label: 'Endpoint URL',  type: 'text',     placeholder: 'https://…' },
+      { key: 'webhook_token', label: 'Bearer Token',  type: 'password', placeholder: 'Optional' }
+    ],
+    setupUrl: null,
+  },
+];
+
+const connectedInts = new Set(JSON.parse(localStorage.getItem('_ints') || '[]'));
+
+function renderIntegrations() {
+  const el = eid('integrations-list');
+  if (!el) return;
+  el.innerHTML = INTEGRATIONS.map(int => {
+    const connected = connectedInts.has(int.id);
+    const credFields = int.credentials.map(c => `
+      <div class="form-group" style="margin-bottom:0.875rem;">
+        <label class="form-label">${c.label}</label>
+        ${c.type === 'textarea'
+          ? `<textarea class="form-input" id="int-${int.id}-${c.key}" rows="3" placeholder="${c.placeholder}" style="font-family:var(--mono);font-size:0.72rem;resize:vertical;"></textarea>`
+          : `<input class="form-input" id="int-${int.id}-${c.key}" type="${c.type}" placeholder="${c.placeholder}">`
+        }
+      </div>`).join('');
+    return `
+      <div>
+        <div class="int-row">
+          <div style="flex:1;">
+            <div class="int-name">${int.name}</div>
+            <div class="int-desc">${int.desc}</div>
+          </div>
+          <div class="int-actions">
+            ${connected
+              ? `<span class="int-status connected">Connected</span>`
+              : `<span class="int-status disconnected">Not connected</span>`}
+            ${int.setupUrl
+              ? `<a href="${int.setupUrl}" target="_blank" class="btn-ghost" style="font-size:0.65rem;padding:0.4rem 0.75rem;text-decoration:none;">Docs</a>`
+              : ''}
+            <button class="btn-ghost" style="font-size:0.65rem;padding:0.4rem 0.75rem;" onclick="toggleIntPanel('${int.id}')">
+              ${connected ? 'Edit' : 'Connect'}
+            </button>
+          </div>
+        </div>
+        <div class="int-panel" id="int-panel-${int.id}">
+          ${credFields}
+          <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
+            <button class="btn-ghost" style="font-size:0.7rem;" onclick="testIntegration('${int.id}')">Test connection</button>
+            <button class="btn-primary" style="font-size:0.7rem;" onclick="saveIntegration('${int.id}')">Save</button>
+          </div>
+          <div id="int-status-${int.id}" style="font-family:var(--mono);font-size:0.62rem;color:var(--t4);margin-top:0.5rem;min-height:1rem;"></div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function toggleIntPanel(id) {
+  const panel = eid(`int-panel-${id}`);
+  panel.classList.toggle('open');
+}
+
+async function testIntegration(id) {
+  const int = INTEGRATIONS.find(i => i.id === id);
+  if (!int) return;
+  const creds = {};
+  int.credentials.forEach(c => {
+    const val = eid(`int-${id}-${c.key}`)?.value?.trim();
+    if (val) creds[c.key] = val;
+  });
+  const st = eid(`int-status-${id}`);
+  st.textContent = 'Testing…'; st.style.color = 'var(--t4)';
+  try {
+    const res = await api(`/integrations/${id}/test`, 'POST', { credentials: creds });
+    st.textContent = res.message || 'Connected';
+    st.style.color = res.ok ? 'var(--green)' : 'var(--red)';
+  } catch(e) {
+    st.textContent = 'Server offline — credentials will be saved locally';
+    st.style.color = 'var(--t3)';
+  }
+}
+
+async function saveIntegration(id) {
+  const int = INTEGRATIONS.find(i => i.id === id);
+  if (!int) return;
+  const creds = {};
+  int.credentials.forEach(c => {
+    const val = eid(`int-${id}-${c.key}`)?.value?.trim();
+    if (val) creds[c.key] = val;
+  });
+  if (!Object.keys(creds).length) { toast('Enter credentials first', 'err'); return; }
+  try {
+    await api('/integrations/save', 'POST', { name: id, credentials: creds });
+  } catch(e) {
+    // save locally
+    localStorage.setItem(`_int_${id}`, JSON.stringify(creds));
+  }
+  connectedInts.add(id);
+  localStorage.setItem('_ints', JSON.stringify([...connectedInts]));
+  eid(`int-panel-${id}`).classList.remove('open');
+  renderIntegrations();
+  toast(`${int.name} connected`, 'ok');
+}
+
+function initSettings() {
+  // Restore saved model
+  const savedModel    = localStorage.getItem('_model')    || 'openai/gpt-4o';
+  const savedProvider = localStorage.getItem('_provider') || 'openai';
+  S_model = { provider: savedProvider, model: savedModel };
+  selectProvider(savedProvider);
+  renderIntegrations();
+  // Load server model config if online
+  if (S.live) {
+    api('/models/config').then(d => {
+      if (d.model) {
+        const p = d.model.split('/')[0];
+        S_model = { provider: p, model: d.model };
+        selectProvider(p);
+        if (d.api_key_preview) {
+          eid('model-status').textContent = `Active — ${d.model} (key: ${d.api_key_preview})`;
+          eid('model-status').style.color = 'var(--green)';
+        }
+      }
+    }).catch(()=>{});
+    api('/integrations/saved').then(d => {
+      if (d.integrations) {
+        Object.keys(d.integrations).forEach(k => connectedInts.add(k));
+        renderIntegrations();
+      }
+    }).catch(()=>{});
+  }
+}
+
 async function saveSettings() {
   S.url=eid('cfg-url').value.trim();
   S.key=eid('cfg-key').value.trim();
@@ -2403,6 +2837,7 @@ function nav(name, btn) {
   if (btn && btn.classList.contains('tb-btn')) btn.classList.add('on');
   if (name==='ledger') { filterLedger(); }
   if (name==='agents') renderAgGrid();
+  if (name==='settings') initSettings();
 }
 
 // ═══════════════════════════════════════════════ HELPERS
@@ -2450,19 +2885,4 @@ function showHowItWorks() { eid('how-modal').classList.add('open'); }
 function showTerms()      { eid('terms-modal').classList.add('open'); }
 function showPrivacy()    { eid('privacy-modal').classList.add('open'); }
 
-window.addEventListener('DOMContentLoaded', () => {
-  load();
-  // Close modals on backdrop click
-  eid('modal').addEventListener('click', e => { if(e.target===eid('modal')) closeModal(); });
-  eid('create-agent-modal').addEventListener('click', e => { if(e.target===eid('create-agent-modal')) closeCreateAgent(); });
-  // Keyboard close
-  document.addEventListener('keydown', e => { if(e.key==='Escape') { closeModal(); closeCreateAgent(); ['how-modal','terms-modal','privacy-modal'].forEach(id=>eid(id).classList.remove('open')); } });
-  ['how-modal','terms-modal','privacy-modal'].forEach(id => {
-    eid(id).addEventListener('click', e => { if(e.target === eid(id)) eid(id).classList.remove('open'); });
-  });
-  // Auto-launch if already set up
-  if (localStorage.getItem('_ob') && S.url) skipToDemo();
-});
-</script>
-</body>
-</html>
+window.addEventListener('DOMContentLoaded
