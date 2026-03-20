@@ -28,7 +28,7 @@ Nova standardizes API error payloads with:
 - `request_id`: optional request identifier for support and audits
 
 ## 🧪 Development Defaults
-The default `docker-compose.yml` ships with development credentials and demo API keys for local use. Replace `POSTGRES_PASSWORD`, `SECRET_KEY`, and any frontend demo keys before exposing the system to untrusted networks.
+The default `docker-compose.yml` ships with development credentials for local use. Replace `POSTGRES_PASSWORD` and `SECRET_KEY` before exposing the system to untrusted networks. Public installs are expected to start empty: no bundled workspace, no seeded API key, and no preloaded ledger data.
 
 ---
 **Nova OS Security Team** *Building a safer future for autonomous agents.*

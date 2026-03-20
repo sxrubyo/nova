@@ -31,7 +31,8 @@ ok()   { printf "  ${G}+${RST}  ${W}$1${RST}\n"; }
 fail() { printf "  ${R}x${RST}  ${W}$1${RST}\n"; exit 1; }
 step() { printf "  ${B}o${RST}  ${Y}$1${RST}\n"; }
 
-printf "  ${W}${BLD}Installing nova CLI $NOVA_VERSION${RST}\n\n"
+printf "  ${W}${BLD}Installing nova CLI $NOVA_VERSION${RST}\n"
+printf "  ${D}Fresh install mode: previous local Nova state will be removed.${RST}\n\n"
 
 PYTHON=""
 for cmd in python3 python python3.12 python3.11 python3.10 python3.9 python3.8; do
@@ -45,7 +46,7 @@ done
 [ -z "$PYTHON" ] && fail "Python 3.8+ not found. Install from https://python.org"
 
 if [ -d "$NOVA_DIR" ]; then
-    step "Removing previous installation..."
+    step "Removing previous installation and local state..."
     rm -rf "$NOVA_DIR"
 fi
 mkdir -p "$NOVA_DIR"; ok "Directory ready"

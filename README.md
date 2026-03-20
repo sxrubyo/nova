@@ -254,7 +254,7 @@ export NO_COLOR=1            # Disable colors
 export NOVA_SERVER=https://api.your-domain.com
 ```
 
-**Security Defaults (Local Only):** The `docker-compose.yml` file ships with development defaults for `POSTGRES_PASSWORD` and `SECRET_KEY`. Override them via environment variables (or a `.env` file) before any production deployment. The frontend dashboard uses a demo API key by default; set `localStorage.setItem('nova_api_key', '...')` in the browser or front the `/api` path with an auth-protecting reverse proxy.
+**Security Defaults (Local Only):** The `docker-compose.yml` file ships with development defaults for `POSTGRES_PASSWORD` and `SECRET_KEY`. Override them via environment variables (or a `.env` file) before any production deployment. Fresh installs now start with no pre-created workspace, no bundled API key, and no seeded product data.
 
 ---
 

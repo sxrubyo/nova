@@ -1282,7 +1282,7 @@ th { color: var(--t3); font-size: 0.57rem; letter-spacing: 0.13em; }
 
     <div class="ob-field">
       <label>Server URL</label>
-      <input class="ob-input" id="ob-url" type="text" placeholder="http://localhost:8000" value="http://54.89.245.22:8000">
+      <input class="ob-input" id="ob-url" type="text" placeholder="http://localhost:8000" value="http://localhost:8000">
     </div>
     <div class="ob-field">
       <label>API Key</label>
@@ -1294,7 +1294,7 @@ th { color: var(--t3); font-size: 0.57rem; letter-spacing: 0.13em; }
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
         Connect & Launch
       </button>
-      <button class="btn-secondary full" onclick="skipToDemo()">Continue with demo data</button>
+      <button class="btn-secondary full" onclick="skipToDemo()">Launch local demo view</button>
     </div>
   </div>
 </div>
@@ -1908,16 +1908,16 @@ async function connect() {
   const btn  = document.getElementById('ob-btn');
   btn.innerHTML = '<span class="spin" style="border-top-color:#000"></span> Connecting…';
   btn.disabled = true;
-  S.url = url || 'http://54.89.245.22:8000';
-  S.key = key || 'nova_demo_key_12345';
+  S.url = url || 'http://localhost:8000';
+  S.key = key || '';
   save();
   await delay(600);
   launch();
 }
 function skipToDemo() {
   load();
-  if (!S.url) S.url = 'http://54.89.245.22:8000';
-  if (!S.key) S.key = 'nova_demo_key_12345';
+  if (!S.url) S.url = 'http://localhost:8000';
+  S.key = '';
   save(); launch();
 }
 function launch() {

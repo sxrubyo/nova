@@ -25,7 +25,9 @@ function ok($m)   { Write-Host "  " -NoNewline; Write-Host "+" -ForegroundColor 
 function fail($m) { Write-Host "  " -NoNewline; Write-Host "x" -ForegroundColor Red   -NoNewline; Write-Host "  $m" -ForegroundColor White; exit 1 }
 function step($m) { Write-Host "  " -NoNewline; Write-Host "o" -ForegroundColor Blue  -NoNewline; Write-Host "  $m" -ForegroundColor DarkGray }
 
-Write-Host "  Installing nova CLI $NOVA_VERSION" -ForegroundColor White; Write-Host ""
+Write-Host "  Installing nova CLI $NOVA_VERSION" -ForegroundColor White
+Write-Host "  Fresh install mode: previous local Nova state will be removed." -ForegroundColor DarkGray
+Write-Host ""
 
 $PYTHON = $null
 foreach ($cmd in @("py","python","python3")) {
@@ -38,7 +40,7 @@ foreach ($cmd in @("py","python","python3")) {
 }
 if (-not $PYTHON) { fail "Python 3.8+ not found. Install from https://python.org" }
 
-if (Test-Path $NOVA_DIR) { step "Removing previous installation..."; Remove-Item -Recurse -Force $NOVA_DIR }
+if (Test-Path $NOVA_DIR) { step "Removing previous installation and local state..."; Remove-Item -Recurse -Force $NOVA_DIR }
 New-Item -ItemType Directory -Path $NOVA_DIR -Force | Out-Null; ok "Directory ready"
 step "Fetching nova.py..."
 
