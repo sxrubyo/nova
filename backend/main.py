@@ -33,8 +33,10 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import csv
 import hashlib
+import hmac
 import io
 import json
 import logging
@@ -54,17 +56,18 @@ from typing import (
     Any, AsyncGenerator, Dict, List, Optional,
     Tuple, Union, Callable, TypeVar, Generic, Annotated
 )
+from urllib.parse import urlencode
 
 import httpx
 import databases
 from fastapi import (
-    FastAPI, HTTPException, Header, Depends,
+    FastAPI, HTTPException, Header, Depends, Cookie,
     Request, Response, BackgroundTasks, Query, Path, Body
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field, validator, root_validator
+from fastapi.responses import JSONResponse, StreamingResponse, RedirectResponse
+from pydantic import BaseModel, EmailStr, Field, validator, root_validator
 from starlette.middleware.base import BaseHTTPMiddleware
 
 
@@ -93,6 +96,7 @@ class Settings:
     )
     API_KEY_MIN_LENGTH: int = 16
     BCRYPT_ROUNDS: int = 12
+    WORKSPACE_ADMIN_TOKEN: str = os.getenv("WORKSPACE_ADMIN_TOKEN", SECRET_KEY)
 
     # ── Multi-LLM (2026 edition — pick one or configure per workspace) ────────
     # Primary provider — env var takes precedence over workspace config
@@ -155,10 +159,36 @@ class Settings:
     BUILD: str       = "2026.03.enterprise"
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
     DEBUG: bool      = os.getenv("DEBUG", "false").lower() == "true"
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3005")
+    CORS_ORIGINS_RAW: str = os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:3005,http://127.0.0.1:3005,http://localhost:5173,http://127.0.0.1:5173"
+    )
+    GITHUB_CLIENT_ID: str = os.getenv("GITHUB_CLIENT_ID", "")
+    GITHUB_CLIENT_SECRET: str = os.getenv("GITHUB_CLIENT_SECRET", "")
+    GITHUB_REDIRECT_URI: str = os.getenv("GITHUB_REDIRECT_URI", "")
+    GITHUB_SCOPE: str = os.getenv("GITHUB_SCOPE", "read:user user:email")
+    SESSION_COOKIE_NAME: str = os.getenv("SESSION_COOKIE_NAME", "nova_session")
+    SESSION_TTL_HOURS: int = int(os.getenv("SESSION_TTL_HOURS", "8"))
 
     @classmethod
     def is_production(cls) -> bool:
         return cls.ENVIRONMENT == "production"
+
+    @classmethod
+    def session_cookie_secure(cls) -> bool:
+        return os.getenv("SESSION_COOKIE_SECURE", "").lower() == "true" or cls.is_production()
+
+    @classmethod
+    def get_cors_origins(cls) -> List[str]:
+        origins = [origin.strip() for origin in cls.CORS_ORIGINS_RAW.split(",") if origin.strip()]
+        if cls.FRONTEND_URL and cls.FRONTEND_URL not in origins:
+            origins.append(cls.FRONTEND_URL.rstrip("/"))
+        return origins
+
+    @classmethod
+    def github_enabled(cls) -> bool:
+        return bool(cls.GITHUB_CLIENT_ID and cls.GITHUB_CLIENT_SECRET and cls.GITHUB_REDIRECT_URI)
 
     @classmethod
     def has_llm(cls) -> bool:
@@ -1082,18 +1112,139 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 # DEPENDENCIES
 # ══════════════════════════════════════════════════════════════════════════════
 
-async def get_workspace(
-    x_api_key: str = Header(..., description="Workspace API key")
-) -> Dict[str, Any]:
-    if not x_api_key or len(x_api_key) < settings.API_KEY_MIN_LENGTH:
-        raise HTTPException(status_code=401, detail="Invalid API key format")
-    row = await db.fetch_one(
-        "SELECT * FROM workspaces WHERE api_key = :key", {"key": x_api_key}
+class WorkspaceRegistrationRequest(BaseModel):
+    name: str
+    email: EmailStr
+    plan: str = Field("trial", description="Workspace tier")
+    api_key: Optional[str] = Field(
+        None,
+        min_length=settings.API_KEY_MIN_LENGTH,
+        description="Custom workspace API key; generated automatically if omitted",
     )
-    if not row:
-        log.warning(f"Invalid API key: {x_api_key[:8]}...")
-        raise HTTPException(status_code=401, detail="Invalid API key")
-    return dict(row)
+
+
+async def _ensure_unique_workspace_api_key(proposed: Optional[str]) -> str:
+    candidate = proposed or f"nova_{secrets.token_hex(32)}"
+    if len(candidate) < settings.API_KEY_MIN_LENGTH:
+        candidate = f"nova_{secrets.token_hex(32)}"
+    while True:
+        exists = await db.fetch_one(
+            "SELECT id FROM workspaces WHERE api_key = :key", {"key": candidate}
+        )
+        if not exists:
+            return candidate
+        candidate = f"nova_{secrets.token_hex(32)}"
+
+
+def _b64url_encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).rstrip(b"=").decode()
+
+
+def _b64url_decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(f"{value}{padding}".encode())
+
+
+def _build_workspace_session_token(workspace: Dict[str, Any]) -> str:
+    payload = {
+        "wid": str(workspace["id"]),
+        "email": workspace.get("email", ""),
+        "exp": int(time.time()) + settings.SESSION_TTL_HOURS * 3600,
+    }
+    encoded = _b64url_encode(json.dumps(payload, separators=(",", ":")).encode())
+    signature = hmac.new(
+        settings.SECRET_KEY.encode(),
+        encoded.encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"{encoded}.{signature}"
+
+
+def _decode_workspace_session_token(token: str) -> Optional[Dict[str, Any]]:
+    try:
+        encoded, signature = token.split(".", 1)
+    except ValueError:
+        return None
+
+    expected = hmac.new(
+        settings.SECRET_KEY.encode(),
+        encoded.encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        return None
+
+    try:
+        payload = json.loads(_b64url_decode(encoded).decode())
+    except Exception:
+        return None
+
+    if int(payload.get("exp", 0)) < int(time.time()):
+        return None
+    return payload
+
+
+async def _get_workspace_by_id(workspace_id: str) -> Optional[Dict[str, Any]]:
+    row = await db.fetch_one(
+        "SELECT * FROM workspaces WHERE id = :wid",
+        {"wid": workspace_id},
+    )
+    return dict(row) if row else None
+
+
+async def _get_workspace_by_email(email: str) -> Optional[Dict[str, Any]]:
+    row = await db.fetch_one(
+        "SELECT * FROM workspaces WHERE LOWER(email) = LOWER(:email)",
+        {"email": email},
+    )
+    return dict(row) if row else None
+
+
+def _set_workspace_session_cookie(response: Response, workspace: Dict[str, Any]) -> None:
+    response.set_cookie(
+        key=settings.SESSION_COOKIE_NAME,
+        value=_build_workspace_session_token(workspace),
+        max_age=settings.SESSION_TTL_HOURS * 3600,
+        httponly=True,
+        secure=settings.session_cookie_secure(),
+        samesite="lax",
+        path="/",
+    )
+
+
+def _clear_workspace_session_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=settings.SESSION_COOKIE_NAME,
+        path="/",
+        samesite="lax",
+        secure=settings.session_cookie_secure(),
+    )
+
+
+async def get_workspace(
+    request: Request,
+    x_api_key: Optional[str] = Header(None, description="Workspace API key")
+) -> Dict[str, Any]:
+    if x_api_key:
+        if len(x_api_key) < settings.API_KEY_MIN_LENGTH:
+            raise HTTPException(status_code=401, detail="Invalid API key format")
+        row = await db.fetch_one(
+            "SELECT * FROM workspaces WHERE api_key = :key", {"key": x_api_key}
+        )
+        if not row:
+            log.warning(f"Invalid API key: {x_api_key[:8]}...")
+            raise HTTPException(status_code=401, detail="Invalid API key")
+        return dict(row)
+
+    session_token = request.cookies.get(settings.SESSION_COOKIE_NAME)
+    if session_token:
+        payload = _decode_workspace_session_token(session_token)
+        if payload:
+            workspace = await _get_workspace_by_id(payload["wid"])
+            if workspace:
+                return workspace
+
+    raise HTTPException(status_code=401, detail="Authentication required")
 
 
 async def get_request_context(request: Request) -> Dict[str, Any]:
@@ -1935,7 +2086,7 @@ class AnalyticsEngine:
         results = {}
         for name, query in queries:
             row = await db.fetch_one(query, {"w": wid})
-            results[name] = row["c"] if "c" in row.keys() else row.get("avg", 0)
+            results[name] = row["c"] if "c" in row.keys() else (row["avg"] if "avg" in row.keys() else 0)
 
         total = results["total"] or 1
         trend_rows = await db.fetch_all(
@@ -2123,7 +2274,7 @@ All endpoints (except `/` and `/health`) require an API key via `x-api-key` head
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]
@@ -2211,6 +2362,147 @@ async def health_check():
     }
 
 
+@app.get("/auth/providers", tags=["Auth"])
+async def auth_providers():
+    return {
+        "github": {
+            "enabled": settings.github_enabled(),
+            "redirect_uri": settings.GITHUB_REDIRECT_URI if settings.github_enabled() else None,
+        }
+    }
+
+
+@app.get("/auth/github/start", tags=["Auth"])
+async def github_auth_start(next: str = Query("/dashboard")):
+    if not settings.github_enabled():
+        raise HTTPException(status_code=503, detail="GitHub auth is not configured")
+
+    next_path = next if next.startswith("/") else "/dashboard"
+    state = secrets.token_urlsafe(24)
+    query = urlencode({
+        "client_id": settings.GITHUB_CLIENT_ID,
+        "redirect_uri": settings.GITHUB_REDIRECT_URI,
+        "scope": settings.GITHUB_SCOPE,
+        "state": state,
+        "allow_signup": "true",
+    })
+    response = RedirectResponse(
+        url=f"https://github.com/login/oauth/authorize?{query}",
+        status_code=302,
+    )
+    response.set_cookie(
+        key="nova_github_oauth_state",
+        value=state,
+        max_age=600,
+        httponly=True,
+        secure=settings.session_cookie_secure(),
+        samesite="lax",
+        path="/",
+    )
+    response.set_cookie(
+        key="nova_github_oauth_next",
+        value=next_path,
+        max_age=600,
+        httponly=True,
+        secure=settings.session_cookie_secure(),
+        samesite="lax",
+        path="/",
+    )
+    return response
+
+
+@app.get("/auth/github/callback", tags=["Auth"])
+async def github_auth_callback(
+    code: str = Query(...),
+    state: str = Query(...),
+    oauth_state: Optional[str] = Cookie(None, alias="nova_github_oauth_state"),
+    oauth_next: Optional[str] = Cookie("/dashboard", alias="nova_github_oauth_next"),
+):
+    fallback = f"{settings.FRONTEND_URL.rstrip('/')}/login?auth=github&status=failed"
+
+    def _redirect(path: str) -> RedirectResponse:
+        response = RedirectResponse(url=path, status_code=302)
+        response.delete_cookie("nova_github_oauth_state", path="/")
+        response.delete_cookie("nova_github_oauth_next", path="/")
+        return response
+
+    if not settings.github_enabled():
+        return _redirect(f"{settings.FRONTEND_URL.rstrip('/')}/login?auth=github&status=disabled")
+
+    if not oauth_state or state != oauth_state:
+        return _redirect(f"{settings.FRONTEND_URL.rstrip('/')}/login?auth=github&status=invalid_state")
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        token_res = await client.post(
+            "https://github.com/login/oauth/access_token",
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "Nova-OS",
+            },
+            data={
+                "client_id": settings.GITHUB_CLIENT_ID,
+                "client_secret": settings.GITHUB_CLIENT_SECRET,
+                "code": code,
+                "redirect_uri": settings.GITHUB_REDIRECT_URI,
+                "state": state,
+            },
+        )
+        if token_res.status_code >= 400:
+            log.warning("GitHub token exchange failed: %s", token_res.text[:300])
+            return _redirect(fallback)
+
+        access_token = token_res.json().get("access_token")
+        if not access_token:
+            return _redirect(fallback)
+
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {access_token}",
+            "User-Agent": "Nova-OS",
+        }
+        user_res = await client.get("https://api.github.com/user", headers=headers)
+        emails_res = await client.get("https://api.github.com/user/emails", headers=headers)
+        if user_res.status_code >= 400 or emails_res.status_code >= 400:
+            return _redirect(fallback)
+
+        emails = emails_res.json()
+        verified_email = next(
+            (item.get("email") for item in emails if item.get("verified") and item.get("primary")),
+            None,
+        ) or next(
+            (item.get("email") for item in emails if item.get("verified")),
+            None,
+        )
+        if not verified_email:
+            return _redirect(f"{settings.FRONTEND_URL.rstrip('/')}/login?auth=github&status=email_required")
+
+        workspace = await _get_workspace_by_email(verified_email)
+        if not workspace:
+            return _redirect(f"{settings.FRONTEND_URL.rstrip('/')}/login?auth=github&status=no_workspace")
+
+        next_path = oauth_next if oauth_next and oauth_next.startswith("/") else "/dashboard"
+        response = _redirect(f"{settings.FRONTEND_URL.rstrip('/')}{next_path}")
+        _set_workspace_session_cookie(response, workspace)
+        return response
+
+
+@app.post("/auth/logout", tags=["Auth"])
+async def logout():
+    response = JSONResponse({"status": "logged_out"})
+    _clear_workspace_session_cookie(response)
+    return response
+
+
+@app.get("/auth/me", tags=["Auth"])
+async def auth_me(ws: Dict = Depends(get_workspace)):
+    return {
+        "id": str(ws["id"]),
+        "name": ws.get("name", ""),
+        "email": ws.get("email", ""),
+        "plan": ws.get("plan", "free"),
+    }
+
+
 @app.get("/workspaces/me", tags=["Workspace"])
 async def get_my_workspace(ws: Dict = Depends(get_workspace)):
     """Get current workspace details and usage stats."""
@@ -2224,6 +2516,47 @@ async def get_my_workspace(ws: Dict = Depends(get_workspace)):
         "quota_monthly":    ws.get("quota_monthly", 10000),
         "stats":            stats,
         "created_at":       ws.get("created_at"),
+    }
+
+
+@app.post("/workspaces/register", tags=["Workspace"], status_code=201)
+async def register_workspace(
+    payload: WorkspaceRegistrationRequest,
+    x_admin_token: str = Header(..., alias="X-Nova-Admin-Token"),
+):
+    if x_admin_token != settings.WORKSPACE_ADMIN_TOKEN:
+        raise HTTPException(status_code=403, detail="Invalid admin token")
+
+    existing = await db.fetch_one(
+        "SELECT id FROM workspaces WHERE email = :email",
+        {"email": payload.email},
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="Workspace already exists")
+
+    api_key = await _ensure_unique_workspace_api_key(payload.api_key)
+
+    row = await db.fetch_one(
+        """
+        INSERT INTO workspaces (name, email, api_key, plan)
+        VALUES (:name, :email, :api_key, :plan)
+        RETURNING id, name, email, plan, api_key, created_at
+        """,
+        {
+            "name": payload.name,
+            "email": payload.email,
+            "api_key": api_key,
+            "plan": payload.plan,
+        },
+    )
+
+    return {
+        "id":         str(row["id"]),
+        "name":       row["name"],
+        "email":      row["email"],
+        "plan":       row["plan"],
+        "api_key":    row["api_key"],
+        "created_at": row["created_at"],
     }
 
 
@@ -3474,13 +3807,37 @@ async def get_timeline(
     return await AnalyticsEngine.get_timeline(str(ws["id"]), hours)
 
 
+@app.get("/skills", tags=["Skills"])
+async def get_available_skills():
+    """
+    Get available system integrations and their credential schemas.
+    """
+    try:
+        # Dynamic import from parent directory
+        import sys
+        parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if parent_dir not in sys.path:
+            sys.path.append(parent_dir)
+        
+        from integrations import INTEGRATION_SCHEMAS
+        return INTEGRATION_SCHEMAS
+    except Exception as e:
+        log.error(f"Failed to load integration schemas: {e}")
+        # Fallback to some defaults if import fails
+        return {
+            "slack": {"name": "Slack", "category": "Communication", "description": "Slack integration"},
+            "gmail": {"name": "Gmail", "category": "Communication", "description": "Gmail integration"}
+        }
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ENDPOINTS — SSE Streaming
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/stream/events", tags=["Streaming"])
 async def stream_events(
-    x_api_key: str = Query(..., description="Workspace API key"),
+    request: Request,
+    x_api_key: Optional[str] = Query(None, description="Workspace API key"),
     since_id: Optional[int] = Query(None, description="Resume from event ID"),
 ):
     """
@@ -3495,12 +3852,15 @@ async def stream_events(
         const evtSource = new EventSource('/stream/events?x_api_key=YOUR_KEY');
         evtSource.onmessage = (e) => console.log(JSON.parse(e.data));
     """
-    ws = await db.fetch_one(
-        "SELECT * FROM workspaces WHERE api_key = :key", {"key": x_api_key}
-    )
-    if not ws:
-        raise HTTPException(401, "Invalid API key")
-    ws = dict(ws)
+    if x_api_key:
+        ws = await db.fetch_one(
+            "SELECT * FROM workspaces WHERE api_key = :key", {"key": x_api_key}
+        )
+        if not ws:
+            raise HTTPException(401, "Invalid API key")
+        ws = dict(ws)
+    else:
+        ws = await get_workspace(request=request)
 
     # Send recent events if resuming
     backlog = []

@@ -30,6 +30,69 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 
 logger = logging.getLogger("nova.skill_executor")
+import urllib.request as _urllib_req
+import pathlib as _pathlib
+
+# ══════════════════════════════════════════════════════════════════════════════
+# NOVA BRIDGE — Load credentials from ~/.nova/skills/ + report to nova_core
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _load_nova_skill_creds(skill_name: str) -> dict:
+    """Load credentials saved by `nova skill add <skill>`."""
+    path = _pathlib.Path.home() / ".nova" / "skills" / f"{skill_name}.json"
+    if path.exists():
+        try:
+            return json.loads(path.read_text())
+        except Exception:
+            pass
+    return {}
+
+
+def _load_all_nova_creds() -> dict:
+    """Load all installed skill credentials in one dict."""
+    skills_dir = _pathlib.Path.home() / ".nova" / "skills"
+    merged = {}
+    if skills_dir.exists():
+        for f in skills_dir.glob("*.json"):
+            try:
+                data = json.loads(f.read_text())
+                merged[f.stem] = data
+            except Exception:
+                pass
+    return merged
+
+
+def _report_tool_call_to_nova(tool_name: str, args: dict,
+                               result: dict, agent_name: str = ""):
+    """
+    Non-blocking: report tool execution to Nova Core ledger.
+    Allows Nova to track which skills ran and what evidence they gathered.
+    """
+    try:
+        payload = json.dumps({
+            "action":     f"skill_tool:{tool_name}",
+            "context":    json.dumps(args, default=str)[:300],
+            "agent_name": agent_name or "skill_executor",
+            "scope":      f"agent:{agent_name}" if agent_name else "global",
+            "dry_run":    True,  # evidence-only, don't double-count
+        }).encode()
+        for port in (9003, 9002):
+            try:
+                req = _urllib_req.Request(
+                    f"http://localhost:{port}/validate",
+                    data=payload,
+                    headers={"Content-Type": "application/json",
+                             "x-api-key": "nova_dev_key"},
+                    method="POST",
+                )
+                with _urllib_req.urlopen(req, timeout=1.0):
+                    break
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -139,6 +202,7 @@ def register_tool(name: str, description: str, parameters: dict,
 )
 def gmail_search(query: str, max_results: int = 5,
                  _credentials: dict = None) -> dict:
+    _credentials = _credentials or _load_nova_skill_creds("gmail")
     try:
         from integrations import gmail
         results = gmail.search(query=query, max_results=max_results,
@@ -240,6 +304,7 @@ def airtable_search(base_id: str, table_name: str,
     },
 )
 def hubspot_contact_check(email: str, _credentials: dict = None) -> dict:
+    _credentials = _credentials or _load_nova_skill_creds("hubspot")
     try:
         from integrations import hubspot
         result = hubspot.search_contact(email=email, credentials=_credentials)

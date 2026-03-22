@@ -26,6 +26,147 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 logger = logging.getLogger("nova.integrations")
+import urllib.request
+import urllib.error
+import pathlib
+import hashlib as _hashlib
+
+# ══════════════════════════════════════════════════════════════════════════════
+# NOVA CORE BRIDGE — Integrations call Nova for validation with real context
+# ══════════════════════════════════════════════════════════════════════════════
+
+_NOVA_CORE_URLS = [
+    "http://localhost:9003",
+    "http://localhost:9002",
+]
+_nova_core_url_cache: str = ""
+
+
+def _get_nova_url() -> str:
+    """Find the active Nova Core URL."""
+    global _nova_core_url_cache
+    if _nova_core_url_cache:
+        return _nova_core_url_cache
+    for url in _NOVA_CORE_URLS:
+        try:
+            req = urllib.request.Request(url + "/health",
+                                         headers={"x-api-key": "nova_dev_key"})
+            with urllib.request.urlopen(req, timeout=1.0) as r:
+                data = json.loads(r.read().decode())
+                if "version" in data or "rules" in data:
+                    _nova_core_url_cache = url
+                    return url
+        except Exception:
+            pass
+    return _NOVA_CORE_URLS[0]
+
+
+def validate_with_nova_core(action: str, context: str = "",
+                             scope: str = "global",
+                             agent_name: str = "") -> dict:
+    """
+    Call Nova Core to validate an action enriched with integration context.
+    Returns the validation result dict. Non-blocking if Core is not running.
+    """
+    url = _get_nova_url()
+    payload = json.dumps({
+        "action":     action,
+        "context":    context,
+        "scope":      scope,
+        "agent_name": agent_name or "integration",
+    }).encode()
+    try:
+        req = urllib.request.Request(
+            url + "/validate",
+            data=payload,
+            headers={"Content-Type": "application/json",
+                     "x-api-key": "nova_dev_key"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=3.0) as r:
+            return json.loads(r.read().decode())
+    except Exception as e:
+        logger.debug(f"Nova Core validation skipped: {e}")
+        return {"result": "APPROVED", "score": 50, "layer": "offline",
+                "reason": "Nova Core not reachable - fail open"}
+
+
+def _load_skill_credentials(skill_name: str) -> dict:
+    """
+    Load saved credentials for a skill from ~/.nova/skills/<name>.json.
+    This is where `nova skill add` stores them.
+    """
+    path = pathlib.Path.home() / ".nova" / "skills" / f"{skill_name}.json"
+    if path.exists():
+        try:
+            return json.loads(path.read_text())
+        except Exception:
+            pass
+    # Fallback: env vars
+    return {}
+
+
+def skill_check(skill_name: str, action: str, context: str = "",
+                agent_name: str = "", credentials: dict = None) -> dict:
+    """
+    Master bridge: run an integration check and validate with Nova Core.
+
+    This is the function skills call from within nova_core rule evaluation:
+
+        result = skill_check("gmail", "send email to bob@example.com",
+                             context="message body here",
+                             agent_name="melissa")
+
+    Returns:
+        {
+          "allowed": bool,
+          "reason":  str,
+          "data":    dict,   # raw integration result
+          "verdict": str,    # APPROVED / BLOCKED / WARNED
+          "score":   int,
+        }
+    """
+    creds    = credentials or _load_skill_credentials(skill_name)
+    integr   = INTEGRATIONS.get(skill_name)
+    data     = {}
+    context_parts = [context] if context else []
+
+    # ── Run the integration-specific pre-check ────────────────────────────────
+    if integr and hasattr(integr, "check_for_nova"):
+        try:
+            data = integr.check_for_nova(action, context, creds)
+            if data.get("block"):
+                return {
+                    "allowed": False,
+                    "reason":  data.get("reason", f"{skill_name} check blocked"),
+                    "data":    data,
+                    "verdict": "BLOCKED",
+                    "score":   10,
+                }
+            context_parts.append(f"{skill_name} context: " +
+                                  json.dumps(data, default=str)[:300])
+        except Exception as e:
+            logger.warning(f"skill_check {skill_name}: {e}")
+
+    # ── Validate with Nova Core ───────────────────────────────────────────────
+    nova_result = validate_with_nova_core(
+        action=action,
+        context=" | ".join(context_parts),
+        scope=f"agent:{agent_name}" if agent_name else "global",
+        agent_name=agent_name,
+    )
+
+    blocked = nova_result.get("result") in ("BLOCKED", "ESCALATED")
+    return {
+        "allowed": not blocked,
+        "reason":  nova_result.get("reason", ""),
+        "data":    data,
+        "verdict": nova_result.get("result", "APPROVED"),
+        "score":   nova_result.get("score", 50),
+        "layer":   nova_result.get("layer", ""),
+    }
+
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CACHING LAYER — In-memory TTL cache shared across integrations
@@ -120,10 +261,53 @@ class BaseIntegration:
             h.update(extra)
         return h
 
-    def _http(self, method: str, url: str, **kwargs) -> "requests.Response":
-        import requests
-        kwargs.setdefault("timeout", 10)
-        return requests.request(method, url, **kwargs)
+    def _http(self, method: str, url: str, headers: dict = None,
+              json_body: dict = None, params: dict = None,
+              timeout: int = 10, **kwargs):
+        """
+        HTTP helper - uses requests if available, falls back to urllib.
+        Returns a response-like object with .json(), .status_code, .text
+        """
+        try:
+            import requests
+            kwargs.setdefault("timeout", timeout)
+            if json_body is not None:
+                kwargs["json"] = json_body
+            if headers:
+                kwargs["headers"] = headers
+            if params:
+                kwargs["params"] = params
+            return requests.request(method, url, **kwargs)
+        except ImportError:
+            pass
+
+        # urllib fallback
+        if params:
+            from urllib.parse import urlencode
+            url = url + ("&" if "?" in url else "?") + urlencode(params)
+
+        body = json.dumps(json_body).encode() if json_body else None
+        req  = urllib.request.Request(url, data=body,
+                                      headers=headers or {}, method=method)
+        req.add_header("Content-Type", "application/json")
+
+        class _Resp:
+            def __init__(self, resp):
+                self._raw  = resp.read().decode()
+                self.status_code = resp.status
+                self.text  = self._raw
+            def json(self):
+                return json.loads(self._raw)
+
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return _Resp(r)
+        except urllib.error.HTTPError as e:
+            class _ErrResp:
+                status_code = e.code
+                text = e.read().decode()
+                def json(self): return json.loads(self.text)
+            return _ErrResp()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -191,8 +375,73 @@ class GmailIntegration(BaseIntegration):
 
     def check_sent_to(self, email: str, credentials: dict = None) -> dict:
         """Check if any email was ever sent to a specific address."""
-        results = self.search(f"to:{email}", max_results=1, credentials=credentials)
+        creds = credentials or _load_skill_credentials("gmail")
+        results = self.search(f"to:{email}", max_results=1, credentials=creds)
         return {"contacted": len(results) > 0, "count": len(results), "emails": results}
+
+    def did_already_send(self, subject_keywords: str = "",
+                          to_email: str = "", body_keywords: str = "",
+                          credentials: dict = None) -> dict:
+        """
+        Context-aware duplicate send check.
+        Example: "don't send emails I already sent" rule.
+
+        Builds a Gmail search query from the provided hints and checks
+        the Sent folder. Returns block=True if a match is found.
+        """
+        creds = credentials or _load_skill_credentials("gmail")
+        query_parts = ["in:sent"]
+        if to_email:
+            query_parts.append(f"to:{to_email}")
+        if subject_keywords:
+            query_parts.append(f"subject:({subject_keywords})")
+        if body_keywords:
+            query_parts.append(body_keywords)
+        query = " ".join(query_parts)
+
+        results = self.search(query, max_results=3, credentials=creds)
+        already_sent = len(results) > 0
+        return {
+            "block":        already_sent,
+            "already_sent": already_sent,
+            "count":        len(results),
+            "emails":       results,
+            "query":        query,
+            "reason":       (f"Already sent {len(results)} similar email(s)"
+                             if already_sent else "No duplicate found"),
+        }
+
+    def check_for_nova(self, action: str, context: str = "",
+                       credentials: dict = None) -> dict:
+        """
+        Called by skill_check() for governance validation.
+        Detects duplicate send intentions in the action string.
+        """
+        creds = credentials or _load_skill_credentials("gmail")
+        action_lower = (action + " " + context).lower()
+
+        # Detect send intent
+        send_words = ["send", "enviar", "mail", "email", "correo", "mensaje"]
+        is_send = any(w in action_lower for w in send_words)
+        if not is_send:
+            return {"block": False, "reason": "not a send action"}
+
+        # Extract email address if present
+        import re
+        email_match = re.search(r"[\w.+-]+@[\w.-]+\.[a-z]{2,}", action)
+        to_email    = email_match.group(0) if email_match else ""
+
+        # Extract subject keywords (words > 4 chars that aren't stopwords)
+        stopwords = {"send", "email", "write", "the", "this", "that", "with"}
+        words = [w for w in re.findall(r"\b[a-z]{4,}\b", action_lower)
+                 if w not in stopwords][:3]
+
+        result = self.did_already_send(
+            subject_keywords=" ".join(words),
+            to_email=to_email,
+            credentials=creds,
+        )
+        return result
 
 
 class SlackIntegration(BaseIntegration):
@@ -962,11 +1211,151 @@ class MakeIntegration(BaseIntegration):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# WHATSAPP  — Evolution API + native WhatsApp Cloud API
+# ══════════════════════════════════════════════════════════════════════════════
+
+class WhatsAppIntegration(BaseIntegration):
+    """
+    WhatsApp connector via Evolution API or WhatsApp Cloud API.
+    Critical for Melissa and any WhatsApp-based agent.
+
+    Capabilities:
+      - check_sent(phone, message_keywords) — did we already send this?
+      - get_recent(phone, limit) — recent conversation history
+      - check_for_nova(action, context) — governance pre-check
+    """
+    NAME = "whatsapp"
+
+    def _evo_headers(self, api_key: str) -> dict:
+        return {"apikey": api_key, "Content-Type": "application/json"}
+
+    def check_sent(self, phone: str, message_keywords: str = "",
+                   credentials: dict = None) -> dict:
+        """
+        Check if a similar message was recently sent to this phone number.
+        Uses Evolution API /chat/findMessages.
+        """
+        creds   = credentials or _load_skill_credentials("whatsapp")
+        api_url = self._creds(creds, "evolution_url", "EVOLUTION_URL",
+                              "WHATSAPP_URL") or "http://localhost:8080"
+        api_key = self._creds(creds, "evolution_key", "EVOLUTION_KEY",
+                              "WHATSAPP_API_KEY") or ""
+        instance = self._creds(creds, "evolution_instance", "EVOLUTION_INSTANCE",
+                               "WHATSAPP_INSTANCE") or "default"
+
+        if not api_key:
+            return {"block": False, "reason": "no credentials", "messages": []}
+
+        # Normalize phone
+        phone_clean = "".join(c for c in phone if c.isdigit())
+
+        try:
+            resp = self._http(
+                "POST",
+                f"{api_url}/chat/findMessages/{instance}",
+                headers=self._evo_headers(api_key),
+                json_body={
+                    "where": {
+                        "key": {"remoteJid": f"{phone_clean}@s.whatsapp.net"},
+                        "messageType": "conversation",
+                    },
+                    "limit": 20,
+                },
+                timeout=5,
+            )
+            if resp.status_code != 200:
+                return {"block": False, "reason": f"API error {resp.status_code}",
+                        "messages": []}
+
+            messages = resp.json() if callable(resp.json) else {}
+            msgs = messages if isinstance(messages, list) else messages.get("messages", [])
+
+            # Check for duplicate content
+            if message_keywords:
+                kws = message_keywords.lower().split()
+                for msg in msgs:
+                    body = (msg.get("message", {}).get("conversation", "") or
+                            msg.get("body", "") or "").lower()
+                    if sum(1 for kw in kws if kw in body) >= len(kws) // 2 + 1:
+                        return {
+                            "block":   True,
+                            "reason":  f"Similar message already sent to {phone}",
+                            "messages": msgs[:3],
+                        }
+
+            return {"block": False, "messages": msgs[:5], "count": len(msgs)}
+
+        except Exception as e:
+            logger.warning(f"WhatsApp check_sent: {e}")
+            return {"block": False, "reason": str(e), "messages": []}
+
+    def get_recent(self, phone: str, limit: int = 10,
+                   credentials: dict = None) -> list:
+        """Get recent conversation history with a contact."""
+        result = self.check_sent(phone, "", credentials)
+        return result.get("messages", [])[:limit]
+
+    def send_message(self, phone: str, message: str,
+                     credentials: dict = None) -> dict:
+        """Send a WhatsApp message via Evolution API."""
+        creds   = credentials or _load_skill_credentials("whatsapp")
+        api_url = self._creds(creds, "evolution_url", "EVOLUTION_URL") or "http://localhost:8080"
+        api_key = self._creds(creds, "evolution_key", "EVOLUTION_KEY") or ""
+        instance = self._creds(creds, "evolution_instance", "EVOLUTION_INSTANCE") or "default"
+
+        if not api_key:
+            return {"ok": False, "error": "no credentials"}
+
+        phone_clean = "".join(c for c in phone if c.isdigit())
+        try:
+            resp = self._http(
+                "POST",
+                f"{api_url}/message/sendText/{instance}",
+                headers=self._evo_headers(api_key),
+                json_body={
+                    "number": phone_clean,
+                    "text":   message,
+                },
+                timeout=8,
+            )
+            return {"ok": resp.status_code < 300, "status": resp.status_code}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def check_for_nova(self, action: str, context: str = "",
+                       credentials: dict = None) -> dict:
+        """
+        Governance pre-check: detect if we're about to send a duplicate message.
+        Called automatically by skill_check("whatsapp", action, context).
+        """
+        creds = credentials or _load_skill_credentials("whatsapp")
+        action_lower = (action + " " + context).lower()
+
+        send_words = ["send", "enviar", "mandar", "message", "mensaje", "responde", "reply"]
+        is_send = any(w in action_lower for w in send_words)
+        if not is_send:
+            return {"block": False}
+
+        # Extract phone number
+        import re
+        phone_match = re.search(r"\+?[1-9]\d{7,14}", action + " " + context)
+        phone = phone_match.group(0) if phone_match else ""
+        if not phone:
+            return {"block": False, "reason": "no phone number detected"}
+
+        # Extract message keywords from context
+        words = [w for w in re.findall(r"\b[a-z]{4,}\b", context.lower())][:5]
+
+        return self.check_sent(phone, " ".join(words), creds)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # INTEGRATION REGISTRY
 # ══════════════════════════════════════════════════════════════════════════════
 
 # Singleton instances
 gmail      = GmailIntegration()
+whatsapp   = WhatsAppIntegration()
 slack      = SlackIntegration()
 discord    = DiscordIntegration()
 telegram   = TelegramIntegration()
@@ -995,6 +1384,7 @@ INTEGRATIONS = {
     "supabase": supabase, "postgres": postgres, "redis": redis,
     "pagerduty": pagerduty, "datadog": datadog, "webhook": webhook,
     "zapier": zapier, "make": make,
+    "whatsapp": whatsapp,
 }
 
 
@@ -1229,6 +1619,24 @@ INTEGRATION_SCHEMAS = {
         ],
         "capabilities": ["automation_trigger"],
         "setup_url": "https://www.make.com/en/help/tools/webhooks",
+    },
+    "whatsapp": {
+        "name": "WhatsApp (Evolution API)", "icon": "whatsapp",
+        "category": "Communication",
+        "description": "Duplicate detection, conversation history, send messages. Essential for Melissa.",
+        "credentials": [
+            {"key": "evolution_url",      "label": "Evolution API URL",
+             "type": "text",     "required": True,
+             "hint": "http://localhost:8080 or your Evolution API server"},
+            {"key": "evolution_key",      "label": "API Key",
+             "type": "password", "required": True,
+             "hint": "Set in Evolution API config"},
+            {"key": "evolution_instance", "label": "Instance Name",
+             "type": "text",     "required": True,
+             "hint": "Your Evolution instance name (e.g. melissa)"},
+        ],
+        "capabilities": ["duplicate_check", "history_read", "send_message"],
+        "setup_url": "https://github.com/EvolutionAPI/evolution-api",
     },
 }
 

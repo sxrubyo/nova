@@ -1,0 +1,9 @@
+{
+  "name": "n8n-nodes-nova",
+  "version": "1.0.0",
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": ["NovaApi.credentials.js"],
+    "nodes": ["Nova.node.js"]
+  }
+}

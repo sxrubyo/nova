@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nova OS — Governance Infrastructure for AI Agents</title>
+  <meta name="description" content="Nova validates intent, enforces policy, records immutable evidence, and protects live agents without slowing down the operator." >
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <link rel="icon" type="image/png" href="scroll-web/assets/nova-isotipo-white.png">
+  <link rel="stylesheet" href="scroll-web/css/non-framerate.css">
+</head>
+<body>
+  <!-- Loader -->
+  <div id="loader" aria-hidden="true">
+    <div class="loader-inner">
+      <div class="loader-logo">
+        <img src="scroll-web/assets/nova-isotipo-white.png" alt="Nova logo">
+      </div>
+      <div class="loader-progress">
+        <div class="loader-bar">
+          <div class="loader-bar-fill" id="loader-fill"></div>
+        </div>
+        <span class="loader-percent" id="loader-percent">0%</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Header -->
+  <header id="header">
+    <div class="header-inner">
+      <a href="#hero" class="header-logo" aria-label="Nova">
+        <img src="scroll-web/assets/nova-isotipo-white.png" alt="Nova logo">
+      </a>
+      <nav class="header-nav" aria-label="Primary">
+        <a href="#story" class="nav-link type-label">Producto</a>
+        <a href="#stats" class="nav-link type-label">Specs</a>
+        <a href="#download" class="nav-link type-label">Download</a>
+      </nav>
+      <a href="/dashboard" class="header-cta type-cta">Open Console</a>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section id="hero">
+    <div class="hero-background"></div>
+    <div class="hero-content">
+      <span class="hero-label type-label">Governance Layer For AI Agents</span>
+      <h1 class="hero-title type-hero">Control What Runs</h1>
+      <p class="hero-subtitle type-subtitle">
+        Nova validates intent, enforces policy, records immutable evidence, and protects live agents without slowing down the operator.
+      </p>
+      <div class="hero-cta-group">
+        <a href="#video-container" class="btn-primary type-cta">Explore Runtime</a>
+        <a href="/login" class="btn-ghost type-cta">Sign In</a>
+      </div>
+    </div>
+    <div class="hero-scroll-indicator">
+      <span class="type-label">Scroll</span>
+      <div class="scroll-line"></div>
+    </div>
+  </section>
+
+  <!-- Video Scroll Container -->
+  <div id="video-container">
+    <div class="video-wrap">
+      <video id="product-video" autoplay muted playsinline preload="auto" loop>
+        <source src="videos/Abstract_light_expansion_202603201656.mp4" type="video/mp4">
+        Your browser does not support the video tag.
+      </video>
+      <div class="video-overlay"></div>
+    </div>
+
+    <div id="dark-overlay"></div>
+
+    <!-- Section 1: Decision Plane -->
+    <section id="story" class="scroll-section scroll-section-1 align-left" data-enter="0.10" data-leave="0.20" data-animation="fade-up">
+      <span class="section-label type-label">01 — Decision Plane</span>
+      <h2 class="section-title type-section-title">See intent before impact.</h2>
+      <p class="section-body type-body">
+        Nova evaluates every action before execution. Each call can be approved, blocked, escalated, or flagged as duplicate with an explainable result.
+      </p>
+    </section>
+
+    <!-- Section 2: Shield -->
+    <section class="scroll-section scroll-section-2 align-right" data-enter="0.22" data-leave="0.32" data-animation="slide-left">
+      <span class="section-label type-label">02 — Shield Existing Systems</span>
+      <h2 class="section-title type-section-title">Protect running agents without a rewrite.</h2>
+      <p class="section-body type-body">
+        `shield` and `protect` modes let Nova sit in front of live HTTP agents, apply policy, and keep the original service online behind a governed edge.
+      </p>
+      <a href="/dashboard" class="section-cta type-cta">Inspect the runtime</a>
+    </section>
+
+    <!-- Section 3: Immutable Record -->
+    <section class="scroll-section scroll-section-3 align-left" data-enter="0.34" data-leave="0.44" data-animation="scale-up">
+      <span class="section-label type-label">03 — Immutable Record</span>
+      <h2 class="section-title type-section-title">Keep evidence, not screenshots.</h2>
+      <p class="section-body type-body">
+        Every governed action lands in a verifiable ledger with exports, audit history, anomaly signals, alerts, and a stream operators can watch in real time.
+      </p>
+    </section>
+
+    <!-- Section 4: Stats -->
+    <section id="stats" class="scroll-section scroll-section-4 align-center stats-section" data-enter="0.46" data-leave="0.58" data-animation="stagger-up" data-overlay="true">
+      <span class="section-label type-label">Runtime Specs</span>
+      <div class="stats-grid">
+        <div class="stat-item">
+          <span class="stat-number type-stat-number" data-count="4" data-suffix="">0</span>
+          <span class="stat-label type-stat-label">Decision states</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-number type-stat-number" data-count="100" data-suffix="%">0</span>
+          <span class="stat-label type-stat-label">Traceable actions</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-number type-stat-number" data-count="9002" data-suffix="">0</span>
+          <span class="stat-label type-stat-label">Shield edge</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-number type-stat-number" data-count="8000" data-suffix="">0</span>
+          <span class="stat-label type-stat-label">Validation API</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section 5: Operator Workflow -->
+    <section class="scroll-section scroll-section-5 align-right" data-enter="0.60" data-leave="0.72" data-animation="clip-reveal">
+      <span class="section-label type-label">05 — Operator Workflow</span>
+      <h2 class="section-title type-section-title">Launch, connect, and govern from one CLI.</h2>
+      <p class="section-body type-body">
+        `nova launchpad` reduces setup friction across agent creation, endpoint protection, Melissa onboarding, n8n integration, scanning, and operational review.
+      </p>
+    </section>
+
+    <!-- Section 6: CTA Final -->
+    <section id="cta" class="scroll-section scroll-section-6 align-center cta-final" data-enter="0.80" data-leave="1.00" data-animation="fade-up" data-persist="true">
+      <div class="cta-panel">
+        <img class="cta-logo" src="scroll-web/assets/nova-isotipo-black.png" alt="Nova logo">
+        <span class="section-label type-label section-label-dark">Next Step</span>
+        <h2 class="section-title type-section-title section-title-dark">Put every agent under control.</h2>
+        <p class="section-body type-subtitle section-body-dark">
+          Start with the dashboard, connect a live service, or wrap an existing endpoint with governed execution.
+        </p>
+        <div class="cta-group">
+          <a href="/dashboard" class="btn-primary btn-large type-cta">Open Dashboard</a>
+          <a href="/login" class="btn-ghost btn-ghost-dark type-cta">Operator Access</a>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Download Section -->
+  <section id="download" class="download-section">
+    <div class="download-shell">
+      <div class="download-intro">
+        <span class="type-label download-label">Nova CLI</span>
+        <h2 class="download-title">Install it. Run it. Govern every agent.</h2>
+        <p class="download-copy">
+          Start locally, deploy in Docker, or install the CLI directly. Nova validates intent, keeps immutable proof, and gives operators one control surface.
+        </p>
+        <div class="download-actions">
+          <a href="https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh" class="btn-primary btn-large type-cta">Download For Linux / macOS</a>
+          <a href="https://github.com/sxrubyo/nova-os" class="btn-ghost type-cta">View Repository</a>
+          <button class="btn-ghost type-cta copy-trigger" type="button" data-copy-text="curl -sSL https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh | bash">
+            Copy Install Command
+          </button>
+        </div>
+      </div>
+
+      <div class="terminal-card">
+        <div class="terminal-top">
+          <span class="terminal-dot"></span>
+          <span class="terminal-dot"></span>
+          <span class="terminal-dot"></span>
+          <span class="terminal-title">Quick Start</span>
+          <button class="terminal-copy copy-trigger" type="button" data-copy-target="quickstart-code">Copy</button>
+        </div>
+        <pre class="terminal-code"><code id="quickstart-code"># Linux / macOS
+curl -sSL https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh | bash
+
+# Windows PowerShell
+irm https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.ps1 | iex
+
+# Docker
+docker-compose -f https://raw.githubusercontent.com/sxrubyo/nova-os/main/docker-compose.yml up -d
+
+# First run
+nova init
+nova agent create
+nova validate --action "Send email to customer@example.com"</code></pre>
+      </div>
+
+      <div class="download-grid">
+        <article class="download-card">
+          <span class="type-label">Why It Lands</span>
+          <p>Enterprise governance for AI agents with validation, ledger, duplicate guard, memory, metrics, alerts, and operator review.</p>
+        </article>
+        <article class="download-card">
+          <span class="type-label">What You Get</span>
+          <p>One CLI, one validation API, one governed edge. Local install, Docker deployment, and production-ready monitoring.</p>
+        </article>
+        <article class="download-card">
+          <span class="type-label">Maintained By</span>
+          <p>Nova Governance. Python runtime, zero-friction operator flow, and a product surface designed for serious environments.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <script src="https://cdn.jsdelivr.net/npm/lenis@1/dist/lenis.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3/ScrollTrigger.min.js"></script>
+  <script src="scroll-web/js/video-scroll.js"></script>
+</body>
+</html>

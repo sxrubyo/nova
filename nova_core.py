@@ -58,7 +58,7 @@ class S:
     PORT            = int(os.getenv("NOVA_PORT",              "9003"))
     API_KEY         = os.getenv("NOVA_API_KEY",               "nova_dev_key")
     SECRET_KEY      = os.getenv("NOVA_SECRET_KEY",            "nova_signing_key_change_in_production")
-    DEV_MODE        = os.getenv("NOVA_DEV_MODE",              "false").lower() == "true"
+    DEV_MODE        = os.getenv("NOVA_DEV_MODE",              "true").lower()  == "true"   # default: no auth in dev
     FAIL_OPEN       = os.getenv("NOVA_FAIL_OPEN",             "true").lower()  == "true"
     RULES_DIR       = Path(os.getenv("NOVA_RULES_DIR",        "./nova_rules"))
     DB_PATH         = os.getenv("NOVA_DB_PATH",               "./nova.db")
@@ -1512,17 +1512,33 @@ class Proxy:
 # ══════════════════════════════════════════════════════════════════════════════
 
 _KNOWN_PORTS = [
-    (8001, "Melissa",           "python"),
-    (8002, "Melissa-alt",       "python"),
-    (5678, "n8n",               "node"),
-    (8080, "Evolution API",     "node"),
-    (3000, "Baileys Bridge",    "node"),
-    (8000, "Generic FastAPI",   "python"),
-    (1234, "LM Studio",         "native"),
-    (11434,"Ollama",            "native"),
-    (9000, "Generic",           "unknown"),
-    (3001, "Generic",           "unknown"),
+    # ── Your agents ────────────────────────────────────────────────────────────
+    (8001, "melissa",            "python"),
+    (8002, "melissa-alt",        "python"),
+    # ── OpenClaw ───────────────────────────────────────────────────────────────
+    (1234, "openclaw",           "openai-compat"),
+    (11434,"ollama",             "native"),
+    # ── Common agentic servers ─────────────────────────────────────────────────
+    (5678, "n8n",                "node"),
+    (8080, "evolution-api",      "node"),
+    (3000, "baileys-bridge",     "node"),
+    (8000, "agent-8000",         "python"),
+    (8003, "agent-8003",         "python"),
+    (8004, "agent-8004",         "python"),
+    (3001, "agent-3001",         "node"),
+    (3002, "agent-3002",         "node"),
+    (9000, "agent-9000",         "unknown"),
+    (9002, "nova-api",           "nova"),
 ]
+
+# CLI agents detected by binary presence (no port needed)
+_CLI_AGENTS = {
+    "claude":  "claude_code",
+    "aider":   "aider",
+    "gemini":  "gemini_cli",
+    "codex":   "codex_cli",
+    "gh":      "copilot_cli",
+}
 
 
 async def scan_agents() -> List[Dict]:
@@ -1752,32 +1768,6 @@ class ChatReq(BaseModel):
     scope:      str = "global"
 
 
-class RefineReq(BaseModel):
-    """Request para refinar respuestas que violan reglas."""
-    original_message:   str
-    rule_id:           str
-    rule_name:         str
-    violation_reason:  str
-    agent_name:        str = "agent"
-    context:           str = ""
-    attempt_agent_refinement: bool = True
-
-
-class PromptStackUpdateReq(BaseModel):
-    """Request para actualizar system prompt del agente con nuevas reglas."""
-    agent_name: str = "agent"
-    force_rebuild: bool = False
-    dry_run: bool = False
-
-
-class FailsafeRequestReq(BaseModel):
-    """Request para obtener respuesta GARANTIZADA (4-layer failsafe)."""
-    question: str
-    user_id: str = "default"
-    context: str = ""
-    escalate_on_failure: bool = True
-
-
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @app.get("/health")
@@ -1936,84 +1926,6 @@ async def ledger_timeline(agent_name: str = "", hours: int = 24):
     }
 
 
-@app.post("/failsafe")
-async def failsafe_response(req: FailsafeRequestReq):
-    """
-    Failsafe Response Pipeline - Garantiza SIEMPRE una respuesta.
-    
-    4 Layers:
-    1. Agent normal response (Melissa) - 5s timeout
-    2. Governance fallback (Nova LLM) - 3s timeout
-    3. Smart template (regex) - <100ms
-    4. Final fallback + escalation - <10ms (garantizado)
-    
-    NUNCA devuelve error - SIEMPRE hay una respuesta.
-    
-    Request:
-    {
-      "question": "¿Cuál es el precio del tratamiento XYZ?",
-      "user_id": "patient_123",
-      "context": "Consultó sobre procedimientos anteriormente",
-      "escalate_on_failure": true
-    }
-    
-    Response:
-    {
-      "response": "Los precios exactos...",
-      "layer": "layer1_agent" | "layer2_governance" | "layer3_smart_template" | "layer4_final_fallback",
-      "success": true,
-      "ms": 234,
-      "escalated": false,
-      "ticket_id": null
-    }
-    """
-    import time
-    from nova_failsafe_pipeline import FailsafeResponsePipeline
-    
-    t0 = time.time()
-    
-    # Crear pipeline con escalación
-    async def escalate_to_support(question: str, ticket_id: str):
-        """Escalación automática a soporte humano."""
-        log.error(
-            f"[failsafe-escalation] Ticket {ticket_id} for question: {question}"
-        )
-        # En producción: enviar email, crear ticket Jira, notificar slack, etc.
-        # Aquí solo loguemos por ahora
-        return True
-    
-    pipeline = FailsafeResponsePipeline(
-        agent_url=S.AGENT_URL or "http://localhost:8001",
-        llm=_llm,
-        interceptor=_interceptor,
-    )
-    
-    # Ejecutar pipeline (GARANTIZADO que retorna algo)
-    result = await pipeline.handle_request(
-        question=req.question,
-        escalate_fn=escalate_to_support if req.escalate_on_failure else None,
-    )
-    
-    # Log para auditoría
-    log.info(
-        f"[failsafe] Layer: {result.layer} | "
-        f"User: {req.user_id} | "
-        f"Question: {req.question[:50]}... | "
-        f"Escalated: {result.escalated}"
-    )
-    
-    return {
-        "response": result.response,
-        "layer": result.layer,
-        "success": result.success,
-        "ms": int((time.time() - t0) * 1000),
-        "escalated": result.escalated,
-        "ticket_id": result.ticket_id,
-        "guaranteed": True,
-        "timestamp": result.timestamp,
-    }
-
-
 @app.post("/chat")
 async def chat(req: ChatReq):
     """Nova Chat — create and manage governance rules via natural language."""
@@ -2128,302 +2040,6 @@ async def connect(request: Request):
     }
 
 
-@app.post("/prompt-stack/update")
-async def prompt_stack_update(req: PromptStackUpdateReq):
-    """
-    Actualiza el system prompt del agente con todas las reglas activas.
-    
-    Pensamiento Senior:
-    - Cuando un admin dice "no hagas X", Nova lo bloquea
-    - Pero además, Nova INYECTA "no hagas X" en el system prompt de Melissa
-    - Próxima vez que Melissa intente X, su propio LLM lo rechaza
-    - Result: 0ms latencia, 0 tokens de validación, $55K/año de ahorros
-    
-    Request:
-    {
-      "agent_name": "melissa",
-      "force_rebuild": true,
-      "dry_run": false
-    }
-    
-    Response:
-    {
-      "updated": true,
-      "version": "1.0.5",
-      "rules_applied": 5,
-      "total_tokens": 1247,
-      "estimated_monthly_savings": 75.0,
-      "deployment_status": "success",
-      "token_economics": {...}
-    }
-    """
-    import time
-    import uuid
-    from nova_prompt_stack import PromptStackManager
-    
-    t0 = time.time()
-    
-    try:
-        # Inicializar stack manager para el agente
-        stack = PromptStackManager(req.agent_name)
-        await stack.initialize()
-        
-        # Obtener todas las reglas activas
-        active_rules = []
-        for rule in _engine.all():
-            if rule.active:
-                active_rules.append(rule.to_dict())
-        
-        if not req.force_rebuild and req.dry_run:
-            # DRY RUN: mostrar qué pasaría sin hacer cambios
-            prompt, total_tokens, rules_tokens = await stack.build_system_prompt(
-                active_rules, stack.base_prompt
-            )
-            return {
-                "dry_run": True,
-                "would_update": True,
-                "rules_count": len(active_rules),
-                "total_tokens": total_tokens,
-                "rules_tokens": rules_tokens,
-                "message": "Dry run completed. No changes made."
-            }
-        
-        # Crear nueva versión del prompt con todas las reglas
-        pv = await stack.create_version(active_rules)
-        
-        # Obtener el prompt completo
-        current_prompt, pv = await stack.get_current_prompt()
-        
-        # Calcular ahorros
-        savings = await stack.calculate_token_savings()
-        
-        # Intentar enviar al agente (si está disponible)
-        deployment_status = "pending"
-        agent_response_code = None
-        
-        if S.AGENT_URL:
-            try:
-                async with httpx.AsyncClient(timeout=5.0) as c:
-                    r = await c.post(
-                        f"{S.AGENT_URL}/system-prompt/update",
-                        json={
-                            "version": pv.version,
-                            "content": current_prompt[:4000],  # Limitar tamaño
-                            "rules_count": pv.applied_rules_count,
-                            "tokens": pv.total_tokens,
-                            "savings_est": pv.estimated_monthly_savings,
-                        },
-                        timeout=5.0
-                    )
-                    agent_response_code = r.status_code
-                    if r.status_code < 300:
-                        deployment_status = "success"
-                    else:
-                        deployment_status = "agent_error"
-            except Exception as e:
-                log.warning(f"[prompt-stack] Could not update agent: {e}")
-                deployment_status = "agent_unreachable"
-        
-        # Log del deployment (simplemente en logs, no en BD)
-        log.info(
-            f"[prompt-stack] Deployment: {req.agent_name} v{pv.version} "
-            f"({pv.applied_rules_count} rules, {pv.total_tokens} tokens) "
-            f"→ {deployment_status}"
-        )
-        
-        log.info(
-            f"[prompt-stack] Updated {req.agent_name} to version {pv.version} "
-            f"with {pv.applied_rules_count} rules ({pv.total_tokens} tokens), "
-            f"Est. savings: ${savings['monthly_cost_saved']:.2f}/month"
-        )
-        
-        return {
-            "updated": True,
-            "version": pv.version,
-            "agent_name": req.agent_name,
-            "rules_applied": pv.applied_rules_count,
-            "total_tokens": pv.total_tokens,
-            "rules_tokens": pv.rules_tokens,
-            "hash": pv.hash,
-            "estimated_monthly_savings": pv.estimated_monthly_savings,
-            "deployment_status": deployment_status,
-            "agent_response_code": agent_response_code,
-            "token_economics": savings,
-            "ms": int((time.time() - t0) * 1000),
-        }
-    
-    except Exception as e:
-        log.error(f"[prompt-stack] error: {e}")
-        return {
-            "updated": False,
-            "error": str(e),
-            "ms": int((time.time() - t0) * 1000),
-        }
-
-
-@app.get("/prompt-stack/stats")
-async def prompt_stack_stats(agent_name: str = "agent"):
-    """Estadísticas del prompt stack para un agente."""
-    try:
-        from nova_prompt_stack import PromptStackManager
-        
-        stack = PromptStackManager(agent_name)
-        await stack.initialize()
-        stats = await stack.get_stats()
-        
-        return {
-            "agent_name": agent_name,
-            "stats": stats,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-    except Exception as e:
-        return {"error": str(e)}
-
-
-@app.get("/prompt-stack/versions")
-async def prompt_stack_versions(agent_name: str = "agent", limit: int = 20):
-    """Lista todas las versiones del system prompt."""
-    try:
-        from nova_prompt_stack import PromptStackManager
-        
-        stack = PromptStackManager(agent_name)
-        await stack.initialize()
-        versions = await stack.list_versions(limit)
-        
-        return {
-            "agent_name": agent_name,
-            "versions": [v.to_dict() for v in versions],
-            "total": len(versions),
-        }
-    except Exception as e:
-        return {"error": str(e)}
-
-
-@app.post("/refine")
-async def refine(req: RefineReq):
-    """
-    Refina respuestas que violan reglas.
-    
-    Estrategia híbrida:
-    1. Intenta refinar con prompt layers al agente original
-    2. Si falla → genera respuesta directa de Nova
-    
-    Request:
-    {
-      "original_message": "Te garantizo el precio",
-      "rule_id": "admin_001",
-      "rule_name": "Verify prices with admin",
-      "violation_reason": "[keyword_block:te garantizo]",
-      "agent_name": "melissa",
-      "context": "cliente preguntó sobre precios"
-    }
-    
-    Response:
-    {
-      "strategy": "nova_fallback | agent_refinement",
-      "refined_message": "Los precios...",
-      "prompt_layers": {...},
-      "recommendation": "blah",
-      "ms": 123
-    }
-    """
-    import time
-    import uuid
-    from nova_prompt_refiner import PromptRefiner
-    
-    t0 = time.time()
-    refiner = PromptRefiner(_llm)
-    refinement_id = str(uuid.uuid4())[:8]
-    
-    try:
-        # Paso 1: Generar capas de prompt
-        prompt_layers = await refiner.generate_prompt_layers(
-            rule_id=req.rule_id,
-            rule_name=req.rule_name,
-            violation_reason=req.violation_reason,
-            original_message=req.original_message,
-            rule_details={
-                "rule_id": req.rule_id,
-                "rule_name": req.rule_name,
-                "violation": req.violation_reason,
-            }
-        )
-        
-        # Paso 2: Intentar refinar con agent si está disponible
-        agent_response = None
-        strategy = "nova_fallback"
-        
-        if req.attempt_agent_refinement and S.AGENT_URL:
-            refinement_instruction = await refiner.build_agent_refinement_request(
-                agent_url=S.AGENT_URL,
-                original_prompt=req.original_message,
-                prompt_layers=prompt_layers,
-                rule_name=req.rule_name
-            )
-            
-            try:
-                async with httpx.AsyncClient(timeout=5.0) as c:
-                    r = await c.post(
-                        f"{S.AGENT_URL}/refine",
-                        json={"instruction": refinement_instruction},
-                        timeout=5.0
-                    )
-                    if r.status_code == 200:
-                        agent_response = r.json().get("response", "")
-                        strategy = "agent_refinement"
-            except Exception as e:
-                log.debug(f"[refine] agent refinement failed: {e}")
-        
-        # Paso 3: Si agent no responde → Nova responde directamente
-        if not agent_response:
-            agent_response = await refiner.generate_fallback_response(
-                rule_id=req.rule_id,
-                rule_name=req.rule_name,
-                original_message=req.original_message,
-                violation_reason=req.violation_reason,
-                agent_name=req.agent_name,
-                context=req.context
-            )
-            strategy = "nova_fallback"
-        
-        # Paso 4: Registrar en auditoría
-        await refiner.log_refinement(
-            refinement_id=refinement_id,
-            agent_name=req.agent_name,
-            rule_id=req.rule_id,
-            rule_name=req.rule_name,
-            original_message=req.original_message,
-            violation_reason=req.violation_reason,
-            prompt_layers=prompt_layers,
-            agent_response=agent_response if strategy == "agent_refinement" else None,
-            nova_response=agent_response if strategy == "nova_fallback" else None,
-            fallback_used=(strategy == "nova_fallback"),
-            score=8.0  # Score de la regla que fue violada
-        )
-        
-        return {
-            "strategy": strategy,
-            "refined_message": agent_response,
-            "prompt_layers": prompt_layers,
-            "recommendation": (
-                "Mensaje refinado por el agente (mantiene personalidad)" 
-                if strategy == "agent_refinement" 
-                else "Respuesta directa de Nova (cumple regla completamente)"
-            ),
-            "ms": int((time.time() - t0) * 1000),
-            "refinement_id": refinement_id,
-        }
-    
-    except Exception as e:
-        log.error(f"[refine] error: {e}")
-        return {
-            "strategy": "error",
-            "error": str(e),
-            "refined_message": f"Error en refinamiento: {str(e)}",
-            "ms": int((time.time() - t0) * 1000),
-        }
-
-
 @app.api_route(
     "/proxy/{path:path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
@@ -2434,6 +2050,166 @@ async def proxy(path: str, request: Request):
     The agent never knows Nova exists.
     """
     return await _proxy.forward(request, path)
+
+
+# ── /boot/{agent_name}  — identity + rules at agent startup ─────────────────
+
+class BootResponse(BaseModel):
+    agent_name:   str
+    rules:        List[Dict]
+    rule_count:   int
+    system_block: str          # drop this into your system prompt
+    restart_count: int
+    ts:           str
+
+
+@app.get("/boot/{agent_name}", response_model=None)
+async def boot(agent_name: str):
+    """
+    Called by an agent when it starts or restarts.
+    Returns active rules + a pre-formatted system-prompt block.
+
+    Drop the returned system_block into your SYSTEM_PROMPT and the agent
+    remembers who it is even after a crash, restart, or redeploy.
+
+    Usage from agent:
+        import httpx
+        resp = httpx.get("http://localhost:9003/boot/melissa").json()
+        SYSTEM_PROMPT += resp["system_block"]
+    """
+    rules    = _engine.all(scope=f"agent:{agent_name}")
+    g_rules  = _engine.all(scope="global")
+    all_rules = g_rules + [r for r in rules if r not in g_rules]
+
+    lines = []
+    for r in all_rules:
+        verb  = "NEVER" if r.action == "block" else "AVOID"
+        lines.append(f"- [{verb}] {r.original_instruction or r.name}")
+
+    block = ""
+    if lines:
+        block = (
+            "\n\n== NOVA GOVERNANCE RULES (auto-injected at boot) ==\n"
+            + "\n".join(lines)
+            + "\n== END NOVA RULES =="
+        )
+
+    # Track restart count in ledger (non-blocking)
+    restarts = 0
+    try:
+        rows = await _ledger._c.execute(
+            "SELECT COUNT(*) FROM ledger WHERE agent_name=? AND result=?",
+            (agent_name, "BOOT")
+        )
+        row = await rows.fetchone()
+        restarts = row[0] if row else 0
+        await _ledger._c.execute(
+            "INSERT INTO ledger (id,agent_name,action,result,score,layer,reason,ts,prev_hash,hash)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (str(uuid.uuid4()), agent_name, "agent_boot", "BOOT",
+             100, "system", "Agent started — Nova identity injected",
+             _now(), "", secrets.token_hex(16))
+        )
+        await _ledger._c.commit()
+    except Exception:
+        pass
+
+    return {
+        "agent_name":    agent_name,
+        "rules":         [r.to_dict() for r in all_rules],
+        "rule_count":    len(all_rules),
+        "system_block":  block,
+        "restart_count": restarts + 1,
+        "ts":            _now(),
+    }
+
+
+# ── /connect/multi  — connect several agents in one call ─────────────────────
+
+@app.post("/connect/multi")
+async def connect_multi(request: Request):
+    """
+    Connect Nova to multiple agents at once.
+    Body: {"agents": [{"url": "http://...", "name": "..."}, ...]}
+    """
+    d      = await request.json()
+    agents = d.get("agents", [])
+    if not agents:
+        # Auto-scan
+        agents = [{"url": a["url"], "name": a["name"]}
+                  for a in await scan_agents()]
+    results = []
+    for ag in agents:
+        url  = ag.get("url", "").rstrip("/")
+        name = ag.get("name", "agent")
+        if not url:
+            continue
+        reach = False
+        try:
+            async with httpx.AsyncClient(timeout=2.0) as c:
+                reach = (await c.get(f"{url}/health")).status_code < 400
+        except Exception:
+            pass
+        results.append({
+            "name":      name,
+            "url":       url,
+            "reachable": reach,
+            "scope":     f"agent:{name}",
+        })
+        log.info(f"[multi-connect] {name} @ {url}  reachable={reach}")
+    # Set primary agent as the first reachable one
+    for r in results:
+        if r["reachable"]:
+            S.AGENT_URL  = r["url"]
+            S.AGENT_NAME = r["name"]
+            break
+    return {
+        "connected": len(results),
+        "agents":    results,
+    }
+
+
+# ── /rules/load-folder  — bulk load rules from a .nova/agents/ folder ─────────
+
+@app.post("/rules/load-folder")
+async def load_rules_folder(request: Request):
+    """
+    Load all .json rule files from a .nova/agents/<name>/rules/ folder.
+    Nova CLI calls this after running nova setup to push local rules into Core.
+    """
+    import json as _json
+    d      = await request.json()
+    folder = Path(d.get("path", ""))
+    scope  = d.get("scope", "global")
+    if not folder.exists():
+        raise HTTPException(404, f"Folder not found: {folder}")
+    loaded = 0
+    errors = []
+    for f in sorted(folder.glob("*.json")):
+        try:
+            data = _json.loads(f.read_text())
+            data.setdefault("scope",  scope)
+            data.setdefault("active", True)
+            data.setdefault("source", "nova_folder")
+            data.setdefault("log",    True)
+            data.setdefault("notify", [])
+            data.setdefault("escalate_to", "")
+            data.setdefault("semantic", {"enabled": False, "description": "", "threshold": 0.82})
+            data.setdefault("deterministic", {
+                "keywords_block": [],
+                "keywords_warn":  [],
+                "regex_block":    [],
+                "regex_warn":     [],
+                "amount_block":   None,
+                "amount_warn":    None,
+            })
+            data.setdefault("original_instruction", data.get("description", data.get("name", "")))
+            rule = Rule.from_dict(data)
+            _engine.save(rule)
+            loaded += 1
+        except Exception as e:
+            errors.append({"file": f.name, "error": str(e)})
+    return {"loaded": loaded, "errors": errors, "total": loaded + len(errors)}
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

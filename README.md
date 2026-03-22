@@ -63,6 +63,22 @@ pip install --user .
 python nova.py --help
 ```
 
+### **Public Repo Setup**
+
+Before any shared or production deployment:
+
+```bash
+cp .env.example .env
+```
+
+Then replace every placeholder in `.env`, especially:
+
+- `POSTGRES_PASSWORD`
+- `SECRET_KEY`
+- `WORKSPACE_ADMIN_TOKEN`
+- any LLM provider key you actually use
+- `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` / `GITHUB_REDIRECT_URI` if you enable web login with GitHub
+
 ---
 
 ## 🚀 Quick Start
@@ -252,7 +268,28 @@ export NOVA_DEBUG=1          # Enable debug logs
 export NOVA_VERBOSE=1        # Enable verbose output
 export NO_COLOR=1            # Disable colors
 export NOVA_SERVER=https://api.your-domain.com
+export WORKSPACE_ADMIN_TOKEN=<secure-token>  # Protect workspace registration API
 ```
+
+### Workspace registration API
+
+The backend now exposes `POST /api/workspaces/register` to bootstrap a workspace so that API keys created in the CLI (or elsewhere) are accepted by the web frontend.
+
+- Set `WORKSPACE_ADMIN_TOKEN` in your environment; when omitted it falls back to `SECRET_KEY`, so override it on every deployed instance.
+- Send the registration request with the `X-Nova-Admin-Token` header and the workspace details:
+
+  ```bash
+  curl http://localhost:8000/api/workspaces/register \
+    -H "Content-Type: application/json" \
+    -H "X-Nova-Admin-Token: $WORKSPACE_ADMIN_TOKEN" \
+    -d '{"name":"Acme Operations","email":"operator@acme.test","plan":"trial","api_key":"nova_abc123…"}'
+  ```
+
+  If you omit `api_key`, the server generates one that respects `API_KEY_MIN_LENGTH`.
+
+  The response includes the workspace id and the effective API key, which you can copy into `localStorage` before logging in through the frontend.
+
+Setting `WORKSPACE_ADMIN_TOKEN` also allows `nova init` (and the CLI `nova keys create` flow) to call this endpoint automatically. When the token is present, the wizard will prompt for a workspace email and plan, register the API key, and keep the key in sync with the server.
 
 **Security Defaults (Local Only):** The `docker-compose.yml` file ships with development defaults for `POSTGRES_PASSWORD` and `SECRET_KEY`. Override them via environment variables (or a `.env` file) before any production deployment. Fresh installs now start with no pre-created workspace, no bundled API key, and no seeded product data.
 
