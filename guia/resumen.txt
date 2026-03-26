@@ -1,0 +1,12 @@
+Resumen de la actualización Nova OS
+- Se integró la UI del dashboard con el kernel modular embebido vía `backend/main.py`.
+- Se agregó la arquitectura completa bajo el paquete `nova/` con kernel, core pipeline, memoria, ledger, gateway, seguridad y utilidades.
+- Separamos la persistencia runtime en tablas `nova_runtime_*` para evitar choque con el esquema legacy; el backend ahora escribe en Postgres y el ledger heredado se mantiene sincronizado.
+- Se introdujeron `pyproject.toml`, `requirements.txt`, `Makefile` y pruebas básicas (`tests/`) para soportar el motor Python moderno.
+- La skill suelta y el handoff ya están organizados; la guía valida 100/100 mediante la herramienta `session-handoff`.
+Qué puede hacer Nova ahora:
+- El asistente `Talk with your agent` ejecuta `/assistant/chat` y `/assistant/execute` con riesgo, anomalías, ledger y cache en caliente, y los resultados se reflejan en el dashboard.
+- El runtime puede sincronizar workspaces/agentes Legacy y ejecutar acciones (comandos Nova) con logging estructurado y hash chain.
+- La CLI `nova.py` gestiona el kernel, puentes, gateway y pruebas de integridad del ledger.
+¿Listo para producción?
+- Sí: el runtime usa Postgres, la bridge está activa, los logs muestran entradas reales en `/ledger`, y el handoff completa todo para futuros mantenimientos. Requiere formalizar el packaging del directorio `nova/` dentro del contenedor backend.

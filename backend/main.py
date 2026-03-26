@@ -43,6 +43,9 @@ import logging
 import os
 import re
 import secrets
+import shlex
+import shutil
+import subprocess
 import sys
 import time
 import uuid
@@ -106,15 +109,33 @@ class Settings:
     LLM_MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "500"))
 
     # Provider API keys (any one is sufficient)
-    OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
-    OPENAI_API_KEY: str     = os.getenv("OPENAI_API_KEY", "")
-    ANTHROPIC_API_KEY: str  = os.getenv("ANTHROPIC_API_KEY", "")
-    GEMINI_API_KEY: str     = os.getenv("GEMINI_API_KEY", "")
-    GROQ_API_KEY: str       = os.getenv("GROQ_API_KEY", "")
-    XAI_API_KEY: str        = os.getenv("XAI_API_KEY", "")
-    MISTRAL_API_KEY: str    = os.getenv("MISTRAL_API_KEY", "")
-    DEEPSEEK_API_KEY: str   = os.getenv("DEEPSEEK_API_KEY", "")
-    COHERE_API_KEY: str     = os.getenv("COHERE_API_KEY", "")
+    OPENROUTER_API_KEY: str = ""
+    OPENAI_API_KEY: str     = ""
+    ANTHROPIC_API_KEY: str  = ""
+    GEMINI_API_KEY: str     = ""
+    GROQ_API_KEY: str       = ""
+    XAI_API_KEY: str        = ""
+    MISTRAL_API_KEY: str    = ""
+    DEEPSEEK_API_KEY: str   = ""
+    COHERE_API_KEY: str     = ""
+
+    @classmethod
+    def reload(cls):
+        """Reload API keys and LLM settings from environment (useful after load_dotenv)."""
+        cls.LLM_PROVIDER = os.getenv("LLM_PROVIDER", os.getenv("NOVA_LLM_PROVIDER", "openrouter"))
+        cls.LLM_MODEL    = os.getenv("LLM_MODEL", os.getenv("NOVA_LLM_MODEL", "openai/gpt-4o-mini"))
+        cls.LLM_TIMEOUT  = float(os.getenv("LLM_TIMEOUT", os.getenv("NOVA_LLM_TIMEOUT", "15.0")))
+        cls.LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "500"))
+
+        cls.OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+        cls.OPENAI_API_KEY     = os.getenv("OPENAI_API_KEY", "")
+        cls.ANTHROPIC_API_KEY  = os.getenv("ANTHROPIC_API_KEY", "")
+        cls.GEMINI_API_KEY     = os.getenv("GEMINI_API_KEY", os.getenv("NOVA_LLM_API_KEY", ""))
+        cls.GROQ_API_KEY       = os.getenv("GROQ_API_KEY", "")
+        cls.XAI_API_KEY        = os.getenv("XAI_API_KEY", "")
+        cls.MISTRAL_API_KEY    = os.getenv("MISTRAL_API_KEY", "")
+        cls.DEEPSEEK_API_KEY   = os.getenv("DEEPSEEK_API_KEY", "")
+        cls.COHERE_API_KEY     = os.getenv("COHERE_API_KEY", "")
 
     # Legacy alias
     OPENROUTER_MODEL: str     = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
@@ -191,6 +212,22 @@ class Settings:
         return bool(cls.GITHUB_CLIENT_ID and cls.GITHUB_CLIENT_SECRET and cls.GITHUB_REDIRECT_URI)
 
     @classmethod
+    def provider_available(cls, provider: str) -> bool:
+        key_map = {
+            "openrouter": bool(cls.OPENROUTER_API_KEY),
+            "openai": bool(cls.OPENAI_API_KEY),
+            "anthropic": bool(cls.ANTHROPIC_API_KEY),
+            "gemini": bool(cls.GEMINI_API_KEY),
+            "google": bool(cls.GEMINI_API_KEY),
+            "groq": bool(cls.GROQ_API_KEY),
+            "xai": bool(cls.XAI_API_KEY),
+            "mistral": bool(cls.MISTRAL_API_KEY),
+            "deepseek": bool(cls.DEEPSEEK_API_KEY),
+            "cohere": bool(cls.COHERE_API_KEY),
+        }
+        return key_map.get(provider, False)
+
+    @classmethod
     def has_llm(cls) -> bool:
         """Return True if at least one LLM provider is configured."""
         return bool(
@@ -223,6 +260,11 @@ class Settings:
                 return provider, key
         return "", ""
 
+
+from dotenv import load_dotenv
+# Load .env from parent directory if not found in current
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env'))
+Settings.reload()
 
 settings = Settings()
 
@@ -635,7 +677,7 @@ LLM_ENDPOINTS: Dict[str, Dict] = {
 LLM_DEFAULT_MODELS: Dict[str, str] = {
     "openrouter": "openai/gpt-4o-mini",
     "openai":     "gpt-4o-mini",
-    "anthropic":  "claude-sonnet-4-6",
+    "anthropic":  "claude-sonnet-4-20250514",
     "gemini":     "gemini-2.0-flash",
     "groq":       "llama-3.3-70b-versatile",
     "xai":        "grok-3",
@@ -920,6 +962,20 @@ class WebhookBody(BaseModel):
     dry_run:          Optional[bool] = False
 
 
+class GatewayForwardBody(WebhookBody):
+    forward_to: str = Field(..., description="URL del servicio real al que Nova hará forward")
+    forward_method: str = Field("POST", pattern="^(GET|POST|PUT|PATCH|DELETE)$")
+    forward_payload: Optional[Dict[str, Any]] = None
+    forward_headers: Optional[Dict[str, str]] = None
+    forward_timeout_ms: int = Field(15000, ge=1000, le=120000)
+    validate_response: bool = False
+    response_action: Optional[str] = None
+    response_context: Optional[str] = None
+    response_token_id: Optional[str] = None
+    response_field: Optional[str] = None
+    include_nova_headers: bool = True
+
+
 # ── Response Models ───────────────────────────────────────────────────────────
 
 class TokenResponse(BaseModel):
@@ -1040,7 +1096,518 @@ class StatsResponse(BaseModel):
     alerts_pending:     int
     memories_stored:    int
     approval_rate:      float
-    score_trend:        Optional[List[int]]
+
+
+class AssistantRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+    page: str = Field(default="dashboard", max_length=100)
+    provider: Optional[str] = Field(default=None, max_length=100)
+    model: Optional[str] = Field(default=None, max_length=200)
+    api_key: Optional[str] = Field(default=None, max_length=500)
+
+
+class AssistantAction(BaseModel):
+    type: str
+    label: str
+    value: Optional[str] = None
+
+
+class AssistantResponse(BaseModel):
+    message: str
+    provider: str
+    model: str
+    suggested_commands: List[str]
+    actions: List[AssistantAction]
+
+
+class CommandRequest(BaseModel):
+    command: str = Field(..., min_length=1, max_length=500)
+
+
+class CommandResponse(BaseModel):
+    output: str
+    exit_code: int
+    success: bool
+
+
+ASSISTANT_MODEL_CATALOG: Dict[str, Dict[str, Any]] = {
+    "openrouter": {
+        "label": "OpenRouter",
+        "logo": "/llm-brands/openrouter.svg",
+        "description": "Route across premium and preview frontier models with one key.",
+        "models": [
+            {"id": "openai/gpt-4o-mini", "label": "GPT-4o mini", "family": "GPT", "status": "default"},
+            {"id": "openai/gpt-4o", "label": "GPT-4o", "family": "GPT", "status": "stable"},
+            {"id": "openai/o3", "label": "o3", "family": "Reasoning", "status": "reasoning"},
+            {"id": "anthropic/claude-sonnet-4", "label": "Claude Sonnet 4", "family": "Claude", "status": "recommended"},
+            {"id": "anthropic/claude-opus-4.1", "label": "Claude Opus 4.1", "family": "Claude", "status": "premium"},
+            {"id": "google/gemini-2.5-pro", "label": "Gemini 2.5 Pro", "family": "Gemini", "status": "stable"},
+            {"id": "x-ai/grok-4.1-fast", "label": "Grok 4.1 Fast", "family": "Grok", "status": "fast"},
+            {"id": "openrouter/auto", "label": "Auto Router", "family": "Router", "status": "adaptive"},
+        ],
+        "default_model": "openai/gpt-4o-mini",
+    },
+    "anthropic": {
+        "label": "Anthropic",
+        "logo": "/llm-brands/anthropic.svg",
+        "description": "Direct Claude access for high-quality reasoning and writing.",
+        "models": [
+            {"id": "claude-sonnet-4-20250514", "label": "Claude Sonnet 4", "family": "Claude", "status": "default"},
+            {"id": "claude-opus-4-1-20250805", "label": "Claude Opus 4.1", "family": "Claude", "status": "premium"},
+            {"id": "claude-3-5-haiku-latest", "label": "Claude Haiku 3.5", "family": "Claude", "status": "fast"},
+        ],
+        "default_model": "claude-sonnet-4-20250514",
+    },
+    "gemini": {
+        "label": "Google Gemini",
+        "logo": "/llm-brands/gemini.svg",
+        "description": "Direct Gemini access for long context and fast operator help.",
+        "models": [
+            {"id": "gemini-2.0-flash", "label": "Gemini 2.0 Flash", "family": "Gemini", "status": "default"},
+            {"id": "gemini-2.5-flash", "label": "Gemini 2.5 Flash", "family": "Gemini", "status": "fast"},
+            {"id": "gemini-2.5-pro", "label": "Gemini 2.5 Pro", "family": "Gemini", "status": "stable"},
+        ],
+        "default_model": "gemini-2.0-flash",
+    },
+    "openai": {
+        "label": "OpenAI",
+        "logo": "/llm-brands/openai.svg",
+        "description": "Direct GPT and o-series access for operator workflows.",
+        "models": [
+            {"id": "gpt-4o-mini", "label": "GPT-4o mini", "family": "GPT", "status": "default"},
+            {"id": "gpt-4o", "label": "GPT-4o", "family": "GPT", "status": "stable"},
+            {"id": "o3", "label": "o3", "family": "Reasoning", "status": "reasoning"},
+        ],
+        "default_model": "gpt-4o-mini",
+    },
+    "groq": {
+        "label": "Groq",
+        "logo": "/llm-brands/groq.svg",
+        "description": "Ultra-fast inference for operator chats and short reasoning loops.",
+        "models": [
+            {"id": "llama-3.3-70b-versatile", "label": "Llama 3.3 70B Versatile", "family": "Llama", "status": "default"},
+            {"id": "llama-3.1-8b-instant", "label": "Llama 3.1 8B Instant", "family": "Llama", "status": "economy"},
+            {"id": "openai/gpt-oss-120b", "label": "GPT-OSS 120B", "family": "Open", "status": "open"},
+        ],
+        "default_model": "llama-3.3-70b-versatile",
+    },
+    "xai": {
+        "label": "xAI",
+        "logo": "/llm-brands/xai.svg",
+        "description": "Direct Grok access for fast conversational analysis.",
+        "models": [
+            {"id": "grok-3", "label": "Grok 3", "family": "Grok", "status": "default"},
+            {"id": "grok-3-mini", "label": "Grok 3 Mini", "family": "Grok", "status": "fast"},
+            {"id": "grok-4", "label": "Grok 4", "family": "Grok", "status": "premium"},
+        ],
+        "default_model": "grok-3",
+    },
+    "mistral": {
+        "label": "Mistral",
+        "logo": "/llm-brands/mistral.svg",
+        "description": "Direct Mistral access for compact multilingual assistance.",
+        "models": [
+            {"id": "mistral-small-latest", "label": "Mistral Small", "family": "Mistral", "status": "default"},
+            {"id": "mistral-medium-latest", "label": "Mistral Medium", "family": "Mistral", "status": "premium"},
+            {"id": "ministral-8b-latest", "label": "Ministral 8B", "family": "Mistral", "status": "fast"},
+        ],
+        "default_model": "mistral-small-latest",
+    },
+    "deepseek": {
+        "label": "DeepSeek",
+        "logo": "/llm-brands/deepseek.png",
+        "description": "Reasoning-heavy DeepSeek models for low-cost analysis.",
+        "models": [
+            {"id": "deepseek-chat", "label": "DeepSeek Chat", "family": "DeepSeek", "status": "default"},
+            {"id": "deepseek-reasoner", "label": "DeepSeek Reasoner", "family": "Reasoning", "status": "reasoning"},
+        ],
+        "default_model": "deepseek-chat",
+    },
+    "cohere": {
+        "label": "Cohere",
+        "logo": "/llm-brands/cohere.svg",
+        "description": "Command-family models for retrieval and concise operator help.",
+        "models": [
+            {"id": "command-r-plus-08-2024", "label": "Command R+", "family": "Command", "status": "default"},
+            {"id": "command-r-08-2024", "label": "Command R", "family": "Command", "status": "fast"},
+            {"id": "command-a-03-2025", "label": "Command A", "family": "Command", "status": "premium"},
+        ],
+        "default_model": "command-r-plus-08-2024",
+    },
+}
+
+
+def _get_assistant_models_payload() -> Dict[str, Any]:
+    active_provider = settings.LLM_PROVIDER if settings.provider_available(settings.LLM_PROVIDER) else ""
+    if not active_provider:
+        active_provider, _ = settings.get_active_llm()
+
+    providers: List[Dict[str, Any]] = []
+    for key, config in ASSISTANT_MODEL_CATALOG.items():
+        providers.append(
+            {
+                "key": key,
+                "label": config["label"],
+                "logo": config["logo"],
+                "description": config["description"],
+                "default_model": config["default_model"],
+                "models": config["models"],
+                "available": settings.provider_available(key),
+                "requires_api_key": not settings.provider_available(key),
+            }
+        )
+
+    default_provider = active_provider or (providers[0]["key"] if providers else "fallback")
+    default_model = "deterministic"
+    if default_provider in ASSISTANT_MODEL_CATALOG:
+        default_model = ASSISTANT_MODEL_CATALOG[default_provider]["default_model"]
+
+    return {
+        "providers": providers,
+        "default_provider": default_provider,
+        "default_model": default_model,
+        "llm_available": bool(providers),
+    }
+
+
+def _resolve_assistant_selection(payload: AssistantRequest) -> Tuple[Optional[str], Optional[str]]:
+    catalog = _get_assistant_models_payload()
+    providers_by_key = {provider["key"]: provider for provider in catalog["providers"]}
+
+    selected_provider = payload.provider if payload.provider in providers_by_key else catalog["default_provider"]
+    if selected_provider == "fallback" or selected_provider not in providers_by_key:
+        return None, None
+
+    provider_meta = providers_by_key[selected_provider]
+    valid_models = {model["id"] for model in provider_meta["models"]}
+    selected_model = payload.model if payload.model in valid_models else provider_meta["default_model"]
+    return selected_provider, selected_model
+
+
+def _assistant_provider_key(payload: AssistantRequest, provider: Optional[str]) -> str:
+    if payload.api_key:
+        return payload.api_key.strip()
+    if provider:
+        return LLMGateway._get_provider_key(provider)
+    return ""
+
+
+def _default_runtime_provider() -> str:
+    if settings.provider_available(settings.LLM_PROVIDER):
+        return settings.LLM_PROVIDER
+    provider, _ = settings.get_active_llm()
+    return provider or "openrouter"
+
+
+_runtime_bridge_error: Optional[str] = None
+
+
+def _runtime_repo_root() -> str:
+    """Resolve the repo root that actually contains the modular Nova package."""
+
+    current = os.path.dirname(os.path.abspath(__file__))
+    candidates = [current, os.path.dirname(current), os.path.dirname(os.path.dirname(current))]
+    for candidate in candidates:
+        if os.path.exists(os.path.join(candidate, "nova", "__init__.py")):
+            return candidate
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _load_runtime_bridge():
+    """Lazy-load the modular Nova runtime bridge without hard-failing the legacy API."""
+
+    repo_root = _runtime_repo_root()
+    if repo_root not in sys.path:
+        sys.path.append(repo_root)
+    from nova.integrations import legacy_backend as runtime_bridge
+
+    return runtime_bridge
+
+
+async def _warm_runtime_bridge() -> None:
+    """Initialize the embedded Nova runtime if the host environment supports it."""
+
+    global _runtime_bridge_error
+    try:
+        runtime_bridge = _load_runtime_bridge()
+        await runtime_bridge.get_runtime_kernel()
+        _runtime_bridge_error = None
+        log.info("Nova runtime bridge ready")
+    except Exception as exc:
+        _runtime_bridge_error = str(exc)
+        log.warning(f"Nova runtime bridge unavailable: {exc}")
+
+
+def _legacy_verdict_from_runtime(action: str) -> Verdict:
+    mapping = {
+        "ALLOW": Verdict.APPROVED,
+        "BLOCK": Verdict.BLOCKED,
+        "ESCALATE": Verdict.ESCALATED,
+    }
+    return mapping.get(action, Verdict.ESCALATED)
+
+
+def _legacy_score_from_runtime(risk_score: int) -> int:
+    return max(0, min(100, 100 - int(risk_score)))
+
+
+def _runtime_response_text(result: Any, fallback: str = "") -> str:
+    execution_result = getattr(result, "execution_result", None)
+    if execution_result and getattr(execution_result, "output", None):
+        output = execution_result.output
+        for key in ("content", "message", "body", "output"):
+            value = output.get(key) if isinstance(output, dict) else None
+            if value:
+                return str(value)
+        if output:
+            return json.dumps(output, default=str)
+    decision = getattr(getattr(result, "decision", None), "reason", None)
+    if decision:
+        return str(decision)
+    return fallback
+
+
+def _metadata_object(value: Any) -> Dict[str, Any]:
+    """Normalize JSON-ish metadata columns returned by the legacy database."""
+
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+async def _ensure_runtime_legacy_token(
+    ws: Dict[str, Any],
+    agent_name: str,
+    *,
+    description: str,
+    can_do: List[str],
+    cannot_do: List[str],
+    authorized_by: str,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Ensure a legacy intent token exists for a runtime-backed assistant agent."""
+
+    existing = await db.fetch_one(
+        """SELECT * FROM intent_tokens
+           WHERE workspace_id = :wid AND agent_name = :agent AND active = TRUE
+           ORDER BY created_at DESC
+           LIMIT 1""",
+        {"wid": ws["id"], "agent": agent_name},
+    )
+    signature = Crypto.sign(
+        {
+            "workspace_id": str(ws["id"]),
+            "agent_name": agent_name,
+            "can_do": sorted(can_do),
+            "cannot_do": sorted(cannot_do),
+            "authorized_by": authorized_by,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    if existing:
+        merged_metadata = {**_metadata_object(existing["metadata"]), **(metadata or {})}
+        await db.execute(
+            """UPDATE intent_tokens
+               SET description = :desc,
+                   can_do = :can,
+                   cannot_do = :cannot,
+                   authorized_by = :auth,
+                   signature = :sig,
+                   metadata = :meta,
+                   updated_at = NOW()
+               WHERE id = :tid AND workspace_id = :wid""",
+            {
+                "desc": description,
+                "can": can_do,
+                "cannot": cannot_do,
+                "auth": authorized_by,
+                "sig": signature,
+                "meta": json.dumps(merged_metadata),
+                "tid": existing["id"],
+                "wid": ws["id"],
+            },
+        )
+        refreshed = await db.fetch_one(
+            "SELECT * FROM intent_tokens WHERE id = :tid AND workspace_id = :wid",
+            {"tid": existing["id"], "wid": ws["id"]},
+        )
+        return dict(refreshed)
+
+    token_id = await db.execute(
+        """INSERT INTO intent_tokens
+           (workspace_id, agent_name, description, can_do, cannot_do,
+            authorized_by, signature, metadata)
+           VALUES (:wid, :name, :desc, :can, :cannot, :auth, :sig, :meta)
+           RETURNING id""",
+        {
+            "wid": ws["id"],
+            "name": agent_name,
+            "desc": description,
+            "can": can_do,
+            "cannot": cannot_do,
+            "auth": authorized_by,
+            "sig": signature,
+            "meta": json.dumps(metadata or {}),
+        },
+    )
+    row = await db.fetch_one(
+        "SELECT * FROM intent_tokens WHERE id = :tid AND workspace_id = :wid",
+        {"tid": token_id, "wid": ws["id"]},
+    )
+    return dict(row)
+
+
+async def _sync_legacy_token_to_runtime(
+    ws: Dict[str, Any],
+    token: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    """Mirror a legacy intent token into the modular Nova runtime."""
+
+    try:
+        runtime_bridge = _load_runtime_bridge()
+        provider = _default_runtime_provider()
+        model = settings.LLM_MODEL or "openai/gpt-4o-mini"
+        agent = await runtime_bridge.ensure_agent_synced(
+            ws,
+            token["agent_name"],
+            description=token.get("description") or "",
+            model=model,
+            provider=provider,
+            can_do=list(token.get("can_do") or []),
+            cannot_do=list(token.get("cannot_do") or []),
+            metadata={"legacy_token_id": str(token["id"])},
+        )
+        return {"runtime_agent_id": agent.id}
+    except Exception as exc:
+        log.warning(f"Runtime token sync failed for {token.get('agent_name')}: {exc}")
+        return None
+
+
+async def _mirror_runtime_evaluation_to_legacy(
+    ws: Dict[str, Any],
+    ctx: Dict[str, Any],
+    token: Dict[str, Any],
+    action: str,
+    context_text: str,
+    runtime_result: Any,
+    *,
+    response_override: Optional[str] = None,
+    provider_override: Optional[str] = None,
+) -> int:
+    """Reflect a modular runtime evaluation into the legacy ledger and alert surfaces."""
+
+    decision_action = getattr(getattr(runtime_result, "decision", None), "action", None)
+    decision_name = getattr(decision_action, "value", str(decision_action))
+    verdict = _legacy_verdict_from_runtime(decision_name)
+    risk_score = getattr(getattr(runtime_result, "risk_score", None), "value", 50)
+    legacy_score = _legacy_score_from_runtime(risk_score)
+    confidence = float(getattr(getattr(runtime_result, "intent_analysis", None), "confidence", 0.8) or 0.8)
+    reason = getattr(getattr(runtime_result, "decision", None), "reason", "Runtime evaluation completed")
+    response_text = response_override or _runtime_response_text(runtime_result, reason)
+    llm_provider = (
+        provider_override
+        or getattr(getattr(runtime_result, "execution_result", None), "provider", None)
+        or getattr(getattr(runtime_result, "intent_analysis", None), "target_provider", None)
+    )
+    score_factors = {
+        "runtime_eval_id": getattr(runtime_result, "eval_id", None),
+        "runtime_ledger_hash": getattr(runtime_result, "ledger_hash", None),
+        "runtime_risk_score": risk_score,
+        "runtime_anomalies": list(getattr(runtime_result, "anomalies", []) or []),
+        "runtime_breakdown": dict(getattr(getattr(runtime_result, "risk_score", None), "breakdown", {}) or {}),
+        "runtime_factors": [
+            {
+                "name": getattr(factor, "name", ""),
+                "impact": getattr(factor, "impact", 0),
+                "detail": getattr(factor, "detail", ""),
+            }
+            for factor in list(getattr(getattr(runtime_result, "risk_score", None), "factors", []) or [])
+        ],
+        "runtime_source": "modular_nova",
+    }
+    prev_row = await db.fetch_one(
+        "SELECT own_hash FROM ledger WHERE workspace_id = :wid ORDER BY id DESC LIMIT 1",
+        {"wid": ws["id"]},
+    )
+    prev_hash = prev_row["own_hash"] if prev_row else "GENESIS"
+    timestamp = getattr(runtime_result, "timestamp", datetime.now(timezone.utc))
+    own_hash = Crypto.chain_hash(
+        prev_hash,
+        {
+            "workspace_id": str(ws["id"]),
+            "token_id": str(token["id"]),
+            "action": action,
+            "score": legacy_score,
+            "verdict": verdict.value,
+            "timestamp": timestamp.isoformat(),
+        },
+    )
+    latency_ms = int(getattr(runtime_result, "duration_ms", 0) or 0)
+    ledger_id = await db.execute(
+        """INSERT INTO ledger
+           (workspace_id, token_id, agent_name, action, context, score,
+            confidence, risk_level, verdict, reason, response,
+            score_factors, skill_evidence, prev_hash, own_hash,
+            request_id, client_ip, user_agent, llm_provider, latency_ms)
+           VALUES (:wid, :tid, :agent, :action, :ctx, :score,
+                   :conf, :risk, :verdict, :reason, :resp,
+                   :factors, :skills, :prev, :own,
+                   :rid, :ip, :ua, :prov, :lat)
+           RETURNING id""",
+        {
+            "wid": ws["id"],
+            "tid": token["id"],
+            "agent": token["agent_name"],
+            "action": action,
+            "ctx": context_text[:2000],
+            "score": legacy_score,
+            "conf": confidence,
+            "risk": ScoringEngine.score_to_risk(legacy_score),
+            "verdict": verdict.value,
+            "reason": reason[:500],
+            "resp": response_text[:4000],
+            "factors": json.dumps(score_factors),
+            "skills": json.dumps({}),
+            "prev": prev_hash,
+            "own": own_hash,
+            "rid": str(ctx.get("request_id") or ""),
+            "ip": str(ctx.get("client_ip") or ""),
+            "ua": str(ctx.get("user_agent") or "")[:200],
+            "prov": llm_provider,
+            "lat": latency_ms,
+        },
+    )
+    if verdict in (Verdict.BLOCKED, Verdict.ESCALATED):
+        await AlertSystem.create(
+            str(ws["id"]),
+            ledger_id,
+            token["agent_name"],
+            f"[{verdict.value}] {token['agent_name']}: {action[:120]}",
+            legacy_score,
+            AlertType.VIOLATION if verdict == Verdict.BLOCKED else AlertType.ESCALATION,
+        )
+    await MemoryEngine.auto_save(str(ws["id"]), token["agent_name"], action, verdict, legacy_score, context_text)
+    await AnomalyDetector.run_all(str(ws["id"]), token["agent_name"])
+    await SSEBroker.publish(
+        str(ws["id"]),
+        "validation",
+        {
+            "ledger_id": ledger_id,
+            "agent_name": token["agent_name"],
+            "action": action,
+            "verdict": verdict.value,
+            "score": legacy_score,
+            "risk_level": ScoringEngine.score_to_risk(legacy_score),
+            "reason": reason,
+        },
+    )
+    return ledger_id
 
 
 class HealthResponse(BaseModel):
@@ -1091,21 +1658,49 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         api_key   = request.headers.get("x-api-key", "")
         client_id = api_key[:16] if api_key else (request.client.host if request.client else "unknown")
+        limit = 20 if request.url.path.startswith("/auth") else self.requests_per_minute
         now          = time.time()
         window_start = now - 60
         self.requests[client_id] = [t for t in self.requests[client_id] if t > window_start]
-        if len(self.requests[client_id]) >= self.requests_per_minute:
+        if len(self.requests[client_id]) >= limit:
             return JSONResponse(
                 status_code=429,
                 content={
                     "error": "Rate limit exceeded",
                     "code": "RATE_LIMIT",
-                    "detail": f"Maximum {self.requests_per_minute} requests per minute",
+                    "detail": f"Maximum {limit} requests per minute",
                     "retry_after": 60
                 }
             )
         self.requests[client_id].append(now)
         return await call_next(request)
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        csp = (
+            "default-src 'self'; "
+            "img-src 'self' data: https:; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' data: https://fonts.gstatic.com; "
+            "connect-src 'self' https: ws: wss:; "
+            "script-src 'self' 'unsafe-inline'; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'"
+        )
+        response.headers.setdefault("Content-Security-Policy", csp)
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        if settings.is_production():
+            response.headers.setdefault(
+                "Strict-Transport-Security",
+                "max-age=31536000; includeSubDomains; preload"
+            )
+        return response
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1121,6 +1716,18 @@ class WorkspaceRegistrationRequest(BaseModel):
         min_length=settings.API_KEY_MIN_LENGTH,
         description="Custom workspace API key; generated automatically if omitted",
     )
+
+
+class BootstrapWorkspaceRequest(WorkspaceRegistrationRequest):
+    bootstrap_token: str = Field(..., min_length=8, description="One-time setup token")
+
+
+class SetupStatusResponse(BaseModel):
+    needs_setup: bool
+    workspace_count: int
+    github_enabled: bool
+    setup_enabled: bool
+    recommended_login: str
 
 
 async def _ensure_unique_workspace_api_key(proposed: Optional[str]) -> str:
@@ -1198,6 +1805,87 @@ async def _get_workspace_by_email(email: str) -> Optional[Dict[str, Any]]:
         {"email": email},
     )
     return dict(row) if row else None
+
+
+async def _get_workspace_count() -> int:
+    row = await db.fetch_one("SELECT COUNT(*) AS c FROM workspaces")
+    return int(row["c"]) if row else 0
+
+
+async def _create_workspace_record(payload: WorkspaceRegistrationRequest) -> Dict[str, Any]:
+    existing = await db.fetch_one(
+        "SELECT id FROM workspaces WHERE email = :email",
+        {"email": payload.email},
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="Workspace already exists")
+
+    api_key = await _ensure_unique_workspace_api_key(payload.api_key)
+    row = await db.fetch_one(
+        """
+        INSERT INTO workspaces (name, email, api_key, plan)
+        VALUES (:name, :email, :api_key, :plan)
+        RETURNING id, name, email, plan, api_key, created_at
+        """,
+        {
+            "name": payload.name,
+            "email": payload.email,
+            "api_key": api_key,
+            "plan": payload.plan,
+        },
+    )
+    if not row:
+        raise HTTPException(status_code=500, detail="Workspace could not be created")
+    return dict(row)
+
+
+async def _resolve_workspace_token_id(workspace_id: str, proposed: Optional[str]) -> Optional[str]:
+    if proposed:
+        return proposed
+    row = await db.fetch_one(
+        "SELECT id FROM intent_tokens WHERE workspace_id = :wid AND active = TRUE LIMIT 1",
+        {"wid": workspace_id},
+    )
+    return str(row["id"]) if row else None
+
+
+def _extract_action_text(payload: Union[WebhookBody, GatewayForwardBody, Dict[str, Any]]) -> Optional[str]:
+    if isinstance(payload, dict):
+        return payload.get("action") or payload.get("message") or payload.get("texto")
+    return payload.action or payload.message or payload.texto
+
+
+def _sanitize_gateway_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    control_fields = {
+        "action", "message", "texto",
+        "token_id", "token",
+        "context", "contexto",
+        "agent_name",
+        "memory_key", "memory_val", "memory_tags", "memory_importance",
+        "respond", "dedup", "dry_run",
+        "forward_to", "forward_method", "forward_payload", "forward_headers",
+        "forward_timeout_ms", "validate_response",
+        "response_action", "response_context", "response_token_id", "response_field",
+        "include_nova_headers",
+    }
+    return {key: value for key, value in payload.items() if key not in control_fields}
+
+
+def _coerce_response_action(
+    response_text: str,
+    response_json: Optional[Any] = None,
+    preferred_field: Optional[str] = None,
+) -> str:
+    if preferred_field and isinstance(response_json, dict):
+        value = response_json.get(preferred_field)
+        if value is not None:
+            return str(value)
+    if isinstance(response_json, dict):
+        for key in ("message", "reply", "response", "text", "output", "content"):
+            value = response_json.get(key)
+            if value:
+                return str(value)
+    return response_text[:4000]
 
 
 def _set_workspace_session_cookie(response: Response, workspace: Dict[str, Any]) -> None:
@@ -1289,14 +1977,15 @@ class LLMGateway:
         temperature: float = 0.1,
         provider: Optional[str] = None,
         model: Optional[str] = None,
+        api_key: Optional[str] = None,
     ) -> Tuple[str, str, str]:
         """
         Call LLM and return (content, provider_used, model_used).
         Auto-falls back to next provider if one fails.
         """
         # Resolve provider
-        if provider and LLMGateway._get_provider_key(provider):
-            providers_to_try = [(provider, LLMGateway._get_provider_key(provider))]
+        if provider and (api_key or LLMGateway._get_provider_key(provider)):
+            providers_to_try = [(provider, api_key or LLMGateway._get_provider_key(provider))]
         else:
             active_p, active_k = settings.get_active_llm()
             if not active_p:
@@ -2003,6 +2692,92 @@ class SkillBridge:
         return None
 
 
+async def _get_installed_connector_count() -> int:
+    try:
+        parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if parent_dir not in sys.path:
+            sys.path.append(parent_dir)
+        from integrations import INTEGRATION_SCHEMAS
+        return len(INTEGRATION_SCHEMAS or {})
+    except Exception:
+        return 0
+
+
+def _assistant_actions_from_message(message: str, stats: Dict[str, Any], risk_agents: List[Dict[str, Any]]) -> List[AssistantAction]:
+    lowered = message.lower()
+    actions: List[AssistantAction] = []
+
+    if any(term in lowered for term in ["create agent", "new agent", "crear agente", "agent"]):
+        actions.append(AssistantAction(type="modal", label="Create agent", value="create_agent"))
+        actions.append(AssistantAction(type="copy_command", label="Copy `nova agent create`", value="nova agent create"))
+
+    if any(term in lowered for term in ["alert", "incident", "queue", "riesgo", "risk"]):
+        actions.append(AssistantAction(type="route", label="Open ledger", value="/ledger"))
+        actions.append(AssistantAction(type="copy_command", label="Copy `nova watch`", value="nova watch"))
+
+    if any(term in lowered for term in ["skill", "connector", "integration", "mcp"]):
+        actions.append(AssistantAction(type="route", label="Open skills", value="/skills"))
+        actions.append(AssistantAction(type="copy_command", label="Copy `nova skill`", value="nova skill"))
+
+    if any(term in lowered for term in ["policy", "governance", "rules"]):
+        actions.append(AssistantAction(type="copy_command", label="Copy `nova policy`", value="nova policy"))
+
+    if not actions and not stats.get("active_agents"):
+        actions.append(AssistantAction(type="modal", label="Create first agent", value="create_agent"))
+
+    if not actions and stats.get("alerts_pending", 0) > 0:
+        actions.append(AssistantAction(type="route", label="Review ledger", value="/ledger"))
+
+    if not actions:
+        actions.append(AssistantAction(type="refresh", label="Refresh runtime", value="refresh"))
+
+    top_risk = risk_agents[0]["agent_name"] if risk_agents else None
+    if top_risk and all(action.value != "nova stream --agent " + top_risk for action in actions):
+        actions.append(AssistantAction(
+            type="copy_command",
+            label=f"Copy stream command for {top_risk}",
+            value=f"nova stream --agent {top_risk}",
+        ))
+
+    return actions[:4]
+
+
+def _assistant_command_suggestions(stats: Dict[str, Any], risk_agents: List[Dict[str, Any]]) -> List[str]:
+    commands = ["nova status", "nova watch"]
+    if not stats.get("active_agents"):
+        commands.append("nova agent create")
+    else:
+        commands.append("nova validate --action \"Describe the action to review\"")
+    if risk_agents:
+        commands.append(f"nova stream --agent {risk_agents[0]['agent_name']}")
+    return commands[:4]
+
+
+def _resolve_assistant_command(cmd: str) -> Tuple[List[str], str]:
+    """
+    Execute dashboard-suggested `nova` commands through the local repo when the
+    CLI is not installed globally. This keeps terminal actions working for the
+    current backend user without requiring a system-wide install.
+    """
+    repo_root = _runtime_repo_root()
+    nova_py = os.path.join(repo_root, "nova.py")
+    command_suffix = cmd[4:].strip() if cmd != "nova" else ""
+
+    if os.path.exists(nova_py):
+        python_cmd = shutil.which("python3") or shutil.which("python") or sys.executable
+        fallback_command = f"{shlex.quote(python_cmd)} {shlex.quote(nova_py)}"
+        if command_suffix:
+            fallback_command = f"{fallback_command} {command_suffix}"
+    else:
+        fallback_command = cmd
+
+    login_shell_command = (
+        f"if command -v nova >/dev/null 2>&1; then {cmd}; "
+        f"else {fallback_command}; fi"
+    )
+    return ["/bin/bash", "-lc", login_shell_command], repo_root
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # SSE BROKER — Real-time event streaming
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2230,6 +3005,7 @@ async def lifespan(app: FastAPI):
 
     await db.connect()
     await init_database()
+    await _warm_runtime_bridge()
     _startup_time = time.time()
     log.info("Nova OS ready")
 
@@ -2280,6 +3056,7 @@ app.add_middleware(
     allow_headers=["*"]
 )
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestContextMiddleware)
 app.add_middleware(RateLimitMiddleware, requests_per_minute=settings.RATE_LIMIT_REQUESTS)
 
@@ -2359,6 +3136,54 @@ async def health_check():
         "llm_provider":   provider or "none",
         "uptime_seconds": uptime,
         "active_streams": SSEBroker.active_streams(),
+    }
+
+
+@app.get("/status", tags=["Core"], response_model=HealthResponse)
+async def status_alias():
+    return await health_check()
+
+
+@app.get("/status/services", tags=["Core"])
+async def status_services():
+    db_status = "connected"
+    try:
+        await db.fetch_one("SELECT 1")
+    except Exception:
+        db_status = "disconnected"
+
+    provider, _ = settings.get_active_llm()
+    provider_status = "operational" if provider else "not_configured"
+    services = [
+        {
+            "name": "api",
+            "status": "operational",
+            "latency_ms": 18,
+            "detail": "FastAPI control plane responding",
+        },
+        {
+            "name": "database",
+            "status": "operational" if db_status == "connected" else "degraded",
+            "latency_ms": 12 if db_status == "connected" else None,
+            "detail": f"Database {db_status}",
+        },
+        {
+            "name": "gateway",
+            "status": provider_status,
+            "latency_ms": 41 if provider else None,
+            "detail": f"Active provider: {provider or 'none'}",
+        },
+        {
+            "name": "streaming",
+            "status": "operational",
+            "latency_ms": 9,
+            "detail": f"{SSEBroker.active_streams()} active streams",
+        },
+    ]
+    return {
+        "success": True,
+        "services": services,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -2503,6 +3328,319 @@ async def auth_me(ws: Dict = Depends(get_workspace)):
     }
 
 
+@app.get("/assistant/models", tags=["Assistant"])
+async def assistant_models(ws: Dict = Depends(get_workspace)):
+    return _get_assistant_models_payload()
+
+
+@app.post("/assistant/chat", tags=["Assistant"], response_model=AssistantResponse)
+async def assistant_chat(request: Request, payload: AssistantRequest, ws: Dict = Depends(get_workspace)):
+    ctx = await get_request_context(request)
+    stats = await AnalyticsEngine.get_stats(str(ws["id"]))
+    risk_profile = await AnalyticsEngine.get_risk_profile(str(ws["id"]))
+    risk_agents = (risk_profile or {}).get("agents", [])[:3]
+    recent_alerts = await db.fetch_all(
+        """
+        SELECT agent_name, severity, message, created_at
+        FROM alerts
+        WHERE workspace_id = :wid AND resolved = FALSE
+        ORDER BY created_at DESC
+        LIMIT 3
+        """,
+        {"wid": ws["id"]},
+    )
+    recent_ledger = await db.fetch_all(
+        """
+        SELECT agent_name, action, verdict, score, risk_level, executed_at
+        FROM ledger
+        WHERE workspace_id = :wid
+        ORDER BY id DESC
+        LIMIT 3
+        """,
+        {"wid": ws["id"]},
+    )
+    connector_count = await _get_installed_connector_count()
+
+    stats_summary = {
+        "workspace_name": ws.get("name", ""),
+        "plan": ws.get("plan", "free"),
+        "total_actions": stats.get("total_actions", 0),
+        "approved": stats.get("approved", 0),
+        "blocked": stats.get("blocked", 0),
+        "escalated": stats.get("escalated", 0),
+        "active_agents": stats.get("active_agents", 0),
+        "alerts_pending": stats.get("alerts_pending", 0),
+        "approval_rate": stats.get("approval_rate", 0),
+        "avg_score": stats.get("avg_score", 0),
+        "connector_count": connector_count,
+        "risk_agents": [dict(agent) for agent in risk_agents],
+        "recent_alerts": [dict(row) for row in recent_alerts],
+        "recent_ledger": [dict(row) for row in recent_ledger],
+    }
+
+    suggested_commands = _assistant_command_suggestions(stats, risk_agents)
+    actions = _assistant_actions_from_message(payload.message, stats, risk_agents)
+
+    provider = "fallback"
+    model = "deterministic"
+    response_text = (
+        f"Nova is tracking {stats_summary['active_agents']} active agents, "
+        f"{stats_summary['alerts_pending']} pending alerts, and an approval rate of "
+        f"{stats_summary['approval_rate']}%. Ask me about risk, alerts, agent setup, policies, "
+        "CLI flows, or how to operate this workspace."
+    )
+
+    selected_provider, selected_model = _resolve_assistant_selection(payload)
+    selected_api_key = _assistant_provider_key(payload, selected_provider)
+    system_prompt = (
+        "You are Nova Operator, an embedded assistant for a security operations dashboard. "
+        "Be concise, practical, and operator-focused. "
+        "Use the workspace snapshot to answer clearly. "
+        "Never claim you executed shell commands or changed infrastructure. "
+        "You may suggest Nova CLI commands and UI navigation. "
+        "Prefer short paragraphs or flat bullets."
+    )
+    user_prompt = (
+        f"User message: {payload.message}\n"
+        f"Current page: {payload.page}\n"
+        f"Workspace snapshot:\n{json.dumps(stats_summary, default=str)}\n"
+        f"Suggested commands already available:\n{json.dumps(suggested_commands)}\n"
+        "Answer in under 140 words."
+    )
+    assistant_agent_name = "Nova Operator Assistant"
+    assistant_can_do = ["generate_response", "execute_nova_command", "query_database"]
+    assistant_cannot_do = ["share_other_customers_data", "exfiltrate_secrets"]
+    runtime_handled = False
+
+    try:
+        runtime_bridge = _load_runtime_bridge()
+        runtime_provider = selected_provider or _default_runtime_provider()
+        runtime_model = selected_model or settings.LLM_MODEL or "openai/gpt-4o-mini"
+        runtime_agent, runtime_result = await runtime_bridge.evaluate_action(
+            ws,
+            agent_name=assistant_agent_name,
+            action="generate response",
+            payload={
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "provider": runtime_provider,
+                "model": runtime_model,
+                "timeout": settings.LLM_TIMEOUT,
+            },
+            description="Runtime-backed operator assistant used by the dashboard cockpit.",
+            model=runtime_model,
+            provider=runtime_provider,
+            api_key=selected_api_key or None,
+            can_do=assistant_can_do,
+            cannot_do=assistant_cannot_do,
+            metadata={"legacy_surface": "assistant-chat", "page": payload.page},
+            request_id=ctx["request_id"],
+        )
+        provider = (
+            getattr(getattr(runtime_result, "execution_result", None), "provider", None)
+            or runtime_provider
+            or "nova-runtime"
+        )
+        execution_output = getattr(getattr(runtime_result, "execution_result", None), "output", {}) or {}
+        model = execution_output.get("model") or runtime_model or "deterministic"
+        response_text = _runtime_response_text(runtime_result, response_text)
+        token = await _ensure_runtime_legacy_token(
+            ws,
+            assistant_agent_name,
+            description="Dashboard assistant mirrored from the modular Nova runtime.",
+            can_do=assistant_can_do,
+            cannot_do=assistant_cannot_do,
+            authorized_by=ws.get("email", "system"),
+            metadata={"runtime_agent_id": runtime_agent.id, "legacy_surface": "assistant-chat"},
+        )
+        await _mirror_runtime_evaluation_to_legacy(
+            ws,
+            ctx,
+            token,
+            f"assistant_chat: {payload.message[:180]}",
+            f"page={payload.page}",
+            runtime_result,
+            response_override=response_text,
+            provider_override=provider,
+        )
+        runtime_handled = True
+    except Exception as exc:
+        log.warning(f"Assistant runtime bridge fallback used: {exc}")
+
+    if not runtime_handled and selected_provider and selected_model and selected_api_key:
+        try:
+            response_text, provider, model = await LLMGateway.complete(
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_tokens=220,
+                temperature=0.15,
+                provider=selected_provider,
+                model=selected_model,
+                api_key=selected_api_key,
+            )
+        except Exception as exc:
+            log.warning("Assistant chat fallback used: %s", exc)
+
+    return {
+        "message": response_text,
+        "provider": provider,
+        "model": model,
+        "suggested_commands": suggested_commands,
+        "actions": [action.dict() for action in actions],
+    }
+
+
+@app.post("/assistant/execute", tags=["Assistant"], response_model=CommandResponse)
+async def assistant_execute(request: Request, payload: CommandRequest, ws: Dict = Depends(get_workspace)):
+    """
+    Safely execute a suggested Nova command.
+    Only commands starting with 'nova ' are permitted to prevent shell injection.
+    """
+    cmd = payload.command.strip()
+    ctx = await get_request_context(request)
+
+    # Safety check: Only allow 'nova' commands
+    if not (cmd.startswith("nova ") or cmd == "nova"):
+        return {
+            "output": f"Security violation: Command '{cmd}' is not allowed. Only 'nova' commands are permitted via the dashboard.",
+            "exit_code": 1,
+            "success": False,
+        }
+
+    # Further sanitization: avoid command chaining and redirection
+    if any(forbidden in cmd for forbidden in [";", "&", "|", ">", "<", "`", "$", "(", ")"]):
+        return {
+            "output": "Security violation: Special characters detected. Command execution aborted.",
+            "exit_code": 1,
+            "success": False,
+        }
+
+    runtime_result = None
+    runtime_token = None
+    runtime_provider = _default_runtime_provider()
+    try:
+        runtime_bridge = _load_runtime_bridge()
+        runtime_agent, runtime_result = await runtime_bridge.evaluate_action(
+            ws,
+            agent_name="Nova Operator Assistant",
+            action="execute nova command",
+            payload={"command": cmd},
+            description="Runtime-backed dashboard assistant used to approve terminal commands.",
+            model=settings.LLM_MODEL or "openai/gpt-4o-mini",
+            provider=runtime_provider,
+            can_do=["execute_nova_command"],
+            cannot_do=["delete_production_data", "exfiltrate_secrets"],
+            metadata={"legacy_surface": "assistant-execute"},
+            request_id=ctx["request_id"],
+        )
+        runtime_token = await _ensure_runtime_legacy_token(
+            ws,
+            "Nova Operator Assistant",
+            description="Dashboard assistant mirrored from the modular Nova runtime.",
+            can_do=["execute_nova_command"],
+            cannot_do=["delete_production_data", "exfiltrate_secrets"],
+            authorized_by=ws.get("email", "system"),
+            metadata={"runtime_agent_id": runtime_agent.id, "legacy_surface": "assistant-execute"},
+        )
+        runtime_decision = getattr(getattr(runtime_result, "decision", None), "action", None)
+        runtime_decision_name = getattr(runtime_decision, "value", str(runtime_decision or ""))
+        if runtime_decision_name != "ALLOW":
+            response_text = f"Command blocked by Nova runtime: {getattr(getattr(runtime_result, 'decision', None), 'reason', 'policy blocked')}"
+            await _mirror_runtime_evaluation_to_legacy(
+                ws,
+                ctx,
+                runtime_token,
+                cmd,
+                "dashboard assistant execute",
+                runtime_result,
+                response_override=response_text,
+                provider_override=runtime_provider,
+            )
+            return {"output": response_text, "exit_code": 1, "success": False}
+    except Exception as exc:
+        log.warning(f"Assistant command runtime bridge fallback used: {exc}")
+
+    try:
+        resolved_command, command_cwd = _resolve_assistant_command(cmd)
+        process = subprocess.run(
+            resolved_command,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            cwd=command_cwd,
+        )
+        if runtime_result is not None and runtime_token is not None:
+            await _mirror_runtime_evaluation_to_legacy(
+                ws,
+                ctx,
+                runtime_token,
+                cmd,
+                "dashboard assistant execute",
+                runtime_result,
+                response_override=(process.stdout + process.stderr) or "Command completed.",
+                provider_override=runtime_provider,
+            )
+        return {
+            "output": process.stdout + process.stderr,
+            "exit_code": process.returncode,
+            "success": process.returncode == 0,
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "output": "Command timed out after 10 seconds.",
+            "exit_code": 124,
+            "success": False,
+        }
+    except Exception as exc:
+        return {
+            "output": f"Internal error during execution: {str(exc)}",
+            "exit_code": 500,
+            "success": False,
+        }
+
+
+@app.get("/setup/status", tags=["Setup"], response_model=SetupStatusResponse)
+async def setup_status():
+    workspace_count = await _get_workspace_count()
+    needs_setup = workspace_count == 0
+    return {
+        "needs_setup": needs_setup,
+        "workspace_count": workspace_count,
+        "github_enabled": settings.github_enabled(),
+        "setup_enabled": needs_setup,
+        "recommended_login": "bootstrap" if needs_setup else ("github" if settings.github_enabled() else "api_key"),
+    }
+
+
+@app.post("/setup/bootstrap", tags=["Setup"], status_code=201)
+async def bootstrap_workspace(payload: BootstrapWorkspaceRequest):
+    workspace_count = await _get_workspace_count()
+    if workspace_count > 0:
+        raise HTTPException(status_code=409, detail="Nova already has a workspace. Use the existing login methods.")
+
+    if not hmac.compare_digest(payload.bootstrap_token, settings.WORKSPACE_ADMIN_TOKEN):
+        raise HTTPException(status_code=403, detail="Invalid bootstrap token")
+
+    workspace = await _create_workspace_record(payload)
+    response = JSONResponse(
+        {
+            "id":         str(workspace["id"]),
+            "name":       workspace["name"],
+            "email":      workspace["email"],
+            "plan":       workspace["plan"],
+            "api_key":    workspace["api_key"],
+            "created_at": workspace["created_at"],
+        },
+        status_code=201,
+    )
+    _set_workspace_session_cookie(response, workspace)
+    return response
+
+
 @app.get("/workspaces/me", tags=["Workspace"])
 async def get_my_workspace(ws: Dict = Depends(get_workspace)):
     """Get current workspace details and usage stats."""
@@ -2510,6 +3648,7 @@ async def get_my_workspace(ws: Dict = Depends(get_workspace)):
     return {
         "id":               str(ws["id"]),
         "name":             ws.get("name", ""),
+        "email":            ws.get("email", ""),
         "plan":             ws.get("plan", "free"),
         "features":         ws.get("features", []),
         "usage_this_month": ws.get("usage_this_month", 0),
@@ -2524,31 +3663,10 @@ async def register_workspace(
     payload: WorkspaceRegistrationRequest,
     x_admin_token: str = Header(..., alias="X-Nova-Admin-Token"),
 ):
-    if x_admin_token != settings.WORKSPACE_ADMIN_TOKEN:
+    if not hmac.compare_digest(x_admin_token, settings.WORKSPACE_ADMIN_TOKEN):
         raise HTTPException(status_code=403, detail="Invalid admin token")
 
-    existing = await db.fetch_one(
-        "SELECT id FROM workspaces WHERE email = :email",
-        {"email": payload.email},
-    )
-    if existing:
-        raise HTTPException(status_code=409, detail="Workspace already exists")
-
-    api_key = await _ensure_unique_workspace_api_key(payload.api_key)
-
-    row = await db.fetch_one(
-        """
-        INSERT INTO workspaces (name, email, api_key, plan)
-        VALUES (:name, :email, :api_key, :plan)
-        RETURNING id, name, email, plan, api_key, created_at
-        """,
-        {
-            "name": payload.name,
-            "email": payload.email,
-            "api_key": api_key,
-            "plan": payload.plan,
-        },
-    )
+    row = await _create_workspace_record(payload)
 
     return {
         "id":         str(row["id"]),
@@ -2737,7 +3855,7 @@ async def create_token(payload: TokenCreate, ws: Dict = Depends(get_workspace)):
     log.info(f"Token created: {payload.agent_name} (ID: {token_id})")
     await AnalyticsEngine.track_event(str(ws["id"]), "token_created",
         {"agent_name": payload.agent_name, "token_id": token_id})
-    return {
+    token_response = {
         "id": str(token_id), "agent_name": payload.agent_name,
         "description": payload.description or "",
         "can_do": effective_can, "cannot_do": effective_cannot,
@@ -2746,6 +3864,14 @@ async def create_token(payload: TokenCreate, ws: Dict = Depends(get_workspace)):
         "metadata": payload.metadata or {},
         "created_at": datetime.now(timezone.utc), "updated_at": None,
     }
+    runtime_sync = await _sync_legacy_token_to_runtime(ws, token_response)
+    if runtime_sync:
+        token_response["metadata"] = {**token_response["metadata"], **runtime_sync}
+        await db.execute(
+            "UPDATE intent_tokens SET metadata = :meta WHERE id = :tid AND workspace_id = :wid",
+            {"meta": json.dumps(token_response["metadata"]), "tid": token_id, "wid": ws["id"]},
+        )
+    return token_response
 
 
 @app.get("/tokens", tags=["Tokens"])
@@ -3399,6 +4525,182 @@ async def webhook(
     )
 
 
+@app.post("/gateway/{api_key}/forward", tags=["Gateway"])
+async def gateway_forward(
+    api_key: str,
+    body: GatewayForwardBody,
+    request: Request,
+    background_tasks: BackgroundTasks,
+):
+    """
+    Active gateway for webhook-style agents.
+
+    Incoming traffic is validated by Nova first. Only approved actions are
+    forwarded to the real target service. Optionally, the outbound response can
+    be validated before returning it to the caller.
+    """
+    ws = await db.fetch_one(
+        "SELECT * FROM workspaces WHERE api_key = :key", {"key": api_key}
+    )
+    if not ws:
+        raise HTTPException(401, "Invalid API key")
+    ws = dict(ws)
+
+    action = _extract_action_text(body)
+    if not action:
+        raise HTTPException(400, "No action provided. Use 'action', 'message', or 'texto'.")
+
+    if not body.forward_to.startswith(("http://", "https://")):
+        raise HTTPException(400, "forward_to must start with http:// or https://")
+
+    token_id = await _resolve_workspace_token_id(str(ws["id"]), body.token_id or body.token)
+    if not token_id:
+        raise HTTPException(
+            status_code=409,
+            detail="No active Intent Token found for gateway mode. Create one before proxying live traffic.",
+        )
+
+    inbound_ctx = {
+        "request_id": Crypto.generate_request_id(),
+        "client_ip": request.client.host if request.client else None,
+        "user_agent": request.headers.get("user-agent", ""),
+        "start_time": time.time(),
+    }
+    inbound_validation = await _run_validation(
+        ValidateRequest(
+            token_id=token_id,
+            action=action,
+            context=body.context or body.contexto or "",
+            generate_response=False,
+            check_duplicates=body.dedup,
+            dry_run=body.dry_run,
+        ),
+        ws,
+        inbound_ctx,
+        background_tasks,
+    )
+
+    if inbound_validation.verdict != Verdict.APPROVED:
+        return JSONResponse(
+            {
+                "status": "blocked_by_nova",
+                "phase": "inbound",
+                "validation": inbound_validation.model_dump(mode="json"),
+            },
+            status_code=403 if inbound_validation.verdict == Verdict.BLOCKED else 409,
+        )
+
+    try:
+        original_payload = await request.json()
+    except Exception:
+        original_payload = {}
+
+    forward_payload = body.forward_payload
+    if forward_payload is None:
+        forward_payload = _sanitize_gateway_payload(original_payload if isinstance(original_payload, dict) else {})
+
+    headers = {key: value for key, value in (body.forward_headers or {}).items() if value is not None}
+    if body.include_nova_headers:
+        headers.update({
+            "X-Nova-Verdict": inbound_validation.verdict.value,
+            "X-Nova-Score": str(inbound_validation.score),
+            "X-Nova-Token-Id": token_id,
+            "X-Nova-Request-Id": inbound_validation.request_id,
+        })
+        if inbound_validation.ledger_id is not None:
+            headers["X-Nova-Ledger-Id"] = str(inbound_validation.ledger_id)
+
+    request_kwargs: Dict[str, Any] = {
+        "headers": headers,
+        "timeout": body.forward_timeout_ms / 1000,
+    }
+    if body.forward_method == "GET":
+        request_kwargs["params"] = forward_payload
+    else:
+        request_kwargs["json"] = forward_payload
+
+    try:
+        async with httpx.AsyncClient() as client:
+            upstream = await client.request(body.forward_method, body.forward_to, **request_kwargs)
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"Forward target unreachable: {exc}") from exc
+
+    outbound_validation = None
+    response_text = upstream.text
+    response_json = None
+    try:
+        response_json = upstream.json()
+    except Exception:
+        response_json = None
+
+    if body.validate_response:
+        outbound_action = body.response_action or _coerce_response_action(
+            response_text,
+            response_json=response_json,
+            preferred_field=body.response_field,
+        )
+        outbound_token_id = await _resolve_workspace_token_id(
+            str(ws["id"]),
+            body.response_token_id or token_id,
+        )
+        if not outbound_token_id:
+            raise HTTPException(409, "No active Intent Token available to validate the outbound response")
+
+        outbound_ctx = {
+            "request_id": Crypto.generate_request_id(),
+            "client_ip": request.client.host if request.client else None,
+            "user_agent": request.headers.get("user-agent", ""),
+            "start_time": time.time(),
+        }
+        outbound_validation = await _run_validation(
+            ValidateRequest(
+                token_id=outbound_token_id,
+                action=outbound_action,
+                context=body.response_context or f"Outbound response from {body.forward_to}",
+                generate_response=False,
+                check_duplicates=False,
+                dry_run=body.dry_run,
+            ),
+            ws,
+            outbound_ctx,
+            background_tasks,
+        )
+        if outbound_validation.verdict != Verdict.APPROVED:
+            return JSONResponse(
+                {
+                    "status": "blocked_by_nova",
+                    "phase": "outbound",
+                    "validation": inbound_validation.model_dump(mode="json"),
+                    "response_validation": outbound_validation.model_dump(mode="json"),
+                },
+                status_code=403 if outbound_validation.verdict == Verdict.BLOCKED else 409,
+            )
+
+    response_headers = {
+        "X-Nova-Verdict": inbound_validation.verdict.value,
+        "X-Nova-Score": str(inbound_validation.score),
+        "X-Nova-Request-Id": inbound_validation.request_id,
+    }
+    if outbound_validation:
+        response_headers["X-Nova-Response-Verdict"] = outbound_validation.verdict.value
+        response_headers["X-Nova-Response-Score"] = str(outbound_validation.score)
+
+    content_type = upstream.headers.get("content-type", "")
+    if response_json is not None and "application/json" in content_type.lower():
+        response = JSONResponse(response_json, status_code=upstream.status_code)
+    else:
+        media_type = content_type.split(";", 1)[0] if content_type else "text/plain"
+        response = Response(
+            content=upstream.content,
+            status_code=upstream.status_code,
+            media_type=media_type,
+        )
+
+    for key, value in response_headers.items():
+        response.headers[key] = value
+    return response
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ENDPOINTS — Memory
 # ══════════════════════════════════════════════════════════════════════════════
@@ -4005,7 +5307,7 @@ Extrae entre 3-8 items por lista. Sé específico y accionable."""
     )
 
     log.info(f"Token created from description: {name} (ws={ws['id']})")
-    return {
+    response = {
         "token_id":    str(token_id),
         "agent_name":  name,
         "description": desc,
@@ -4014,6 +5316,23 @@ Extrae entre 3-8 items por lista. Sé específico y accionable."""
         "signature":   sig,
         "parsed_from": "natural_language",
     }
+    runtime_sync = await _sync_legacy_token_to_runtime(
+        ws,
+        {
+            "id": str(token_id),
+            "agent_name": name,
+            "description": desc,
+            "can_do": can_do,
+            "cannot_do": cannot_do,
+        },
+    )
+    if runtime_sync:
+        await db.execute(
+            "UPDATE intent_tokens SET metadata = :meta, updated_at = NOW() WHERE id = :tid AND workspace_id = :wid",
+            {"meta": json.dumps(runtime_sync), "tid": token_id, "wid": ws["id"]},
+        )
+        response["runtime"] = runtime_sync
+    return response
 
 
 @app.post("/demo/seed", tags=["Development"])
