@@ -4,15 +4,25 @@ import {
   Activity,
   AlertTriangle,
   ArrowUpRight,
+  Bot,
+  Brain,
   CheckCircle2,
+  Clock3,
+  KeyRound,
+  NotebookPen,
   Plus,
   ShieldCheck,
+  Sparkles,
   Waves,
+  Zap,
 } from 'lucide-react'
 import { api } from '../utils/api'
 import { useLanguage } from '../context/LanguageContext'
 import { useStream } from '../hooks/useStream'
 import CreateAgentModal from '../components/CreateAgentModal'
+import OperatorAssistant from '../components/OperatorAssistant'
+import ProviderMark from '../components/brand/ProviderMark'
+import { providerStatus } from '../lib/mock-data'
 
 const container = {
   hidden: { opacity: 0 },
@@ -74,6 +84,56 @@ function Dashboard() {
     }))
   }, [events])
 
+  const rankedRisk = useMemo(() => {
+    return [...risk].sort((left, right) => (right.risk_score || 0) - (left.risk_score || 0))
+  }, [risk])
+
+  const watchedAgents = rankedRisk.filter((agent) => (agent.risk_score || 0) >= 40).length
+  const latestEvent = streamFeed[0]
+
+  const focusItems = [
+    {
+      label: 'Pending alerts',
+      value: `${alerts.length}`,
+      detail: alerts.length > 0 ? 'Needs operator review' : 'Queue is currently clear',
+      tone: alerts.length > 0 ? 'warning' : 'healthy',
+    },
+    {
+      label: 'Agents on watch',
+      value: `${watchedAgents}`,
+      detail: watchedAgents > 0 ? 'Higher-risk behavior detected' : 'No agents above watch threshold',
+      tone: watchedAgents > 0 ? 'watch' : 'healthy',
+    },
+    {
+      label: 'Approval rate',
+      value: `${approvalRate}%`,
+      detail: approvalRate >= 90 ? 'Governance is behaving cleanly' : 'Worth checking recent decisions',
+      tone: healthTone,
+    },
+  ]
+
+  const operatorCards = [
+    {
+      title: 'Create a governed agent',
+      description: 'Mint a new operator-facing token and bring one more workflow under runtime control.',
+      icon: Bot,
+      actionLabel: 'Create agent',
+      onClick: () => setIsModalOpen(true),
+    },
+    {
+      title: 'Talk with your agent',
+      description: 'The assistant now exposes all supported providers and lets operators add their own API key by provider.',
+      icon: Brain,
+      detail: 'Use the panel on the right',
+    },
+    {
+      title: 'Review the decision trail',
+      description: 'Use the ledger and the live stream to understand what happened before touching the policy layer.',
+      icon: NotebookPen,
+      detail: 'Start with the activity feed below',
+    },
+  ]
+
   if (isLoading) {
     return (
       <div className="space-y-8">
@@ -88,28 +148,36 @@ function Dashboard() {
   }
 
   return (
-    <motion.div variants={container} initial="hidden" animate="show" className="space-y-8 pb-16">
+    <motion.div variants={container} initial="hidden" animate="show" className="space-y-8 pb-20 xl:pr-[480px]">
       <CreateAgentModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onCreated={loadDashboard}
       />
 
+      <OperatorAssistant
+        workspaceName={workspace?.name || 'workspace'}
+        onCreateAgent={() => setIsModalOpen(true)}
+        onRefresh={loadDashboard}
+      />
+
       <motion.section
         variants={item}
-        className="overflow-hidden rounded-[34px] border border-black/8 bg-[#11151b] text-white shadow-[0_35px_100px_-50px_rgba(0,0,0,0.5)]"
+        className="overflow-hidden rounded-[36px] border border-black/8 bg-[linear-gradient(135deg,#11161d_0%,#18202a_62%,#10161d_100%)] text-white shadow-[0_45px_110px_-58px_rgba(0,0,0,0.6)]"
       >
-        <div className="grid gap-6 px-8 py-8 md:grid-cols-[1.1fr_0.9fr] md:px-10">
+        <div className="grid gap-6 px-7 py-7 md:px-9 md:py-9 xl:grid-cols-[1.02fr_0.98fr]">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/7 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-white/70">
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-white/72">
               <ShieldCheck className="h-3.5 w-3.5" />
-              Runtime Governance
+              Operator dashboard
             </div>
-            <h1 className="mt-6 max-w-2xl text-4xl font-semibold tracking-[-0.05em] text-white md:text-5xl">
-              Operate agents from a live control surface, not from placeholders.
+
+            <h1 className="mt-6 max-w-2xl text-4xl font-semibold tracking-[-0.05em] text-white md:text-[3.3rem] md:leading-[1.02]">
+              Govern agents from one clear runtime, not from scattered tools and guesswork.
             </h1>
+
             <p className="mt-4 max-w-2xl text-sm leading-7 text-white/68">
-              This workspace is now wired to real Nova endpoints: stats, ledger, alerts, risk scoring, event stream, and agent creation.
+              The workspace works best when people can understand what changed, what needs attention, and which model is being used without reading a manual first.
             </p>
 
             <div className="mt-8 flex flex-wrap gap-3">
@@ -122,19 +190,59 @@ function Dashboard() {
               </button>
               <button
                 onClick={loadDashboard}
-                className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/8 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/12"
+                className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.07] px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/[0.11]"
               >
                 <Activity className="h-4 w-4" />
                 Refresh runtime
               </button>
             </div>
+
+            <div className="mt-7 grid gap-3 sm:grid-cols-2">
+              <HeroSignal
+                label="Workspace"
+                value={workspace?.name || 'workspace'}
+                copy="Connected to live stats, alerts, ledger, and streaming events."
+              />
+              <HeroSignal
+                label="Latest event"
+                value={latestEvent ? formatTime(latestEvent.timestamp) : 'Waiting'}
+                copy={latestEvent?.label || 'No streamed runtime events yet.'}
+              />
+            </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <SignalCard label="Approval rate" value={`${approvalRate}%`} hint="of governed actions approved" />
-            <SignalCard label="Average score" value={`${avgScore}`} hint="current decision confidence" />
-            <SignalCard label="Active agents" value={`${stats?.active_agents || 0}`} hint="tokens actively in circulation" />
-            <SignalCard label="Pending alerts" value={`${stats?.alerts_pending || 0}`} hint="items requiring operator review" />
+          <div className="grid gap-4">
+            <div className="rounded-[30px] border border-white/10 bg-white/[0.05] p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-white/44">What needs attention</p>
+                  <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-white">Operator brief</h2>
+                </div>
+                <Sparkles className="h-5 w-5 text-[#7fd9af]" />
+              </div>
+
+              <div className="mt-5 space-y-3">
+                {focusItems.map((itemData) => (
+                  <FocusRow key={itemData.label} item={itemData} />
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-[30px] border border-white/10 bg-white/[0.05] p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-white/44">Talk with your agent</p>
+                  <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-white">Model control is now visible</h2>
+                </div>
+                <KeyRound className="h-5 w-5 text-[#f8cf5a]" />
+              </div>
+
+              <div className="mt-5 space-y-3 text-sm leading-6 text-white/70">
+                <p>Select a provider, choose a model, and use the server key when available.</p>
+                <p>If the server does not have a key, the operator can paste their own API key by provider without leaving the dashboard.</p>
+                <p className="text-white/52">The assistant panel on the right is the model cockpit.</p>
+              </div>
+            </div>
           </div>
         </div>
       </motion.section>
@@ -146,17 +254,28 @@ function Dashboard() {
       )}
 
       <div className="grid gap-5 md:grid-cols-4">
-        <StatCard title={t('total_actions')} value={stats?.total_actions || 0} subtitle="validated actions in ledger" />
-        <StatCard title={t('security_blocks')} value={stats?.blocked || 0} subtitle="blocked by policy or anomaly" tone="warning" />
-        <StatCard title={t('active_nodes')} value={stats?.active_agents || 0} subtitle="active governed agents" />
-        <StatCard title={t('system_health')} value={healthTone === 'healthy' ? 'Stable' : healthTone === 'watch' ? 'Watch' : 'Critical'} subtitle={`${stats?.alerts_pending || 0} pending alerts`} tone={healthTone} />
+        <StatCard title={t('total_actions')} value={stats?.total_actions || 0} subtitle="validated actions recorded in the ledger" />
+        <StatCard title={t('security_blocks')} value={stats?.blocked || 0} subtitle="blocked by policy or anomaly detection" tone="warning" />
+        <StatCard title={t('active_nodes')} value={stats?.active_agents || 0} subtitle="active governed agents in circulation" />
+        <StatCard
+          title={t('system_health')}
+          value={healthTone === 'healthy' ? 'Stable' : healthTone === 'watch' ? 'Watch' : 'Critical'}
+          subtitle={`${stats?.alerts_pending || 0} items may need review`}
+          tone={healthTone}
+        />
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-3">
+        {operatorCards.map((card) => (
+          <OperatorCard key={card.title} card={card} />
+        ))}
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
         <motion.section variants={item} className="rounded-[30px] border border-black/8 bg-[#fffdfa] p-6 shadow-[0_25px_70px_-55px_rgba(0,0,0,0.35)] dark:border-transparent dark:bg-[#151a1f] dark:shadow-[0_32px_80px_-52px_rgba(0,0,0,0.82)]">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-black/42 dark:text-white/42">Recent activity</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-black/42 dark:text-white/42">Recent decisions</p>
               <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-[#111111] dark:text-white">Latest governed actions</h2>
             </div>
             <span className="text-xs text-black/45 dark:text-white/42">{ledger.length} records</span>
@@ -166,7 +285,7 @@ function Dashboard() {
             {ledger.length === 0 ? (
               <EmptyState
                 title="No ledger entries yet"
-                description="Create an agent or send validations to see live audit records."
+                description="Create an agent or send validations to see live audit records appear here."
               />
             ) : (
               ledger.map((entry) => (
@@ -193,8 +312,8 @@ function Dashboard() {
           <motion.section variants={item} className="rounded-[30px] border border-black/8 bg-white p-6 shadow-[0_25px_70px_-55px_rgba(0,0,0,0.35)] dark:border-transparent dark:bg-[#151a1f] dark:shadow-[0_32px_80px_-52px_rgba(0,0,0,0.82)]">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-black/42 dark:text-white/42">Pending alerts</p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-[#111111] dark:text-white">Operator queue</h2>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-black/42 dark:text-white/42">Operator queue</p>
+                <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-[#111111] dark:text-white">Alerts that need attention</h2>
               </div>
               <AlertTriangle className="h-5 w-5 text-[#b35a00]" />
             </div>
@@ -226,9 +345,10 @@ function Dashboard() {
               </div>
               <Waves className="h-5 w-5 text-[#79d9ab]" />
             </div>
+
             <div className="mt-6 space-y-3">
               {streamFeed.length === 0 ? (
-                <p className="rounded-[24px] border border-white/10 bg-white/6 px-4 py-4 text-sm text-white/64">
+                <p className="rounded-[24px] border border-white/10 bg-white/[0.06] px-4 py-4 text-sm text-white/64">
                   Waiting for streamed validation events from `/stream/events`.
                 </p>
               ) : (
@@ -247,50 +367,90 @@ function Dashboard() {
         </div>
       </div>
 
-      <motion.section variants={item} className="rounded-[30px] border border-black/8 bg-white p-6 shadow-[0_25px_70px_-55px_rgba(0,0,0,0.35)] dark:border-transparent dark:bg-[#151a1f] dark:shadow-[0_32px_80px_-52px_rgba(0,0,0,0.82)]">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-black/42 dark:text-white/42">Risk profile</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-[#111111] dark:text-white">Agents under observation</h2>
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <motion.section variants={item} className="rounded-[30px] border border-black/8 bg-white p-6 shadow-[0_25px_70px_-55px_rgba(0,0,0,0.35)] dark:border-transparent dark:bg-[#151a1f] dark:shadow-[0_32px_80px_-52px_rgba(0,0,0,0.82)]">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-black/42 dark:text-white/42">Risk profile</p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-[#111111] dark:text-white">Agents under observation</h2>
+            </div>
+            <ArrowUpRight className="h-5 w-5 text-black/35 dark:text-white/35" />
           </div>
-          <ArrowUpRight className="h-5 w-5 text-black/35 dark:text-white/35" />
-        </div>
 
-        <div className="mt-6 grid gap-4 md:grid-cols-3">
-          {risk.length === 0 ? (
-            <EmptyState
-              title="No agent risk data yet"
-              description="Risk scoring will appear after validations start reaching the ledger."
-              compact
-            />
-          ) : (
-            risk.slice(0, 3).map((agent) => (
-              <div key={agent.agent_name} className="rounded-[24px] border border-black/8 bg-[#fffdfa] p-5 dark:border-transparent dark:bg-white/[0.03]">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-[#111111] dark:text-white">{agent.agent_name}</p>
-                    <p className="mt-1 text-xs text-black/48 dark:text-white/48">{agent.total} actions in last 24h</p>
+          <div className="mt-6 grid gap-4 md:grid-cols-3">
+            {rankedRisk.length === 0 ? (
+              <EmptyState
+                title="No agent risk data yet"
+                description="Risk scoring will appear after validations start reaching the ledger."
+                compact
+              />
+            ) : (
+              rankedRisk.slice(0, 3).map((agent) => (
+                <div key={agent.agent_name} className="rounded-[24px] border border-black/8 bg-[#fffdfa] p-5 dark:border-transparent dark:bg-white/[0.03]">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-[#111111] dark:text-white">{agent.agent_name}</p>
+                      <p className="mt-1 text-xs text-black/48 dark:text-white/48">{agent.total} actions in last 24h</p>
+                    </div>
+                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${riskBadge(agent.risk_score)}`}>
+                      {agent.risk_score >= 70 ? 'high' : agent.risk_score >= 40 ? 'watch' : 'low'}
+                    </span>
                   </div>
-                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${riskBadge(agent.risk_score)}`}>
-                    {agent.risk_score >= 70 ? 'high' : agent.risk_score >= 40 ? 'watch' : 'low'}
-                  </span>
+                  <div className="mt-5 h-2 overflow-hidden rounded-full bg-black/6 dark:bg-white/8">
+                    <div
+                      className={`h-full rounded-full ${agent.risk_score >= 70 ? 'bg-[#d84b42]' : agent.risk_score >= 40 ? 'bg-[#d59f2a]' : 'bg-[#2f9d63]'}`}
+                      style={{ width: `${Math.min(agent.risk_score, 100)}%` }}
+                    />
+                  </div>
+                  <div className="mt-4 grid grid-cols-3 gap-3 text-sm">
+                    <Metric label="Risk" value={`${agent.risk_score}`} />
+                    <Metric label="Blocked" value={`${agent.blocked}`} />
+                    <Metric label="Score" value={`${agent.avg_score}`} />
+                  </div>
                 </div>
-                <div className="mt-5 h-2 overflow-hidden rounded-full bg-black/6 dark:bg-white/8">
-                  <div
-                    className={`h-full rounded-full ${agent.risk_score >= 70 ? 'bg-[#d84b42]' : agent.risk_score >= 40 ? 'bg-[#d59f2a]' : 'bg-[#2f9d63]'}`}
-                    style={{ width: `${Math.min(agent.risk_score, 100)}%` }}
-                  />
-                </div>
-                <div className="mt-4 grid grid-cols-3 gap-3 text-sm">
-                  <Metric label="Risk" value={`${agent.risk_score}`} />
-                  <Metric label="Blocked" value={`${agent.blocked}`} />
-                  <Metric label="Score" value={`${agent.avg_score}`} />
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </motion.section>
+              ))
+            )}
+          </div>
+        </motion.section>
+
+        <motion.section variants={item} className="rounded-[30px] border border-black/8 bg-[linear-gradient(135deg,#fffdfa_0%,#f4eee3_100%)] p-6 shadow-[0_25px_70px_-55px_rgba(0,0,0,0.35)] dark:border-transparent dark:bg-[linear-gradient(135deg,#131921_0%,#10151b_100%)] dark:shadow-[0_32px_80px_-52px_rgba(0,0,0,0.82)]">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-black/42 dark:text-white/42">Model access</p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-[#111111] dark:text-white">Talk with your agent, with more options</h2>
+            </div>
+            <Zap className="h-5 w-5 text-[#cf9834]" />
+          </div>
+
+          <p className="mt-4 text-sm leading-7 text-black/65 dark:text-white/68">
+            The assistant now exposes all supported providers. If a provider has a server key, the operator can use it immediately. If not, the operator can paste their own key inside the dashboard.
+          </p>
+
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <ProviderSurface
+              title="Full provider lane"
+              description="The assistant now exposes the full Nova gateway with real provider marks, real model names, and clear default routes."
+              providers={providerStatus}
+              tone="dark"
+            />
+            <ProviderSurface
+              title="Default model routes"
+              description="Operators can see the exact default model Nova will select first for every provider before sending a prompt."
+              chips={providerStatus.map((provider) => `${provider.name} · ${provider.defaultModelLabel}`)}
+              tone="light"
+            />
+          </div>
+
+          <div className="mt-4 rounded-[24px] border border-black/8 bg-white/70 px-4 py-4 dark:border-white/[0.06] dark:bg-white/[0.04]">
+            <div className="flex items-start gap-3">
+              <Clock3 className="mt-0.5 h-4 w-4 text-[#cf9834]" />
+              <p className="text-sm leading-6 text-black/65 dark:text-white/66">
+                API keys entered by the operator are stored locally in the browser by provider, so the flow stays fast without forcing a server-side secret for every model.
+              </p>
+            </div>
+          </div>
+        </motion.section>
+      </div>
     </motion.div>
   )
 }
@@ -313,12 +473,113 @@ function StatCard({ title, value, subtitle, tone = 'default' }) {
   )
 }
 
-function SignalCard({ label, value, hint }) {
+function HeroSignal({ label, value, copy }) {
   return (
-    <div className="rounded-[24px] border border-white/10 bg-white/6 p-5">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">{label}</p>
-      <p className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-white">{value}</p>
-      <p className="mt-2 text-sm leading-6 text-white/62">{hint}</p>
+    <div className="rounded-[24px] border border-white/10 bg-white/[0.06] p-4">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/44">{label}</p>
+      <p className="mt-3 text-xl font-semibold tracking-[-0.03em] text-white">{value}</p>
+      <p className="mt-2 text-sm leading-6 text-white/62">{copy}</p>
+    </div>
+  )
+}
+
+function FocusRow({ item }) {
+  const toneClasses = {
+    healthy: 'bg-[#3ecf8e]/12 text-[#8fe4ba]',
+    watch: 'bg-[#d59f2a]/12 text-[#f6d26a]',
+    warning: 'bg-[#d46d34]/12 text-[#f4b06b]',
+    critical: 'bg-[#d84b42]/12 text-[#f5988f]',
+  }
+
+  return (
+    <div className="flex items-start justify-between gap-4 rounded-[24px] border border-white/10 bg-black/10 px-4 py-4">
+      <div>
+        <p className="text-sm font-semibold text-white">{item.label}</p>
+        <p className="mt-1 text-sm leading-6 text-white/60">{item.detail}</p>
+      </div>
+      <span className={`rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${toneClasses[item.tone]}`}>
+        {item.value}
+      </span>
+    </div>
+  )
+}
+
+function OperatorCard({ card }) {
+  const Icon = card.icon
+
+  return (
+    <motion.div variants={item} className="rounded-[30px] border border-black/8 bg-white p-6 shadow-[0_25px_70px_-55px_rgba(0,0,0,0.35)] dark:border-transparent dark:bg-[#151a1f] dark:shadow-[0_32px_80px_-52px_rgba(0,0,0,0.82)]">
+      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-black/[0.04] dark:bg-white/[0.04]">
+        <Icon className="h-5 w-5 text-[#111111] dark:text-white" />
+      </div>
+      <h3 className="mt-5 text-2xl font-semibold tracking-[-0.04em] text-[#111111] dark:text-white">{card.title}</h3>
+      <p className="mt-3 text-sm leading-7 text-black/60 dark:text-white/62">{card.description}</p>
+
+      {card.onClick ? (
+        <button
+          onClick={card.onClick}
+          className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-black px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 dark:bg-white dark:text-[#111111]"
+        >
+          <Plus className="h-4 w-4" />
+          {card.actionLabel}
+        </button>
+      ) : (
+        <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-black/8 bg-[#fbf7ef] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-black/55 dark:border-white/[0.06] dark:bg-white/[0.04] dark:text-white/58">
+          {card.detail}
+        </div>
+      )}
+    </motion.div>
+  )
+}
+
+function ProviderSurface({ title, description, providers = [], chips = [], tone = 'light' }) {
+  const classes = tone === 'dark'
+    ? 'border-transparent bg-[#11151b] text-white'
+    : 'border-black/8 bg-white/75 text-[#111111] dark:border-white/[0.06] dark:bg-white/[0.03] dark:text-white'
+
+  return (
+    <div className={`rounded-[26px] border p-5 ${classes}`}>
+      <p className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${tone === 'dark' ? 'text-white/42' : 'text-black/42 dark:text-white/42'}`}>{title}</p>
+      <p className={`mt-3 text-sm leading-7 ${tone === 'dark' ? 'text-white/64' : 'text-black/60 dark:text-white/62'}`}>{description}</p>
+
+      {providers.length > 0 && (
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          {providers.map((provider) => (
+            <div key={provider.name} className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 dark:border-white/10 dark:bg-white/[0.05]">
+              <div className="flex min-w-0 items-center gap-3">
+                <ProviderMark
+                  src={provider.logo}
+                  alt={`${provider.name} logo`}
+                  frameClassName="min-w-[72px] rounded-[16px] px-3 py-2"
+                  imageClassName="max-h-[18px] max-w-[82px]"
+                />
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold">{provider.name}</div>
+                  <div className={`mt-1 truncate text-[11px] ${tone === 'dark' ? 'text-white/52' : 'text-black/48 dark:text-white/52'}`}>
+                    {provider.defaultModelLabel}
+                  </div>
+                </div>
+              </div>
+              <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${tone === 'dark' ? 'bg-white/[0.08] text-white/66' : 'bg-black/[0.05] text-black/50 dark:bg-white/[0.05] dark:text-white/64'}`}>
+                {provider.status}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {chips.length > 0 && (
+        <div className="mt-5 flex flex-wrap gap-2">
+          {chips.map((chip) => (
+            <span
+              key={chip}
+              className={`rounded-full px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] ${tone === 'dark' ? 'bg-white/[0.08] text-white/72' : 'bg-black/[0.05] text-black/58 dark:bg-white/[0.05] dark:text-white/68'}`}
+            >
+              {chip}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

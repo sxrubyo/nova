@@ -1,10 +1,9 @@
-import React, { useState, useContext } from 'react'
+import React, { useContext, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AuthContext } from './AuthContext'
 import { api } from '../utils/api'
 import { GITHUB_AUTH_URL } from '../config/appConfig'
 
-const novaIsotipoBlack = new URL('../../nova-branding/Nova I/Black Nova Isotipo.png', import.meta.url).href
 const novaIsotipoWhite = new URL('../../nova-branding/Nova I/White Nova Isotipo.png', import.meta.url).href
 const datacenterInfra = '/images/datacenter-infra.jpg'
 
@@ -36,14 +35,13 @@ function Login() {
     apiKey: '',
   })
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
+  const handleSubmit = async (event) => {
+    event.preventDefault()
     setIsLoading(true)
     setError('')
 
     try {
       if (useApiKey && !isSignUp) {
-        // Verify API key
         localStorage.setItem('nova_api_key', formData.apiKey)
         try {
           const workspace = await api.get('/workspaces/me')
@@ -51,12 +49,11 @@ function Login() {
           setUser({ name: workspace.name, email: 'workspace@nova-os.com' })
           setIsAuthenticated(true)
           navigate('/dashboard')
-        } catch (err) {
+        } catch {
           localStorage.removeItem('nova_api_key')
           throw new Error('Invalid Workspace API Key')
         }
       } else {
-        // Mock traditional login/signup
         await new Promise((resolve) => setTimeout(resolve, 900))
         setIsAuthenticated(true)
         setUser({ name: formData.name || 'User', email: formData.email })
@@ -81,7 +78,7 @@ function Login() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#0b0f13] text-[#111111]">
-      <div className="absolute inset-0 pointer-events-none">
+      <div className="pointer-events-none absolute inset-0">
         <div className="absolute inset-x-0 top-0 h-[720px] bg-[radial-gradient(circle_at_top_left,rgba(121,217,171,0.10),transparent_28%),radial-gradient(circle_at_85%_12%,rgba(155,194,255,0.08),transparent_24%),linear-gradient(180deg,#0f1419_0%,#0b0f13_72%)]" />
         <div className="absolute left-[-120px] top-16 h-[420px] w-[420px] rounded-full bg-[#79d9ab]/8 blur-3xl" />
         <div className="absolute right-[-160px] top-10 h-[520px] w-[520px] rounded-full bg-white/[0.05] blur-3xl" />
@@ -90,11 +87,7 @@ function Login() {
       <div className="relative z-10 min-h-screen px-4 py-6 md:px-8 md:py-8">
         <div className="mx-auto grid min-h-[calc(100vh-2rem)] w-full max-w-[1320px] overflow-hidden rounded-[36px] bg-[#fcfaf6]/95 shadow-[0_45px_120px_-42px_rgba(0,0,0,0.26)] backdrop-blur-xl md:grid-cols-[1.08fr_0.92fr]">
           <aside className="relative hidden overflow-hidden bg-[#11151b] text-white md:flex md:flex-col md:justify-between md:p-12">
-            <img
-              src={datacenterInfra}
-              alt="Nova infrastructure"
-              className="absolute inset-0 h-full w-full object-cover opacity-30"
-            />
+            <img src={datacenterInfra} alt="Nova infrastructure" className="absolute inset-0 h-full w-full object-cover opacity-30" />
             <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(9,12,16,0.42),rgba(9,12,16,0.76)_48%,rgba(9,12,16,0.94)_100%)]" />
             <div className="relative z-10">
               <div className="flex items-center gap-4">
@@ -133,7 +126,7 @@ function Login() {
                   <div className="flex h-8 w-8 items-center justify-center rounded-full border border-white/12 bg-white/8">
                     <div className="h-1.5 w-1.5 rounded-full bg-[#3ecf8e]" />
                   </div>
-                  <span className="text-sm tracking-[-0.01em] font-medium">{item}</span>
+                  <span className="text-sm font-medium tracking-[-0.01em]">{item}</span>
                 </div>
               ))}
             </div>
@@ -230,10 +223,7 @@ function Login() {
                 {!isSignUp && !useApiKey && (
                   <div className="flex items-center justify-between gap-4 pt-1">
                     <label className="flex items-center gap-2 text-xs" style={{ color: 'rgba(17,17,17,0.56)' }}>
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 rounded border-black/20 bg-transparent accent-black"
-                      />
+                      <input type="checkbox" className="h-4 w-4 rounded border-black/20 bg-transparent accent-black" />
                       <span>Remember me</span>
                     </label>
                     <button type="button" className="text-xs transition-colors hover:text-black" style={{ color: 'rgba(17,17,17,0.66)' }}>
@@ -308,7 +298,7 @@ function Field({ label, type = 'text', value, onChange, placeholder, required = 
       <input
         type={type}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         required={required}
         className="w-full rounded-2xl bg-[#f1e6d6] px-4 py-3.5 text-sm !text-[#111111] placeholder:!text-black/38 outline-none transition-all duration-200 focus:bg-white focus:ring-4 focus:ring-black/[0.04]"

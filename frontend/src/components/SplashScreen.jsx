@@ -1,86 +1,60 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { NovaLogo } from '@/components/brand/NovaLogo'
 
-export default function SplashScreen({ onFinish }) {
-  const [isVisible, setIsVisible] = useState(true)
+function SplashScreen({ onFinish }) {
+  const [visible, setVisible] = useState(true)
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsVisible(false)
-      setTimeout(onFinish, 800) // Wait for exit animation
-    }, 2500)
-    return () => clearTimeout(timer)
+    const timer = window.setTimeout(() => {
+      setVisible(false)
+      window.setTimeout(onFinish, 260)
+    }, 1450)
+    return () => window.clearTimeout(timer)
   }, [onFinish])
 
   return (
     <AnimatePresence>
-      {isVisible && (
+      {visible && (
         <motion.div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-[#07080c]"
           initial={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.8, ease: "easeInOut" }}
-          className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[#FAFAFA] dark:bg-[#050505] text-[#111111] dark:text-white"
         >
-          <div className="relative flex items-center justify-center">
-            {/* Pulsing Background Ring */}
+          <div className="relative flex flex-col items-center">
             <motion.div
-              animate={{
-                scale: [1, 1.2, 1],
-                opacity: [0.1, 0.3, 0.1],
-              }}
-              transition={{
-                duration: 3,
-                repeat: Infinity,
-                ease: "easeInOut",
-              }}
-              className="absolute h-64 w-64 rounded-full bg-accent/20 blur-3xl"
+              className="absolute h-40 w-40 rounded-full bg-nova-accent/18 blur-3xl"
+              animate={{ scale: [0.82, 1.12, 0.96], opacity: [0.4, 0.8, 0.4] }}
+              transition={{ duration: 1.6, repeat: Infinity }}
             />
-
-            {/* Main Logo SVG */}
-            <motion.svg
-              width="120"
-              height="120"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ duration: 0.8, ease: "easeOut" }}
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.35 }}>
+              <NovaLogo />
+            </motion.div>
+            <motion.div
+              className="mt-6 h-1 w-44 overflow-hidden rounded-full bg-white/8"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
             >
-              <motion.path
-                d="M12 2L2 7L12 12L22 7L12 2Z"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                initial={{ pathLength: 0 }}
-                animate={{ pathLength: 1 }}
-                transition={{ duration: 1.5, ease: "easeInOut" }}
+              <motion.div
+                className="h-full rounded-full bg-gradient-to-r from-nova-accent via-nova-accent-glow to-nova-accent-2"
+                initial={{ x: '-100%' }}
+                animate={{ x: '0%' }}
+                transition={{ duration: 1.15, ease: [0.16, 1, 0.3, 1] }}
               />
-              <motion.path
-                d="M2 17L12 22L22 17"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                initial={{ pathLength: 0 }}
-                animate={{ pathLength: 1 }}
-                transition={{ duration: 1.5, ease: "easeInOut", delay: 0.3 }}
-              />
-              <motion.path
-                d="M2 12L12 17L22 12"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                initial={{ pathLength: 0 }}
-                animate={{ pathLength: 1 }}
-                transition={{ duration: 1.5, ease: "easeInOut", delay: 0.15 }}
-              />
-            </motion.svg>
+            </motion.div>
+            <motion.div
+              className="mt-4 text-[11px] uppercase tracking-[0.28em] text-nova-text-secondary"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.2 }}
+            >
+              Powering governance control
+            </motion.div>
           </div>
         </motion.div>
       )}
     </AnimatePresence>
   )
 }
+
+export default SplashScreen

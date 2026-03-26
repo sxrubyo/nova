@@ -1,5 +1,6 @@
-import React, { useState, useContext, useRef } from 'react'
-import { BrowserRouter, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom'
+import React, { useContext, useRef, useState } from 'react'
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { LayoutDashboard, FileText, Bot, Cpu, Settings as SettingsIcon, LogOut, Sun, Moon, User, Search, Camera } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import Ledger from './pages/Ledger'
 import Agents from './pages/Agents'
@@ -9,25 +10,9 @@ import Login from './pages/Login'
 import Landing from './pages/Landing'
 import { AuthContext, AuthProvider } from './pages/AuthContext'
 import { api } from './utils/api'
-
 import { ThemeProvider, useTheme } from './context/ThemeContext'
 import { LanguageProvider, useLanguage } from './context/LanguageContext'
 import SplashScreen from './components/SplashScreen'
-import CreateAgentModal from './components/CreateAgentModal'
-import { motion, AnimatePresence } from 'framer-motion'
-import { 
-  LayoutDashboard, 
-  FileText, 
-  Bot, 
-  Cpu, 
-  Settings as SettingsIcon, 
-  LogOut, 
-  Sun, 
-  Moon,
-  User,
-  Search,
-  Camera
-} from 'lucide-react'
 
 const novaIsotipoBlack = new URL('../nova-branding/Nova I/Black Nova Isotipo.png', import.meta.url).href
 const novaIsotipoWhite = new URL('../nova-branding/Nova I/White Nova Isotipo.png', import.meta.url).href
@@ -47,100 +32,90 @@ function Sidebar() {
     { path: '/settings', label: t('settings'), icon: SettingsIcon },
   ]
 
-  const handleFileChange = (e) => {
-    const file = e.target.files[0]
-    if (file) {
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        setUser({ ...user, avatar: reader.result })
-      }
-      reader.readAsDataURL(file)
+  const handleFileChange = (event) => {
+    const file = event.target.files[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      setUser({ ...user, avatar: reader.result })
     }
+    reader.readAsDataURL(file)
   }
 
   const handleLogout = async () => {
-    try {
-      await api.post('/auth/logout', {})
-    } catch (err) {
-      console.error('Logout failed:', err)
-    } finally {
-      setApiKey('')
-      setIsAuthenticated(false)
-      window.location.href = '/login'
-    }
+    await api.post('/auth/logout', {}).catch(() => null)
+    setApiKey('')
+    setIsAuthenticated(false)
+    window.location.href = '/login'
   }
 
   return (
-    <aside className="w-64 bg-[#F9F9F9] dark:bg-[#101316] min-h-screen p-6 flex flex-col z-50 sticky top-0 transition-colors duration-500">
-      {/* BRANDING - Strictly Transparent PNG */}
-      <div className="flex items-center gap-3 mb-12 px-2 bg-transparent">
-        <img 
-          src={theme === 'dark' ? novaIsotipoWhite : novaIsotipoBlack} 
-          alt="Logo" 
-          className="w-8 h-8 object-contain bg-transparent" 
+    <aside className="sticky top-0 z-50 flex min-h-screen w-64 flex-col bg-[#F9F9F9] p-6 transition-colors duration-500 dark:bg-[#101316]">
+      <div className="mb-12 flex items-center gap-3 bg-transparent px-2">
+        <img
+          src={theme === 'dark' ? novaIsotipoWhite : novaIsotipoBlack}
+          alt="Logo"
+          className="h-8 w-8 bg-transparent object-contain"
         />
-        <span className="font-bold text-lg text-black dark:text-[#f2f4f6] tracking-tighter">NOVA OS</span>
+        <span className="text-lg font-bold tracking-tighter text-black dark:text-[#f2f4f6]">NOVA OS</span>
       </div>
 
-      {/* NAVIGATION */}
       <nav className="flex-1 space-y-1">
         {navItems.map((item) => {
           const isActive = location.pathname === item.path
+
           return (
             <Link
               key={item.path}
               to={item.path}
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl text-[13px] font-bold transition-all
-                ${isActive
-                  ? 'bg-black dark:bg-[#1b2026] text-white dark:text-white shadow-[0_18px_40px_-28px_rgba(0,0,0,0.75)]'
-                  : 'text-black/40 dark:text-[#8e959d] hover:text-black dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/[0.04]'
-                }`}
+              className={`flex items-center gap-3 rounded-xl px-4 py-3 text-[13px] font-bold transition-all ${
+                isActive
+                  ? 'bg-black text-white shadow-[0_18px_40px_-28px_rgba(0,0,0,0.75)] dark:bg-[#1b2026] dark:text-white'
+                  : 'text-black/40 hover:bg-black/5 hover:text-black dark:text-[#8e959d] dark:hover:bg-white/[0.04] dark:hover:text-white'
+              }`}
             >
-              <item.icon className="w-4 h-4" />
+              <item.icon className="h-4 w-4" />
               {item.label}
             </Link>
           )
         })}
       </nav>
 
-      {/* USER PROFILE - Photo Selection Integrated */}
-      <div className="pt-6 border-t border-black/5 dark:border-white/[0.05] space-y-6">
-        <div className="group relative flex items-center gap-3 px-2 cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-          <div className="relative w-10 h-10 rounded-xl bg-black/5 dark:bg-white/[0.04] flex items-center justify-center overflow-hidden transition-all group-hover:ring-1 group-hover:ring-white/10">
+      <div className="space-y-6 border-t border-black/5 pt-6 dark:border-white/[0.05]">
+        <div
+          className="group relative flex cursor-pointer items-center gap-3 px-2"
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-black/5 transition-all group-hover:ring-1 group-hover:ring-white/10 dark:bg-white/[0.04]">
             {user.avatar ? (
-              <img src={user.avatar} className="w-full h-full object-cover" />
+              <img src={user.avatar} alt={user.name} className="h-full w-full object-cover" />
             ) : (
-              <User className="w-5 h-5 opacity-40" />
+              <User className="h-5 w-5 opacity-40" />
             )}
-            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-               <Camera className="w-4 h-4 text-white" />
+            <div className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 transition-opacity group-hover:opacity-100">
+              <Camera className="h-4 w-4 text-white" />
             </div>
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-bold truncate text-black dark:text-[#edf0f2] uppercase tracking-tight">{user.name}</p>
-            <p className="text-[9px] font-bold text-black/30 dark:text-[#7e858d] uppercase tracking-widest leading-none">Settings</p>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[11px] font-bold uppercase tracking-tight text-black dark:text-[#edf0f2]">{user.name}</p>
+            <p className="text-[9px] font-bold uppercase leading-none tracking-widest text-black/30 dark:text-[#7e858d]">Settings</p>
           </div>
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleFileChange} 
-            className="hidden" 
-            accept="image/*"
-          />
+          <input ref={fileInputRef} type="file" onChange={handleFileChange} className="hidden" accept="image/*" />
         </div>
 
         <div className="grid grid-cols-2 gap-2">
           <button
             onClick={toggleTheme}
-            className="flex items-center justify-center p-3 rounded-xl bg-black/5 dark:bg-white/[0.04] text-black/40 dark:text-[#8e959d] hover:text-black dark:hover:text-white transition-colors"
+            className="flex items-center justify-center rounded-xl bg-black/5 p-3 text-black/40 transition-colors hover:text-black dark:bg-white/[0.04] dark:text-[#8e959d] dark:hover:text-white"
           >
-            {theme === 'dark' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+            {theme === 'dark' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
           </button>
           <button
             onClick={handleLogout}
-            className="flex items-center justify-center p-3 rounded-xl bg-red-500/5 text-red-500 hover:bg-red-500/10 transition-colors"
+            className="flex items-center justify-center rounded-xl bg-red-500/5 p-3 text-red-500 transition-colors hover:bg-red-500/10"
           >
-            <LogOut className="w-4 h-4" />
+            <LogOut className="h-4 w-4" />
           </button>
         </div>
       </div>
@@ -152,25 +127,24 @@ function Header() {
   const [search, setSearch] = useState('')
 
   return (
-    <header className="h-20 flex items-center justify-between px-10 bg-white dark:bg-[#0c0f12] transition-colors duration-500">
-      {/* Search Implementation */}
-      <div className="relative w-96 group">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-black/20 dark:text-[#747b84] group-focus-within:text-accent transition-colors" />
-        <input 
+    <header className="flex h-20 items-center justify-between bg-white px-10 transition-colors duration-500 dark:bg-[#0c0f12]">
+      <div className="group relative w-96">
+        <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-black/20 transition-colors group-focus-within:text-accent dark:text-[#747b84]" />
+        <input
           type="text"
           placeholder="Search agents, nodes, skills..."
-          className="w-full bg-black/5 dark:bg-white/[0.04] border-0 rounded-xl pl-12 pr-4 py-2.5 text-xs font-bold outline-none focus:ring-1 focus:ring-accent/30 dark:text-[#d6dbe0] placeholder:text-black/20 dark:placeholder:text-[#747b84] transition-all"
+          className="w-full rounded-xl border-0 bg-black/5 py-2.5 pl-12 pr-4 text-xs font-bold outline-none transition-all placeholder:text-black/20 focus:ring-1 focus:ring-accent/30 dark:bg-white/[0.04] dark:text-[#d6dbe0] dark:placeholder:text-[#747b84]"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(event) => setSearch(event.target.value)}
         />
       </div>
 
       <div className="flex items-center gap-6">
         <div className="flex items-center gap-2">
-           <span className="w-1 h-1 bg-accent rounded-full"></span>
-           <span className="text-[10px] font-bold text-black/30 dark:text-[#7e858d] uppercase tracking-widest">Network Operational</span>
+          <span className="h-1 w-1 rounded-full bg-accent" />
+          <span className="text-[10px] font-bold uppercase tracking-widest text-black/30 dark:text-[#7e858d]">Network Operational</span>
         </div>
-        <button className="text-[10px] font-bold uppercase tracking-wider px-6 py-2.5 bg-black dark:bg-[#edf0f2] text-white dark:text-[#101316] rounded-xl hover:opacity-80 transition-all shadow-sm">
+        <button className="rounded-xl bg-black px-6 py-2.5 text-[10px] font-bold uppercase tracking-wider text-white shadow-sm transition-all hover:opacity-80 dark:bg-[#edf0f2] dark:text-[#101316]">
           Sync Node
         </button>
       </div>
@@ -180,13 +154,11 @@ function Header() {
 
 function Layout({ children }) {
   return (
-    <div className="flex min-h-screen bg-white dark:bg-[#0c0f12] text-black dark:text-[#d4d9de] transition-colors duration-500 selection:bg-accent selection:text-black">
+    <div className="flex min-h-screen bg-white text-black transition-colors duration-500 selection:bg-accent selection:text-black dark:bg-[#0c0f12] dark:text-[#d4d9de]">
       <Sidebar />
-      <div className="flex-1 flex flex-col">
+      <div className="flex flex-1 flex-col">
         <Header />
-        <main className="flex-1 p-10 overflow-auto">
-          {children}
-        </main>
+        <main className="flex-1 overflow-auto p-10">{children}</main>
       </div>
     </div>
   )
@@ -211,31 +183,46 @@ function App() {
               <Routes>
                 <Route path="/" element={<Landing />} />
                 <Route path="/login" element={<Login />} />
-                <Route path="/dashboard" element={
-                  <ProtectedRoute>
-                    <Dashboard />
-                  </ProtectedRoute>
-                } />
-                <Route path="/ledger" element={
-                  <ProtectedRoute>
-                    <Ledger />
-                  </ProtectedRoute>
-                } />
-                <Route path="/agents" element={
-                  <ProtectedRoute>
-                    <Agents />
-                  </ProtectedRoute>
-                } />
-                <Route path="/skills" element={
-                  <ProtectedRoute>
-                    <Skills />
-                  </ProtectedRoute>
-                } />
-                <Route path="/settings" element={
-                  <ProtectedRoute>
-                    <Settings />
-                  </ProtectedRoute>
-                } />
+                <Route
+                  path="/dashboard"
+                  element={
+                    <ProtectedRoute>
+                      <Dashboard />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/ledger"
+                  element={
+                    <ProtectedRoute>
+                      <Ledger />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/agents"
+                  element={
+                    <ProtectedRoute>
+                      <Agents />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/skills"
+                  element={
+                    <ProtectedRoute>
+                      <Skills />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/settings"
+                  element={
+                    <ProtectedRoute>
+                      <Settings />
+                    </ProtectedRoute>
+                  }
+                />
               </Routes>
             </BrowserRouter>
           )}

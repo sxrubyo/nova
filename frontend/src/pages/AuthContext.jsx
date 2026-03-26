@@ -30,6 +30,17 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     const bootstrapAuth = async () => {
+      if (!apiKey) {
+        setIsAuthenticated(false)
+        setUser((prev) => ({
+          ...prev,
+          name: prev.name || 'Admin User',
+          email: prev.email || 'admin@nova-os.com',
+        }))
+        setIsAuthLoading(false)
+        return
+      }
+
       try {
         const workspace = await api.get('/workspaces/me')
         setIsAuthenticated(true)
@@ -40,13 +51,11 @@ export function AuthProvider({ children }) {
         }))
       } catch (err) {
         setIsAuthenticated(false)
-        if (!apiKey) {
-          setUser((prev) => ({
-            ...prev,
-            name: prev.name || 'Admin User',
-            email: prev.email || 'admin@nova-os.com',
-          }))
-        }
+        setUser((prev) => ({
+          ...prev,
+          name: prev.name || 'Admin User',
+          email: prev.email || 'admin@nova-os.com',
+        }))
       } finally {
         setIsAuthLoading(false)
       }

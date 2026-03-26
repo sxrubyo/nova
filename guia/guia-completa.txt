@@ -1,0 +1,51 @@
+Nova OS Estado General
+=======================
+
+1. Contexto y arquitectura
+-------------------------
+- Frontend -> Legacy backend: el SPA del dashboard (Talk with your agent, login, UI) hace peticiones a `http://localhost:8000`, no a `nova.py`. El backend aún mantiene sesiones, /auth, envía el `x-api-key` del workspace y puerta `/assistant/chat` y `/assistant/execute`.
+- El backend legacy importa `nova.integrations.legacy_backend` para convertir cada request en una evaluación del NovaKernel dentro de `nova/`.
+- NovaKernel vive en `nova/kernel.py` y coordina el pipeline completo (`nova/core`), la memoria (`nova/memory`), los proveedores multi-LLM (`nova/gateway`), el ledger (`nova/ledger`) y la bridge WebSocket (`nova/bridge`).
+- La persistencia del runtime usa Postgres (mismas credenciales que el backend). Separamos las tablas en `nova_runtime_*` para evitar colisiones con la base antigua (workspaces: uuid vs varchar). Hay un SQLite/`nova.db` solo para debugging; el tráfico real usa Postgres + drivers asyncpg.
+
+2. Qué se puede hacer ahora
+---------------------------
+- Correr `python nova.py start` configura CLI, arranca kernel FastAPI local y la bridge WebSocket (puerto 9700). `Makefile` ofrece `make run`, `make test`, `make seed`, `make verify` y `make dev`.
+- Desde el backend el asistente ejecuta `nova` commands seguros (solo permiten `nova ...`). Esos comandos se evalúan en la runtime, calculan riesgo, alertan, escriben en `nova_runtime_ledger_records` y se reflejan en `ledger` heredado.
+- El ledger legacy añade metadatos de riesgo `score_factors`, `response`, `verdict` y `llm_provider`. Ya hay entradas recientes con `id 39` y `38` que demuestran la integración.
+- Cualquier IA que conozca la base puede consultar `/assistant/chat`, `/assistant/execute`, `/ledger`, `/api/status`, `/api/workspaces`, `/api/agents` y la bridge WebSocket (puerto 9700). El handoff validado en `.claude/handoffs/...` describe el wiring completo para futuros agentes.
+
+3. Archivos clave
+----------------
+- `backend/main.py`: orquesta el backend + runtime bridge. Mira `_load_runtime_bridge`, `_warm_runtime_bridge`, `_mirror_runtime_evaluation_to_legacy`, `_ensure_runtime_legacy_token` y los endpoints `/assistant/chat` y `/assistant/execute`.
+- `nova/integrations/legacy_backend.py`: contiene `runtime_config`, `get_runtime_kernel`, `ensure_workspace_synced`, `ensure_agent_synced`, `temporary_provider_key` y `evaluate_action`. Decide el `db_url` (usa `DATABASE_URL` antes de caer a SQLite) y configura `NovaKernel`.
+- `nova/core/pipeline.py`: pipeline secuencial con detección de loops, burst, reglas, riesgos y ejecución. Persiste a `nova_runtime_*` y emite ledger/metrics/memory.
+- `nova/storage/models.py`: define las tablas runtime y relaciones con `ForeignKey` a `nova_runtime_*`.
+- `.claude/handoffs/2026-03-26-010939-nova-runtime-integration.md`: registro validado del estado actual.
+- `guia/resumen.txt` y `guia/guia-completa.txt`: documentación de nivel general y de referencia para cualquier IA.
+
+4. Cómo arrancar y verificar
+---------------------------
+- Preparar el entorno: `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt` (o `make install`).
+- `make seed` crea workspaces/agentes evaluaciones de ejemplo y un ledger hash chain válido.
+- `make run` inicia `python nova.py start` (usa FastAPI en 9800 y bridge en 9700). Asegura que `DATABASE_URL` apunte a `postgresql+asyncpg://...`.
+- Validaciones: `python -c import nova.kernel as k; print('Kernel OK')`, `python nova.py ledger verify`, `curl -H 'x-api-key:...' http://127.0.0.1:8000/assistant/chat`, `curl -H 'x-api-key:...' http://127.0.0.1:8000/assistant/execute`.
+- Los logs de Postgres se llena `nova_runtime_ledger_records`, `nova_runtime_evaluations` y `nova_runtime_agents` confirmando la evaluación real.
+
+5. Estado de producción
+----------------------
+- El runtime usa Postgres, la bridge y la API están en marcha y la UI ya ve entradas en el ledger. El handoff y la guía explican cómo continuar.
+- Pendientes: formalizar que `/app/nova` se empaqueta en la imagen backend (ahora se copia manualmente) y decidir qué hacer con el proceso de PM2 `nova.py shield --listen 0.0.0.0:9002`.
+
+6. Comandos útiles
+-----------------
+- `make test`: ejecuta `pytest tests/ -v --tb=short`.
+- `make lint`: `ruff check` + `black --check` + `mypy`.
+- `python scripts/verify_chain.py`: valida el hash chain del ledger.
+- `python scripts/seed_data.py`: regenera workspaces/agentes/evaluaciones.
+- `python scripts/migrate.py`: aplica migraciones (si las agregas después).
+
+7. Seguimiento
+--------------
+- Revisar `nova_runtime_*` en Postgres y `ledger` para monitorear las evaluaciones.
+- Leer `guia/guia-completa.txt` para entender todo el wiring y los pasos futuros.

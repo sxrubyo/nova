@@ -1516,7 +1516,8 @@ _KNOWN_PORTS = [
     (8001, "melissa",            "python"),
     (8002, "melissa-alt",        "python"),
     # ── OpenClaw ───────────────────────────────────────────────────────────────
-    (1234, "openclaw",           "openai-compat"),
+    (18789, "openclaw",          "python"),
+    (1234,  "openclaw-legacy",   "python"),
     (11434,"ollama",             "native"),
     # ── Common agentic servers ─────────────────────────────────────────────────
     (5678, "n8n",                "node"),

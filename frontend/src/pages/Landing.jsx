@@ -2,17 +2,18 @@ import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, ShieldCheck, Waves, TerminalSquare } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { SERVER_IP } from '../config/appConfig'
 import { useTheme } from '../context/ThemeContext'
+import ProviderMark from '../components/brand/ProviderMark'
+import { providerCatalog } from '../lib/provider-catalog'
 
 const novaIsotipoBlack = new URL('../../nova-branding/Nova I/Black Nova Isotipo.png', import.meta.url).href
 const novaIsotipoWhite = new URL('../../nova-branding/Nova I/White Nova Isotipo.png', import.meta.url).href
 const dashboardPreview = '/images/novad.png'
 
 const heroSignals = [
-  { value: '/validate', label: 'review policies before an agent can act' },
-  { value: '/stream/events', label: 'watch decisions and incidents live' },
-  { value: 'ledger', label: 'keep evidence for every critical action' },
+  { value: 'Allow / Block / Escalate', label: 'runtime decisions stay explicit and reviewable' },
+  { value: '9 providers online', label: 'route real models without rebuilding agent infrastructure' },
+  { value: 'Immutable ledger', label: 'keep evidence for every governed action and operator review' },
 ]
 
 const scrollSections = [
@@ -80,6 +81,7 @@ function Landing() {
   const { theme } = useTheme()
   const [email, setEmail] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const providerRouteCount = providerCatalog.reduce((total, provider) => total + provider.models.length, 0)
 
   const isDark = theme === 'dark'
   const themeClasses = isDark
@@ -89,13 +91,11 @@ function Landing() {
         subtle: 'text-white/62',
         subtleStrong: 'text-white/74',
         line: 'border-white/10',
-        section: 'bg-[#13181d]',
         card: 'bg-white/[0.035] border-white/[0.06]',
         cardSoft: 'bg-white/[0.03] border-white/[0.05]',
         panel: 'bg-[#171c22] border-white/[0.06]',
         input: 'bg-white/[0.06] border-white/12 text-white placeholder:text-white/36',
         buttonAlt: 'border-white/12 bg-white/[0.05] text-white hover:bg-white/[0.09]',
-        marquee: 'text-white/[0.03] [text-shadow:0_0_1px_rgba(255,255,255,0.08)]',
         iso: novaIsotipoWhite,
       }
     : {
@@ -104,18 +104,16 @@ function Landing() {
         subtle: 'text-black/62',
         subtleStrong: 'text-black/72',
         line: 'border-black/8',
-        section: 'bg-[#f7f2e8]',
         card: 'bg-white/80 border-black/8',
         cardSoft: 'bg-[#fffdfa] border-black/8',
         panel: 'bg-white border-black/8',
         input: 'bg-white border-black/10 text-[#111111] placeholder:text-black/32',
         buttonAlt: 'border-black/10 bg-white/80 text-[#111111] hover:bg-white',
-        marquee: 'text-black/[0.035] [text-shadow:0_0_1px_rgba(17,17,17,0.08)]',
         iso: novaIsotipoBlack,
       }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
+  const handleSubmit = async (event) => {
+    event.preventDefault()
     setIsSubmitting(true)
     await new Promise((resolve) => setTimeout(resolve, 900))
     setIsSubmitting(false)
@@ -125,20 +123,18 @@ function Landing() {
   return (
     <div className={`min-h-screen overflow-hidden ${themeClasses.page}`}>
       <div className={`relative ${themeClasses.grid}`}>
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[280px] bg-[linear-gradient(180deg,rgba(0,0,0,0.42)_0%,rgba(0,0,0,0.18)_42%,transparent_100%)] blur-2xl" />
-        <div className="absolute inset-x-0 top-0 h-px bg-white/8 dark:bg-white/8" />
         <div className="absolute left-0 top-20 h-[420px] w-[420px] rounded-full bg-[#3ecf8e]/8 blur-3xl" />
         <div className="absolute right-0 top-16 h-[520px] w-[520px] rounded-full bg-white/[0.04] blur-3xl" />
 
         <nav className="relative z-10">
-          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-5 sm:px-6 lg:px-8">
+          <div className="mx-auto flex max-w-[1480px] items-center justify-between px-4 py-5 sm:px-6 lg:px-8">
             <div className="flex items-center gap-3">
-              <div className={`flex h-14 w-14 items-center justify-center rounded-2xl border ${themeClasses.line} ${themeClasses.card}`}>
-                <img src={themeClasses.iso} alt="Nova isotipo" className="h-11 w-11 object-contain" />
+              <img src={themeClasses.iso} alt="Nova isotipo" className="h-12 w-12 object-contain" />
+              <div>
+                <p className="text-base font-semibold tracking-[-0.03em]">
+                  Nova OS <span className={themeClasses.subtle}>| Enterprise governance runtime</span>
+                </p>
               </div>
-	              <div>
-	                <p className="text-base font-semibold">Secure What Acts <span className={themeClasses.subtle}>| Nova</span></p>
-	              </div>
             </div>
 
             <div className="hidden items-center gap-8 md:flex">
@@ -152,44 +148,87 @@ function Landing() {
           </div>
         </nav>
 
-        <section className="relative z-10 mx-auto grid min-h-[calc(100vh-88px)] max-w-7xl gap-12 px-4 pb-20 pt-8 sm:px-6 lg:grid-cols-[0.88fr_1.12fr] lg:items-center lg:px-8 lg:pb-24">
-	          <div>
-            <h1 className="max-w-4xl text-[clamp(4rem,10vw,9.5rem)] font-semibold uppercase leading-[0.9] tracking-[-0.06em]">
-              Control
-              <br />
-              live agent
-              <br />
-              actions.
-            </h1>
-            <p className={`mt-6 max-w-2xl text-lg leading-8 ${themeClasses.subtleStrong}`}>
-              Nova gives operators a control layer for AI systems in production: review actions, trace decisions, monitor risk, and respond before customers or infrastructure are exposed.
-            </p>
+        <section className="relative z-10 px-4 pb-20 pt-6 sm:px-6 lg:px-8 lg:pb-24">
+          <div className="mx-auto grid min-h-[calc(100vh-92px)] max-w-[1480px] gap-8 lg:grid-cols-[minmax(0,1.06fr)_minmax(560px,0.94fr)] lg:items-start xl:gap-12">
+            <div className="lg:pr-2">
+              <div className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-[11px] font-mono uppercase tracking-[0.24em] ${themeClasses.cardSoft}`}>
+                Governance control plane
+              </div>
+              <div className="mt-6 max-w-[760px]">
+                <p className={`text-[11px] font-mono uppercase tracking-[0.24em] ${themeClasses.subtle}`}>
+                  live risk scoring · provider routing · tamper-evident audit trail
+                </p>
+                <h1 className="mt-5 text-[clamp(3.5rem,5.9vw,6.1rem)] font-semibold leading-[0.9] tracking-[-0.075em]">
+                  <span className="block">
+                    Control<span className="inline-block w-[0.16em]" />live
+                  </span>
+                  <span className="block">agent actions</span>
+                  <span className="block">
+                    before<span className="inline-block w-[0.16em]" />they
+                  </span>
+                  <span className="block">become incidents.</span>
+                </h1>
+                <p className={`mt-6 max-w-[62ch] text-lg leading-8 ${themeClasses.subtleStrong}`}>
+                  Nova gives operators a governance layer for AI systems already in production: review intent, select the right model lane, inspect decisions, and preserve evidence before customers, data, or infrastructure are exposed.
+                </p>
+              </div>
 
-            <div className="mt-9 flex flex-col gap-4 sm:flex-row">
-              <Link to="/login" className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-7 py-4 text-sm font-semibold text-[#111111] transition hover:bg-[#f3f3f3]">
-                Launch dashboard
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-              <a href="#runtime" className={`inline-flex items-center justify-center rounded-full border px-7 py-4 text-sm font-semibold transition ${themeClasses.buttonAlt}`}>
-                Explore runtime surface
-              </a>
-            </div>
+              <div className="mt-9 flex flex-col gap-4 sm:flex-row">
+                <Link to="/login" className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-7 py-4 text-sm font-semibold text-[#111111] transition hover:bg-[#f3f3f3]">
+                  Launch dashboard
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+                <a href="#runtime" className={`inline-flex items-center justify-center rounded-full border px-7 py-4 text-sm font-semibold transition ${themeClasses.buttonAlt}`}>
+                  Explore runtime surface
+                </a>
+              </div>
 
-            <div className="mt-10 grid gap-4 sm:grid-cols-3">
-              {heroSignals.map((signal) => (
-                <div key={signal.value} className={`rounded-[26px] border p-5 shadow-[0_30px_70px_-55px_rgba(0,0,0,0.55)] ${themeClasses.cardSoft}`}>
-                  <p className="text-2xl font-semibold tracking-[-0.03em]">{signal.value}</p>
-                  <p className={`mt-2 text-sm leading-6 ${themeClasses.subtle}`}>{signal.label}</p>
+              <div className="mt-5 flex flex-wrap gap-2">
+                {['Operator review lane', 'Real provider logos', 'Model routes visible', 'Audit-ready evidence'].map((chip) => (
+                  <div
+                    key={chip}
+                    className={`rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] ${themeClasses.cardSoft}`}
+                  >
+                    {chip}
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-10 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {heroSignals.map((signal) => (
+                  <div key={signal.value} className={`rounded-[26px] border p-5 shadow-[0_30px_70px_-55px_rgba(0,0,0,0.55)] ${themeClasses.cardSoft}`}>
+                    <p className="text-xl font-semibold tracking-[-0.04em] xl:text-2xl">{signal.value}</p>
+                    <p className={`mt-2 text-sm leading-6 ${themeClasses.subtle}`}>{signal.label}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className={`mt-8 rounded-[30px] border p-4 sm:p-5 ${themeClasses.cardSoft}`}>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <p className={`text-[10px] font-mono uppercase tracking-[0.22em] ${themeClasses.subtle}`}>Supported model lane</p>
+                  <p className={`text-xs ${themeClasses.subtle}`}>9 providers · {providerRouteCount} real model routes</p>
                 </div>
-              ))}
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {providerCatalog.map((provider) => (
+                    <div key={provider.key} className={`flex items-center gap-3 rounded-[22px] border px-3 py-3 ${themeClasses.card}`}>
+                      <ProviderMark
+                        src={provider.logo}
+                        alt={`${provider.label} logo`}
+                        frameClassName="min-w-[58px] rounded-[14px] px-2.5 py-2"
+                        imageClassName="max-h-[18px] max-w-[64px]"
+                      />
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold">{provider.label}</div>
+                        <div className={`mt-1 truncate text-xs ${themeClasses.subtle}`}>{provider.models[0].label}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
-          </div>
 
-		          <div className="relative min-h-[620px] overflow-visible lg:min-h-[860px]">
-		            <div className="absolute left-[14%] top-[16%] h-[320px] w-[320px] rounded-full bg-[#3ecf8e]/10 blur-3xl lg:left-[28%] lg:h-[460px] lg:w-[460px]" />
-		            <div className="absolute right-[-2%] top-[20%] h-[240px] w-[240px] rounded-full bg-white/[0.04] blur-3xl lg:right-[-6%] lg:h-[340px] lg:w-[340px]" />
-		            <DesktopMock />
-	          </div>
+            <DesktopMock providers={providerCatalog} />
+          </div>
         </section>
       </div>
 
@@ -210,15 +249,13 @@ function Landing() {
                   <h2 className="mt-4 text-[clamp(2.6rem,5vw,4.8rem)] font-semibold leading-[0.98] tracking-[-0.05em]">
                     {index === 0 ? (
                       <>
-	                        Every <span className="font-semibold text-[#3ecf8e] [text-shadow:0_0_22px_rgba(62,207,142,0.18)]">action</span> is reviewed before it touches customers, data, or infrastructure.
+                        Every <span className="font-semibold text-[#3ecf8e] [text-shadow:0_0_22px_rgba(62,207,142,0.18)]">action</span> is reviewed before it touches customers, data, or infrastructure.
                       </>
                     ) : (
                       section.title
                     )}
                   </h2>
-                  <p className={`mt-5 max-w-xl text-base leading-8 ${themeClasses.subtleStrong}`}>
-                    {section.description}
-                  </p>
+                  <p className={`mt-5 max-w-xl text-base leading-8 ${themeClasses.subtleStrong}`}>{section.description}</p>
                   <div className="mt-8 inline-flex items-center gap-2 rounded-full border border-[#3ecf8e]/18 bg-[#3ecf8e]/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#79d9ab]">
                     {index === 0 ? <ShieldCheck className="h-3.5 w-3.5" /> : index === 1 ? <Waves className="h-3.5 w-3.5" /> : <TerminalSquare className="h-3.5 w-3.5" />}
                     {section.accent}
@@ -264,16 +301,16 @@ function Landing() {
         className="bg-[#05070a] py-24 text-white"
       >
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-			          <div className="rounded-[34px] border border-white/10 bg-black/45 px-6 py-12 backdrop-blur-xl sm:px-10 lg:px-12">
-			            <p className="text-center text-[11px] font-mono uppercase tracking-[0.22em] text-white/42">Operational impact</p>
-			            <div className="mt-12 grid gap-px overflow-hidden rounded-[26px] border border-white/8 bg-white/8 sm:grid-cols-2 xl:grid-cols-4">
-			              {stats.map((item) => (
-			                <div key={item.label} className="flex min-h-[180px] flex-col items-center justify-center bg-[#06080b] px-6 py-8 text-center">
-			                  <p className="text-[clamp(2.4rem,3.2vw,3.6rem)] font-semibold leading-none tracking-[-0.05em]">{item.value}</p>
-			                  <p className="mt-4 max-w-[15ch] text-[10px] uppercase leading-6 tracking-[0.18em] text-white/50">{item.label}</p>
-			                </div>
-			              ))}
-			            </div>
+          <div className="rounded-[34px] border border-white/10 bg-black/45 px-6 py-12 backdrop-blur-xl sm:px-10 lg:px-12">
+            <p className="text-center text-[11px] font-mono uppercase tracking-[0.22em] text-white/42">Operational impact</p>
+            <div className="mt-12 grid gap-px overflow-hidden rounded-[26px] border border-white/8 bg-white/8 sm:grid-cols-2 xl:grid-cols-4">
+              {stats.map((item) => (
+                <div key={item.label} className="flex min-h-[180px] flex-col items-center justify-center bg-[#06080b] px-6 py-8 text-center">
+                  <p className="text-[clamp(2.4rem,3.2vw,3.6rem)] font-semibold leading-none tracking-[-0.05em]">{item.value}</p>
+                  <p className="mt-4 max-w-[15ch] text-[10px] uppercase leading-6 tracking-[0.18em] text-white/50">{item.label}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </motion.section>
@@ -331,7 +368,7 @@ function Landing() {
               type="email"
               placeholder="operator@company.com"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(event) => setEmail(event.target.value)}
               required
               className={`min-w-0 flex-1 rounded-full px-5 py-4 outline-none transition ${themeClasses.input}`}
             />
@@ -349,42 +386,65 @@ function Landing() {
   )
 }
 
-function DesktopMock() {
+function DesktopMock({ providers }) {
   return (
-    <div className="relative h-full w-full overflow-visible">
-	      <motion.div
-	        initial={{
-	          opacity: 0,
-	          x: 280,
-	          scale: 0.92,
-	          rotate: -0.6,
-	          rotateY: -18,
-	          filter: 'blur(24px)',
-	        }}
-	        animate={{
-	          opacity: 1,
-	          x: 0,
-	          scale: 1,
-	          rotate: -2.5,
-	          rotateY: 0,
-	          filter: 'blur(0px)',
-	        }}
-	        transition={{
-	          duration: 2.2,
-	          delay: 0.28,
-	          ease: [0.16, 1, 0.3, 1],
-	        }}
-	        className="absolute left-[6%] top-10 w-[150%] [transform-style:preserve-3d] lg:left-[16%] lg:top-2 lg:w-[168%]"
-	      >
-	        <div className="absolute inset-x-[8%] bottom-[-62px] h-36 rounded-full bg-black/55 blur-3xl" />
-	        <div className="relative overflow-hidden rounded-[32px] border border-white/[0.07] bg-[#12171c] p-3 shadow-[0_95px_220px_-80px_rgba(0,0,0,0.95)]">
-	          <img
-	            src={dashboardPreview}
-	            alt="Nova dashboard screenshot"
-	            className="block h-auto w-full rounded-[24px] object-cover"
-	          />
-	        </div>
-	      </motion.div>
+    <div className="relative mx-auto mt-6 w-full max-w-[860px] lg:-ml-4 lg:mt-0">
+      <div className="absolute inset-x-[12%] top-10 h-[320px] rounded-full bg-[#3ecf8e]/12 blur-3xl" />
+      <div className="absolute right-[10%] top-16 h-[240px] w-[240px] rounded-full bg-white/[0.06] blur-3xl" />
+      <motion.div
+        initial={{
+          opacity: 0,
+          x: 48,
+          y: 18,
+          scale: 0.96,
+          filter: 'blur(18px)',
+        }}
+        animate={{
+          opacity: 1,
+          x: 0,
+          y: 0,
+          scale: 1,
+          filter: 'blur(0px)',
+        }}
+        transition={{
+          duration: 1.6,
+          delay: 0.18,
+          ease: [0.16, 1, 0.3, 1],
+        }}
+        className="relative px-2 lg:px-0"
+      >
+        <div className="absolute inset-x-[16%] bottom-[-56px] h-32 rounded-full bg-black/55 blur-3xl" />
+
+        <div className="rounded-[22px] border border-white/10 bg-white/[0.04] px-4 py-3 text-white shadow-[0_24px_70px_-46px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.22em] text-white/42">Operator bridge</div>
+              <div className="mt-1 text-sm font-semibold">Real runtime preview</div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+              {providers.slice(0, 5).map((provider) => (
+                <ProviderMark
+                  key={provider.key}
+                  src={provider.logo}
+                  alt={`${provider.label} logo`}
+                  frameClassName="min-w-[52px] rounded-[14px] px-2 py-1.5"
+                  imageClassName="max-h-4 max-w-[58px]"
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="relative mt-4 overflow-hidden rounded-[36px] border border-white/[0.08] bg-[#12171c] p-3 shadow-[0_95px_220px_-80px_rgba(0,0,0,0.95)]">
+          <div className="overflow-hidden rounded-[28px] border border-white/[0.06] bg-[#0e1319]">
+            <img
+              src={dashboardPreview}
+              alt="Nova dashboard screenshot"
+              className="block h-auto w-full object-cover object-top"
+            />
+          </div>
+        </div>
+      </motion.div>
     </div>
   )
 }

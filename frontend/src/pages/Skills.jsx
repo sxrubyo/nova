@@ -1,7 +1,56 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { ExternalLink, Github, Search, ShieldCheck, Wrench } from 'lucide-react'
+import { BrainCircuit, ExternalLink, Github, Search, ShieldCheck, Wrench } from 'lucide-react'
 import { api } from '../utils/api'
+import ProviderMark from '@/components/brand/ProviderMark'
+
+const connectorBrandMap = {
+  airtable: { name: 'Airtable', logo: '/brands/airtable.svg', tone: 'bg-white' },
+  datadog: { name: 'Datadog', logo: '/brands/datadog.svg', tone: 'bg-white' },
+  discord: { name: 'Discord', logo: '/brands/discord.svg', tone: 'bg-white' },
+  github: { name: 'GitHub', logo: '/brands/github.svg', tone: 'bg-white' },
+  gmail: { name: 'Gmail', logo: '/brands/gmail.svg', tone: 'bg-white' },
+  hubspot: { name: 'HubSpot', logo: '/brands/hubspot.svg', tone: 'bg-white' },
+  jira: { name: 'Jira', logo: '/brands/jira.svg', tone: 'bg-white' },
+  linear: { name: 'Linear', logo: '/brands/linear.svg', tone: 'bg-white' },
+  make: { name: 'Make', logo: '/brands/make.svg', tone: 'bg-white' },
+  notion: { name: 'Notion', logo: '/brands/notion.svg', tone: 'bg-white' },
+  pagerduty: { name: 'PagerDuty', logo: '/brands/pagerduty.svg', tone: 'bg-white' },
+  postgres: { name: 'PostgreSQL', logo: '/brands/postgresql.svg', tone: 'bg-white' },
+  redis: { name: 'Redis', logo: '/brands/redis.svg', tone: 'bg-white' },
+  salesforce: { name: 'Salesforce', tone: 'bg-[#eaf6ff]' },
+  slack: { name: 'Slack', logo: '/brands/slack.svg', tone: 'bg-white' },
+  stripe: { name: 'Stripe', logo: '/brands/stripe.svg', tone: 'bg-white' },
+  supabase: { name: 'Supabase', logo: '/brands/supabase.svg', tone: 'bg-white' },
+  telegram: { name: 'Telegram', logo: '/brands/telegram.svg', tone: 'bg-white' },
+  webhook: { name: 'Webhook', tone: 'bg-[#f6f1e6]' },
+  whatsapp: { name: 'WhatsApp', logo: '/brands/whatsapp.svg', tone: 'bg-white' },
+  zapier: { name: 'Zapier', logo: '/brands/zapier.svg', tone: 'bg-white' },
+}
+
+const categoryMap = {
+  slack: 'Communication',
+  gmail: 'Communication',
+  telegram: 'Communication',
+  whatsapp: 'Communication',
+  discord: 'Communication',
+  hubspot: 'Business',
+  salesforce: 'Business',
+  stripe: 'Business',
+  airtable: 'Data',
+  notion: 'Data',
+  postgres: 'Data',
+  redis: 'Data',
+  supabase: 'Developer',
+  github: 'Developer',
+  jira: 'Developer',
+  linear: 'Developer',
+  webhook: 'Developer',
+  make: 'Developer',
+  zapier: 'Developer',
+  datadog: 'Other',
+  pagerduty: 'Other',
+}
 
 const container = {
   hidden: { opacity: 0 },
@@ -40,8 +89,11 @@ const githubRecommendations = [
   },
 ]
 
+const categoryOrder = ['Communication', 'Business', 'Data', 'Developer', 'Other']
+
 function Skills() {
   const [skills, setSkills] = useState([])
+  const [gatewayProviders, setGatewayProviders] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
   const [loadError, setLoadError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
@@ -49,16 +101,24 @@ function Skills() {
   const loadSkills = useCallback(async () => {
     setLoadError('')
     try {
-      const data = await api.get('/skills')
-      const normalized = Object.entries(data || {}).map(([key, value]) => ({
+      const [skillData, modelData] = await Promise.all([
+        api.get('/skills'),
+        api.get('/assistant/models').catch(() => ({ providers: [] })),
+      ])
+
+      const normalized = Object.entries(skillData || {}).map(([key, value]) => ({
         id: key,
         key,
-        name: value?.name || key,
-        category: value?.category || 'Integration',
+        name: connectorBrandMap[key]?.name || value?.name || key,
+        category: categoryMap[key] || value?.category || 'Other',
         description: value?.description || 'No description provided',
         fields: Object.keys(value?.credentials || value?.schema || {}).length,
+        logo: connectorBrandMap[key]?.logo || null,
+        tone: connectorBrandMap[key]?.tone || 'bg-[#111111]',
       }))
+
       setSkills(normalized)
+      setGatewayProviders(modelData.providers || [])
     } catch (err) {
       setLoadError(err.message || 'Failed to load skills')
     } finally {
@@ -79,13 +139,22 @@ function Skills() {
     })
   }, [skills, searchQuery])
 
+  const groupedSkills = useMemo(() => {
+    return categoryOrder
+      .map((category) => ({
+        category,
+        items: filteredSkills.filter((skill) => skill.category === category),
+      }))
+      .filter((group) => group.items.length > 0)
+  }, [filteredSkills])
+
   return (
     <motion.div variants={container} initial="hidden" animate="show" className="space-y-8">
       <motion.section variants={item} className="rounded-[30px] border border-black/8 bg-[#fffdfa] p-7 shadow-[0_25px_70px_-55px_rgba(0,0,0,0.35)] dark:border-transparent dark:bg-[#151a1f] dark:shadow-[0_32px_80px_-52px_rgba(0,0,0,0.82)]">
         <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-black/42 dark:text-white/42">Integrations and skills</p>
         <h1 className="mt-3 text-4xl font-semibold tracking-[-0.05em] text-[#111111] dark:text-white">Capabilities attached to Nova</h1>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-black/62 dark:text-white/62">
-          This page now separates real backend integrations from curated GitHub skills that help build, secure and validate the product.
+          Real runtime connectors, model gateways, and developer-side capabilities are grouped here so the product stays clear even as Nova grows.
         </p>
       </motion.section>
 
@@ -98,14 +167,60 @@ function Skills() {
       <motion.section variants={item} className="rounded-[30px] border border-black/8 bg-white p-6 shadow-[0_25px_70px_-55px_rgba(0,0,0,0.35)] dark:border-transparent dark:bg-[#151a1f] dark:shadow-[0_32px_80px_-52px_rgba(0,0,0,0.82)]">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-black/42 dark:text-white/42">Gateway and model lane</p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-[#111111] dark:text-white">Available LLM providers</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-black/58 dark:text-white/58">
+              These are the real gateways Nova can use right now from your environment. Users can choose them directly from the operator panel.
+            </p>
+          </div>
+          <BrainCircuit className="mt-1 h-5 w-5 text-black/35 dark:text-white/35" />
+        </div>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {gatewayProviders.length === 0 ? (
+            <div className="rounded-[24px] border border-dashed border-black/10 bg-[#fbf7ef] p-5 text-sm text-black/48 dark:border-white/[0.06] dark:bg-white/[0.03] dark:text-white/48 md:col-span-2 xl:col-span-4">
+              No LLM providers are configured yet. Add keys in `.env` and Nova will expose them automatically.
+            </div>
+          ) : (
+            gatewayProviders.map((provider) => (
+              <div key={provider.key} className="rounded-[26px] border border-black/8 bg-[#fffdfa] p-5 shadow-[0_24px_55px_-45px_rgba(0,0,0,0.25)] dark:border-transparent dark:bg-white/[0.03] dark:shadow-[0_28px_70px_-48px_rgba(0,0,0,0.82)]">
+                <div className="flex items-start justify-between gap-3">
+                  <ProviderMark
+                    src={provider.logo}
+                    alt={`${provider.label} logo`}
+                    frameClassName="min-w-[78px] rounded-[18px] px-3 py-2"
+                    imageClassName="max-h-5 max-w-[82px]"
+                  />
+                  <span className="rounded-full bg-[#3ecf8e]/12 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#1e8a5c]">
+                    {provider.available ? 'Server key' : 'Use your key'}
+                  </span>
+                </div>
+                <h3 className="mt-5 text-lg font-semibold text-[#111111] dark:text-white">{provider.label}</h3>
+                <p className="mt-2 text-sm leading-6 text-black/62 dark:text-white/62">{provider.description}</p>
+                <div className="mt-5 flex items-center justify-between border-t border-black/8 pt-4 text-xs text-black/46 dark:border-white/[0.06] dark:text-white/46">
+                  <span>{provider.models.length} models</span>
+                  <span>{provider.models.find((model) => model.id === provider.default_model)?.label || provider.default_model}</span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </motion.section>
+
+      <motion.section variants={item} className="rounded-[30px] border border-black/8 bg-white p-6 shadow-[0_25px_70px_-55px_rgba(0,0,0,0.35)] dark:border-transparent dark:bg-[#151a1f] dark:shadow-[0_32px_80px_-52px_rgba(0,0,0,0.82)]">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-black/42 dark:text-white/42">Backend integrations</p>
             <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-[#111111] dark:text-white">Available runtime connectors</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-black/58 dark:text-white/58">
+              Common connectors stay obvious. Infrastructure and harder-to-explain tools are grouped lower under Developer and Other.
+            </p>
           </div>
           <div className="relative w-full max-w-xl">
             <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-black/32 dark:text-white/32" />
             <input
               type="text"
-              placeholder="Search connectors and MCPs..."
+              placeholder="Search connectors, gateways, or MCPs..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full rounded-2xl border border-black/8 bg-[#f6f1e6] py-3 pl-11 pr-4 text-sm text-[#111111] outline-none transition focus:border-black/14 focus:bg-white dark:border-white/[0.07] dark:bg-white/[0.04] dark:text-white dark:placeholder:text-white/30 dark:focus:border-white/14 dark:focus:bg-white/[0.06]"
@@ -113,31 +228,52 @@ function Skills() {
           </div>
         </div>
 
-        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="mt-6 space-y-7">
           {isLoading ? (
-            <div className="rounded-[24px] border border-dashed border-black/10 bg-[#fbf7ef] p-5 text-sm text-black/48 dark:border-white/[0.06] dark:bg-white/[0.03] dark:text-white/48 md:col-span-2 xl:col-span-3">
+            <div className="rounded-[24px] border border-dashed border-black/10 bg-[#fbf7ef] p-5 text-sm text-black/48 dark:border-white/[0.06] dark:bg-white/[0.03] dark:text-white/48">
               Loading integrations...
             </div>
-          ) : filteredSkills.length === 0 ? (
-            <div className="rounded-[24px] border border-dashed border-black/10 bg-[#fbf7ef] p-5 text-sm text-black/48 dark:border-white/[0.06] dark:bg-white/[0.03] dark:text-white/48 md:col-span-2 xl:col-span-3">
+          ) : groupedSkills.length === 0 ? (
+            <div className="rounded-[24px] border border-dashed border-black/10 bg-[#fbf7ef] p-5 text-sm text-black/48 dark:border-white/[0.06] dark:bg-white/[0.03] dark:text-white/48">
               No integrations match the current search.
             </div>
           ) : (
-            filteredSkills.map((skill) => (
-              <div key={skill.id} className="rounded-[24px] border border-black/8 bg-[#fffdfa] p-5 dark:border-transparent dark:bg-white/[0.03]">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#111111] text-white">
-                    <Wrench className="h-4 w-4" />
+            groupedSkills.map((group) => (
+              <div key={group.category}>
+                <div className="mb-4 flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-black/42 dark:text-white/42">{group.category}</p>
+                    <p className="mt-1 text-sm text-black/52 dark:text-white/52">{group.items.length} connectors</p>
                   </div>
-                  <span className="rounded-full bg-[#3ecf8e]/12 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#1e8a5c]">
-                    Live
-                  </span>
                 </div>
-                <h3 className="mt-5 text-lg font-semibold text-[#111111] dark:text-white">{skill.name}</h3>
-                <p className="mt-2 text-sm leading-6 text-black/62 dark:text-white/62">{skill.description}</p>
-                <div className="mt-5 flex items-center justify-between border-t border-black/8 pt-4 text-xs text-black/46 dark:border-white/[0.06] dark:text-white/46">
-                  <span>{skill.category}</span>
-                  <span>{skill.fields} auth fields</span>
+
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {group.items.map((skill) => (
+                    <div key={skill.id} className="rounded-[26px] border border-black/8 bg-[#fffdfa] p-5 shadow-[0_24px_55px_-45px_rgba(0,0,0,0.25)] dark:border-transparent dark:bg-white/[0.03] dark:shadow-[0_28px_70px_-48px_rgba(0,0,0,0.82)]">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className={`flex h-12 w-12 items-center justify-center rounded-[18px] ${skill.logo ? `${skill.tone} shadow-[0_18px_40px_-30px_rgba(0,0,0,0.22)]` : 'bg-[#111111] text-white dark:bg-white/10 dark:text-white'}`}>
+                          {skill.logo ? (
+                            <img src={skill.logo} alt={`${skill.name} logo`} className="h-7 w-7 object-contain" />
+                          ) : skill.key === 'salesforce' ? (
+                            <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#009adb]">SF</span>
+                          ) : skill.key === 'webhook' ? (
+                            <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-black/70 dark:text-white/70">WEB</span>
+                          ) : (
+                            <Wrench className="h-4 w-4" />
+                          )}
+                        </div>
+                        <span className="rounded-full bg-[#3ecf8e]/12 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#1e8a5c]">
+                          Ready
+                        </span>
+                      </div>
+                      <h3 className="mt-5 text-lg font-semibold text-[#111111] dark:text-white">{skill.name}</h3>
+                      <p className="mt-2 text-sm leading-6 text-black/62 dark:text-white/62">{skill.description}</p>
+                      <div className="mt-5 flex items-center justify-between border-t border-black/8 pt-4 text-xs text-black/46 dark:border-white/[0.06] dark:text-white/46">
+                        <span>{skill.category}</span>
+                        <span>{skill.fields} auth fields</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             ))

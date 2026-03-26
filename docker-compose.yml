@@ -56,6 +56,8 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
+      - ./nova:/app/nova
+      - ./nova.py:/app/nova.py
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
   # ── Frontend — Dashboard Nova ─────────────────────────────────
