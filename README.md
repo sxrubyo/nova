@@ -1,4 +1,4 @@
-#       ✦ Nova OS — Governance for AI Agents
+     #       ✦ Nova OS — Governance for AI Agents
 **Maintained by Nova Governance**
 
 <p align="center">
