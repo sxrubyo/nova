@@ -1,6 +1,6 @@
 import React, { useContext, useRef, useState } from 'react'
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
-import { LayoutDashboard, FileText, Bot, Cpu, Settings as SettingsIcon, LogOut, Sun, Moon, User, Search, Camera } from 'lucide-react'
+import { LayoutDashboard, FileText, Bot, Cpu, Settings as SettingsIcon, LogOut, Sun, Moon, User, Search, Camera, ScanSearch, Plus } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import Ledger from './pages/Ledger'
 import Agents from './pages/Agents'
@@ -8,14 +8,17 @@ import Skills from './pages/Skills'
 import Settings from './pages/Settings'
 import Login from './pages/Login'
 import Landing from './pages/Landing'
+import DiscoveryCenter from './pages/dashboard/Discovery'
+import DiscoveryHelp from './pages/dashboard/DiscoveryHelp'
+import AgentWizard from './pages/dashboard/AgentWizard'
 import { AuthContext, AuthProvider } from './pages/AuthContext'
 import { api } from './utils/api'
 import { ThemeProvider, useTheme } from './context/ThemeContext'
 import { LanguageProvider, useLanguage } from './context/LanguageContext'
 import SplashScreen from './components/SplashScreen'
-
-const novaIsotipoBlack = new URL('../nova-branding/Nova I/Black Nova Isotipo.png', import.meta.url).href
-const novaIsotipoWhite = new URL('../nova-branding/Nova I/White Nova Isotipo.png', import.meta.url).href
+import PostLoginOnboarding from './components/PostLoginOnboarding'
+import { ToastRegion } from './components/ui'
+import { novaBrandAssets } from './lib/nova-brand-assets'
 
 function Sidebar() {
   const location = useLocation()
@@ -26,11 +29,15 @@ function Sidebar() {
 
   const navItems = [
     { path: '/dashboard', label: t('dashboard'), icon: LayoutDashboard },
+    { path: '/dashboard/discover', label: 'Discovery', icon: ScanSearch },
     { path: '/ledger', label: t('ledger'), icon: FileText },
     { path: '/agents', label: t('agents'), icon: Bot },
+    { path: '/dashboard/agents/new', label: 'New Agent', icon: Plus },
     { path: '/skills', label: t('skills'), icon: Cpu },
     { path: '/settings', label: t('settings'), icon: SettingsIcon },
   ]
+
+  const hasProfileLogo = Boolean(user?.avatar)
 
   const handleFileChange = (event) => {
     const file = event.target.files[0]
@@ -52,13 +59,20 @@ function Sidebar() {
 
   return (
     <aside className="sticky top-0 z-50 flex min-h-screen w-64 flex-col bg-[#F9F9F9] p-6 transition-colors duration-500 dark:bg-[#101316]">
-      <div className="mb-12 flex items-center gap-3 bg-transparent px-2">
-        <img
-          src={theme === 'dark' ? novaIsotipoWhite : novaIsotipoBlack}
-          alt="Logo"
-          className="h-8 w-8 bg-transparent object-contain"
-        />
-        <span className="text-lg font-bold tracking-tighter text-black dark:text-[#f2f4f6]">NOVA OS</span>
+      <div className="mb-12 flex items-center gap-3 bg-transparent px-1">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-black/8 bg-white/90 p-2 shadow-[0_18px_40px_-30px_rgba(0,0,0,0.22)] dark:border-white/[0.08] dark:bg-white/[0.04]">
+          <img
+            src={novaBrandAssets.isotipoSvg}
+            alt="Nova isotipo"
+            className={`h-full w-full object-contain ${theme === 'dark' ? 'brightness-0 invert' : ''}`}
+          />
+        </div>
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="text-lg font-semibold tracking-tight text-black/22 dark:text-white/22">|</span>
+          <p className="truncate text-lg font-bold tracking-tight text-black dark:text-[#f2f4f6]">
+            {user?.name || 'Dashboard'}
+          </p>
+        </div>
       </div>
 
       <nav className="flex-1 space-y-1">
@@ -87,9 +101,9 @@ function Sidebar() {
           className="group relative flex cursor-pointer items-center gap-3 px-2"
           onClick={() => fileInputRef.current?.click()}
         >
-          <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-black/5 transition-all group-hover:ring-1 group-hover:ring-white/10 dark:bg-white/[0.04]">
-            {user.avatar ? (
-              <img src={user.avatar} alt={user.name} className="h-full w-full object-cover" />
+          <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl border border-black/8 bg-white/80 transition-all group-hover:ring-1 group-hover:ring-white/10 dark:border-white/[0.08] dark:bg-white/[0.04]">
+            {user?.avatar ? (
+              <img src={user.avatar} alt={user.name} className="h-full w-full object-contain p-1.5" />
             ) : (
               <User className="h-5 w-5 opacity-40" />
             )}
@@ -98,8 +112,10 @@ function Sidebar() {
             </div>
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[11px] font-bold uppercase tracking-tight text-black dark:text-[#edf0f2]">{user.name}</p>
-            <p className="text-[9px] font-bold uppercase leading-none tracking-widest text-black/30 dark:text-[#7e858d]">Settings</p>
+            <p className="truncate text-[11px] font-bold uppercase tracking-tight text-black dark:text-[#edf0f2]">{user?.name || 'User'}</p>
+            <p className="text-[9px] font-bold uppercase leading-none tracking-widest text-black/30 dark:text-[#7e858d]">
+              {user?.roleTitle || 'Profile settings'}
+            </p>
           </div>
           <input ref={fileInputRef} type="file" onChange={handleFileChange} className="hidden" accept="image/*" />
         </div>
@@ -160,6 +176,7 @@ function Layout({ children }) {
         <Header />
         <main className="flex-1 overflow-auto p-10">{children}</main>
       </div>
+      <PostLoginOnboarding />
     </div>
   )
 }
@@ -178,6 +195,7 @@ function App() {
       <ThemeProvider>
         <LanguageProvider>
           <SplashScreen onFinish={() => setShowSplash(false)} />
+          <ToastRegion />
           {!showSplash && (
             <BrowserRouter>
               <Routes>
@@ -188,6 +206,30 @@ function App() {
                   element={
                     <ProtectedRoute>
                       <Dashboard />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/dashboard/discover"
+                  element={
+                    <ProtectedRoute>
+                      <DiscoveryCenter />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/dashboard/help/discovery"
+                  element={
+                    <ProtectedRoute>
+                      <DiscoveryHelp />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/dashboard/agents/new"
+                  element={
+                    <ProtectedRoute>
+                      <AgentWizard />
                     </ProtectedRoute>
                   }
                 />

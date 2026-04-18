@@ -60,3 +60,13 @@ async def me(current_workspace: dict = Depends(get_current_workspace)) -> MeResp
         email=current_workspace["email"],
         role=current_workspace["role"],
     )
+
+
+@router.post("/api/auth/logout")
+async def logout() -> dict:
+    return {"success": True}
+
+
+@router.get("/api/auth/providers")
+async def auth_providers() -> dict:
+    return {"github": {"enabled": False}}

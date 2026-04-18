@@ -21,7 +21,7 @@ from nova.security.sensitivity_scanner import SensitivityScanner
 from nova.storage.database import session_scope
 from nova.storage.models import EvaluationModel
 from nova.storage.repositories.evaluation_repo import EvaluationRepository
-from nova.types import Decision, DecisionAction, EvaluationContext, EvaluationRequest, EvaluationResult, IntentAnalysis, RiskFactor, RiskLevel, RiskScore, RuleValidationResult, SensitivityResult
+from nova.types import Decision, DecisionAction, EvaluationContext, EvaluationRequest, EvaluationResult, IntentAnalysis, RiskFactor, RiskLevel, RiskScore, RuleValidationResult, SensitivityResult, WorkspaceRules, WorkspaceThresholds
 from nova.utils.crypto import generate_id
 
 
@@ -90,6 +90,15 @@ class EvaluationPipeline:
                     started_at=start_time,
                 )
 
+            if not await self._check_agent_quota(agent.id, agent.metadata):
+                return self._blocked_result(
+                    context=context,
+                    code="AGENT_DAILY_QUOTA_EXCEEDED",
+                    reason="Agent-specific daily quota exceeded",
+                    risk_value=82,
+                    started_at=start_time,
+                )
+
             intent = await self.intent_analyzer.analyze(
                 action=request.action,
                 payload=request.payload,
@@ -97,7 +106,7 @@ class EvaluationPipeline:
             )
             context.intent = intent
 
-            workspace_rules = agent.workspace.rules if agent.workspace else type("Rules", (), {"can_do": [], "cannot_do": []})()
+            workspace_rules = self._resolve_rules(agent)
             rule_result = await self.rule_validator.validate(intent=intent, agent=agent, workspace_rules=workspace_rules)
             if rule_result.violated:
                 context.violations.append(rule_result)
@@ -149,7 +158,7 @@ class EvaluationPipeline:
             decision = await self.decision_engine.decide(
                 risk_score=risk_score,
                 context=context,
-                thresholds=agent.workspace.thresholds if agent.workspace else type("Thresholds", (), {"auto_allow": 30, "escalate": 60, "auto_block": 80})(),
+                thresholds=self._resolve_thresholds(agent),
             )
             context.decision = decision
 
@@ -237,6 +246,35 @@ class EvaluationPipeline:
             await self.ledger.record_error(eval_id, str(exc))
             self.logger.error("evaluation_failed", eval_id=eval_id, error=str(exc))
             raise
+
+    async def _check_agent_quota(self, agent_id: str, metadata: dict[str, object]) -> bool:
+        quota = dict(metadata or {}).get("quota") or {}
+        max_per_day = int(quota.get("max_evaluations_per_day") or 0)
+        if max_per_day <= 0:
+            return True
+        since = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        async with session_scope() as session:
+            repo = EvaluationRepository(session)
+            count = await repo.count_since(agent_id, since)
+        return count < max_per_day
+
+    def _resolve_rules(self, agent: object) -> WorkspaceRules:
+        workspace_rules = agent.workspace.rules if agent.workspace else WorkspaceRules()
+        metadata = dict(getattr(agent, "metadata", {}) or {})
+        agent_rules = dict(metadata.get("permissions") or {})
+        can_do = list(dict.fromkeys([*workspace_rules.can_do, *list(getattr(agent, "permissions", []) or []), *agent_rules.get("can_do", [])]))
+        cannot_do = list(dict.fromkeys([*workspace_rules.cannot_do, *agent_rules.get("cannot_do", [])]))
+        return WorkspaceRules(can_do=can_do, cannot_do=cannot_do)
+
+    def _resolve_thresholds(self, agent: object) -> WorkspaceThresholds:
+        workspace_thresholds = agent.workspace.thresholds if agent.workspace else WorkspaceThresholds()
+        metadata = dict(getattr(agent, "metadata", {}) or {})
+        overrides = dict(metadata.get("risk_thresholds") or {})
+        return WorkspaceThresholds(
+            auto_allow=int(overrides.get("auto_allow", workspace_thresholds.auto_allow)),
+            escalate=int(overrides.get("escalate", workspace_thresholds.escalate)),
+            auto_block=int(overrides.get("auto_block", workspace_thresholds.auto_block)),
+        )
 
     async def _persist_evaluation(
         self,

@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { AlertTriangle, Plus, Search, ShieldCheck } from 'lucide-react'
+import { AlertTriangle, Plus, Search, ShieldCheck, ScanSearch } from 'lucide-react'
 import { api } from '../utils/api'
-import CreateAgentModal from '../components/CreateAgentModal'
 
 const container = {
   hidden: { opacity: 0 },
@@ -15,9 +15,9 @@ const item = {
 }
 
 function Agents() {
+  const navigate = useNavigate()
   const [agents, setAgents] = useState([])
   const [isLoading, setIsLoading] = useState(true)
-  const [isModalOpen, setIsModalOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [loadError, setLoadError] = useState('')
 
@@ -58,23 +58,30 @@ function Agents() {
 
   return (
     <motion.div variants={container} initial="hidden" animate="show" className="space-y-8">
-      <CreateAgentModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onCreated={loadAgents} />
-
       <motion.section variants={item} className="flex flex-col gap-5 rounded-[30px] border border-black/8 bg-[#fffdfa] p-7 shadow-[0_25px_70px_-55px_rgba(0,0,0,0.35)] dark:border-transparent dark:bg-[#151a1f] dark:shadow-[0_32px_80px_-52px_rgba(0,0,0,0.82)] md:flex-row md:items-end md:justify-between">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-black/42 dark:text-white/42">Agent registry</p>
           <h1 className="mt-3 text-4xl font-semibold tracking-[-0.05em] text-[#111111] dark:text-white">Governed agents running in this workspace</h1>
           <p className="mt-3 max-w-2xl text-sm leading-7 text-black/62 dark:text-white/62">
-            This table is now sourced from `/stats/agents`, so volumes, approval rate and last activity reflect real ledger activity.
+            Review the governed agents already operating here, or open Discovery first to scan the host and see which runtime you will bind before creating a new one.
           </p>
         </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="inline-flex items-center gap-2 rounded-2xl bg-[#111111] px-5 py-3 text-sm font-semibold text-white transition hover:bg-black"
-        >
-          <Plus className="h-4 w-4" />
-          Create agent
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={() => navigate('/dashboard/discover')}
+            className="inline-flex items-center gap-2 rounded-2xl border border-black/10 bg-white px-5 py-3 text-sm font-semibold text-[#111111] transition hover:border-black/20 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-white"
+          >
+            <ScanSearch className="h-4 w-4" />
+            Scan runtimes
+          </button>
+          <button
+            onClick={() => navigate('/dashboard/agents/new')}
+            className="inline-flex items-center gap-2 rounded-2xl bg-[#111111] px-5 py-3 text-sm font-semibold text-white transition hover:bg-black"
+          >
+            <Plus className="h-4 w-4" />
+            Create agent
+          </button>
+        </div>
       </motion.section>
 
       {loadError && (

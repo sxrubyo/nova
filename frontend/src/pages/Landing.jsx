@@ -5,9 +5,7 @@ import { motion } from 'framer-motion'
 import { useTheme } from '../context/ThemeContext'
 import ProviderMark from '../components/brand/ProviderMark'
 import { providerCatalog } from '../lib/provider-catalog'
-
-const novaIsotipoBlack = new URL('../../nova-branding/Nova I/Black Nova Isotipo.png', import.meta.url).href
-const novaIsotipoWhite = new URL('../../nova-branding/Nova I/White Nova Isotipo.png', import.meta.url).href
+import { getNovaIsotipoSrc } from '../lib/nova-brand-assets'
 const dashboardPreview = '/images/novad.png'
 
 const heroSignals = [
@@ -96,7 +94,7 @@ function Landing() {
         panel: 'bg-[#171c22] border-white/[0.06]',
         input: 'bg-white/[0.06] border-white/12 text-white placeholder:text-white/36',
         buttonAlt: 'border-white/12 bg-white/[0.05] text-white hover:bg-white/[0.09]',
-        iso: novaIsotipoWhite,
+        iso: getNovaIsotipoSrc('light'),
       }
     : {
         page: 'bg-[#f3ede2] text-[#111111]',
@@ -109,7 +107,7 @@ function Landing() {
         panel: 'bg-white border-black/8',
         input: 'bg-white border-black/10 text-[#111111] placeholder:text-black/32',
         buttonAlt: 'border-black/10 bg-white/80 text-[#111111] hover:bg-white',
-        iso: novaIsotipoBlack,
+        iso: getNovaIsotipoSrc('dark'),
       }
 
   const handleSubmit = async (event) => {
@@ -214,8 +212,8 @@ function Landing() {
                       <ProviderMark
                         src={provider.logo}
                         alt={`${provider.label} logo`}
-                        frameClassName="min-w-[58px] rounded-[14px] px-2.5 py-2"
-                        imageClassName="max-h-[18px] max-w-[64px]"
+                        frameClassName="h-11 w-11 rounded-[14px] p-2.5"
+                        imageClassName="max-h-5 max-w-5"
                       />
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold">{provider.label}</div>
@@ -356,7 +354,7 @@ function Landing() {
       <section className="bg-[#05070a] py-24 text-white">
         <div className="mx-auto max-w-3xl px-4 text-center sm:px-6 lg:px-8">
           <div className="mx-auto flex h-14 w-14 items-center justify-center">
-            <img src={novaIsotipoWhite} alt="Nova isotipo" className="h-12 w-12 object-contain" />
+            <img src={getNovaIsotipoSrc('light')} alt="Nova isotipo" className="h-12 w-12 object-contain" />
           </div>
           <h2 className="mt-6 text-4xl font-semibold tracking-[-0.04em]">Start governing agent behavior before it reaches production.</h2>
           <p className="mt-4 text-base leading-7 text-white/68">
@@ -427,8 +425,8 @@ function DesktopMock({ providers }) {
                   key={provider.key}
                   src={provider.logo}
                   alt={`${provider.label} logo`}
-                  frameClassName="min-w-[52px] rounded-[14px] px-2 py-1.5"
-                  imageClassName="max-h-4 max-w-[58px]"
+                  frameClassName="h-10 w-10 rounded-[14px] p-2"
+                  imageClassName="max-h-[18px] max-w-[18px]"
                 />
               ))}
             </div>

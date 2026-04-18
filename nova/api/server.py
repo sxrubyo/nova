@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from nova.api.middleware import AuthMiddleware, LoggingMiddleware, QuotaMiddleware, RateLimitMiddleware, RequestIDMiddleware
-from nova.api.routes import agents, analytics, auth, evaluate, gateway, ledger, settings, status, webhooks, workspaces
+from nova.api.routes import agents, analytics, auth, connectors, discovery, evaluate, gateway, gmail, ledger, realtime, settings, status, webhooks, workspaces
 from nova.constants import NOVA_VERSION
 from nova.exceptions import NovaException
 from nova.kernel import NovaKernel, get_kernel
@@ -45,12 +45,16 @@ def create_app(kernel: NovaKernel | None = None) -> FastAPI:
     app.include_router(auth.router)
     app.include_router(evaluate.router)
     app.include_router(agents.router)
+    app.include_router(gmail.router)
     app.include_router(ledger.router)
     app.include_router(analytics.router)
     app.include_router(gateway.router)
+    app.include_router(connectors.router)
     app.include_router(workspaces.router)
     app.include_router(settings.router)
     app.include_router(webhooks.router)
+    app.include_router(discovery.router)
+    app.include_router(realtime.router)
 
     @app.get("/")
     async def root() -> dict:

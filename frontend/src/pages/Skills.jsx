@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { BrainCircuit, ExternalLink, Github, Search, ShieldCheck, Wrench } from 'lucide-react'
+import { BrainCircuit, ExternalLink, Github, MailWarning, Plus, ScanSearch, Search, ShieldCheck, Wrench } from 'lucide-react'
 import { api } from '../utils/api'
 import ProviderMark from '@/components/brand/ProviderMark'
 
@@ -91,9 +92,22 @@ const githubRecommendations = [
 
 const categoryOrder = ['Communication', 'Business', 'Data', 'Developer', 'Other']
 
+const runtimeTypeMap = {
+  codex_cli: 'codex',
+  n8n: 'n8n',
+  openclaw: 'openclaw',
+  open_interpreter: 'openclaw',
+  langchain_agent: 'langchain',
+  crewai: 'crewai',
+  autogen: 'custom',
+}
+
 function Skills() {
+  const navigate = useNavigate()
   const [skills, setSkills] = useState([])
   const [gatewayProviders, setGatewayProviders] = useState([])
+  const [existingRuntimes, setExistingRuntimes] = useState([])
+  const [connectorSummary, setConnectorSummary] = useState({ catalog_count: 0, connected_count: 0, incomplete_count: 0 })
   const [searchQuery, setSearchQuery] = useState('')
   const [loadError, setLoadError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
@@ -101,24 +115,49 @@ function Skills() {
   const loadSkills = useCallback(async () => {
     setLoadError('')
     try {
-      const [skillData, modelData] = await Promise.all([
+      const [skillData, modelData, discoveryData, connectorData] = await Promise.all([
         api.get('/skills'),
         api.get('/assistant/models').catch(() => ({ providers: [] })),
+        api.get('/discovery/agents').catch(() => ({ agents: [] })),
+        api.get('/connectors').catch(() => ({ connectors: [], summary: {} })),
       ])
 
-      const normalized = Object.entries(skillData || {}).map(([key, value]) => ({
-        id: key,
-        key,
-        name: connectorBrandMap[key]?.name || value?.name || key,
-        category: categoryMap[key] || value?.category || 'Other',
-        description: value?.description || 'No description provided',
-        fields: Object.keys(value?.credentials || value?.schema || {}).length,
-        logo: connectorBrandMap[key]?.logo || null,
-        tone: connectorBrandMap[key]?.tone || 'bg-[#111111]',
-      }))
+      const registryByKey = Object.fromEntries(
+        (connectorData.connectors || []).map((connector) => [connector.key, connector]),
+      )
+
+      const normalized = Object.entries(skillData || {}).map(([key, value]) => {
+        const registry = registryByKey[key] || {}
+
+        return {
+          id: key,
+          key,
+          name: connectorBrandMap[key]?.name || value?.name || key,
+          category: categoryMap[key] || value?.category || 'Other',
+          description: value?.description || 'No description provided',
+          fields: Object.keys(value?.credentials || value?.schema || {}).length,
+          logo: connectorBrandMap[key]?.logo || null,
+          tone: connectorBrandMap[key]?.tone || 'bg-[#111111]',
+          capabilities: registry.capabilities || value?.capabilities || [],
+          setupUrl: registry.setup_url || value?.setup_url || null,
+          connected: Boolean(registry.connected),
+          status: registry.status || 'available',
+          connectedVia: registry.connected_via || null,
+          configuredFields: registry.configured_fields || [],
+          requiredFields: registry.required_fields || [],
+        }
+      })
 
       setSkills(normalized)
       setGatewayProviders(modelData.providers || [])
+      setExistingRuntimes(
+        [...(discoveryData.agents || [])].sort((left, right) => (right.confidence || 0) - (left.confidence || 0)),
+      )
+      setConnectorSummary({
+        catalog_count: connectorData.summary?.catalog_count || normalized.length,
+        connected_count: connectorData.summary?.connected_count || 0,
+        incomplete_count: connectorData.summary?.incomplete_count || 0,
+      })
     } catch (err) {
       setLoadError(err.message || 'Failed to load skills')
     } finally {
@@ -134,7 +173,7 @@ function Skills() {
     const query = searchQuery.trim().toLowerCase()
     if (!query) return skills
     return skills.filter((skill) => {
-      const haystack = `${skill.name} ${skill.category} ${skill.description}`.toLowerCase()
+      const haystack = `${skill.name} ${skill.category} ${skill.description} ${skill.capabilities.join(' ')}`.toLowerCase()
       return haystack.includes(query)
     })
   }, [skills, searchQuery])
@@ -147,6 +186,11 @@ function Skills() {
       }))
       .filter((group) => group.items.length > 0)
   }, [filteredSkills])
+
+  const addExistingRuntime = (runtime) => {
+    const type = runtimeTypeMap[runtime.fingerprint_key] || 'custom'
+    navigate(`/dashboard/agents/new?type=${encodeURIComponent(type)}&runtime=${encodeURIComponent(runtime.agent_key)}`)
+  }
 
   return (
     <motion.div variants={container} initial="hidden" animate="show" className="space-y-8">
@@ -188,8 +232,8 @@ function Skills() {
                   <ProviderMark
                     src={provider.logo}
                     alt={`${provider.label} logo`}
-                    frameClassName="min-w-[78px] rounded-[18px] px-3 py-2"
-                    imageClassName="max-h-5 max-w-[82px]"
+                    frameClassName="h-12 w-12 rounded-[18px] p-2.5"
+                    imageClassName="max-h-6 max-w-6"
                   />
                   <span className="rounded-full bg-[#3ecf8e]/12 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#1e8a5c]">
                     {provider.available ? 'Server key' : 'Use your key'}
@@ -210,10 +254,81 @@ function Skills() {
       <motion.section variants={item} className="rounded-[30px] border border-black/8 bg-white p-6 shadow-[0_25px_70px_-55px_rgba(0,0,0,0.35)] dark:border-transparent dark:bg-[#151a1f] dark:shadow-[0_32px_80px_-52px_rgba(0,0,0,0.82)]">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-black/42 dark:text-white/42">Existing runtimes</p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-[#111111] dark:text-white">Add something Nova already found</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-black/58 dark:text-white/58">
+              This closes one of the gaps versus the CLI: you can now jump straight from a verified host runtime into the add-agent flow with its logo and detection evidence already attached.
+            </p>
+          </div>
+          <button
+            onClick={() => navigate('/dashboard/discover')}
+            className="inline-flex items-center gap-2 rounded-2xl border border-black/10 bg-white px-5 py-3 text-sm font-semibold text-[#111111] transition hover:border-black/20 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-white"
+          >
+            <ScanSearch className="h-4 w-4" />
+            Open discovery
+          </button>
+        </div>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {existingRuntimes.length === 0 ? (
+            <div className="rounded-[24px] border border-dashed border-black/10 bg-[#fbf7ef] p-5 text-sm text-black/48 dark:border-white/[0.06] dark:bg-white/[0.03] dark:text-white/48 md:col-span-2 xl:col-span-3">
+              No verified host runtimes are available in this session yet. Run a Discovery scan first, then return here to add them with the correct runtime identity.
+            </div>
+          ) : (
+            existingRuntimes.map((runtime) => (
+              <div key={runtime.agent_key} className="rounded-[26px] border border-black/8 bg-[#fffdfa] p-5 shadow-[0_24px_55px_-45px_rgba(0,0,0,0.25)] dark:border-transparent dark:bg-white/[0.03] dark:shadow-[0_28px_70px_-48px_rgba(0,0,0,0.82)]">
+                <div className="flex items-start justify-between gap-3">
+                  {runtime.metadata?.logo_path ? (
+                    <ProviderMark
+                      src={runtime.metadata.logo_path}
+                      alt={`${runtime.name} logo`}
+                      frameClassName="h-12 w-12 rounded-[18px] p-2.5"
+                      imageClassName="max-h-6 max-w-6"
+                    />
+                  ) : (
+                    <div className="flex h-12 w-12 items-center justify-center rounded-[18px] bg-[#111111] text-white dark:bg-white/10">
+                      <Wrench className="h-4 w-4" />
+                    </div>
+                  )}
+                  <span className="rounded-full bg-[#3ecf8e]/12 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#1e8a5c]">
+                    {Math.round((runtime.confidence || 0) * 100)}% confidence
+                  </span>
+                </div>
+                <h3 className="mt-5 text-lg font-semibold text-[#111111] dark:text-white">{runtime.name}</h3>
+                <p className="mt-2 text-sm leading-6 text-black/62 dark:text-white/62">
+                  {(runtime.detection_methods || []).join(' + ')} · {(runtime.metadata?.matched_signals || runtime.detection_methods?.length || 0)} verified signals
+                </p>
+                <div className="mt-5 flex gap-3">
+                  <button
+                    onClick={() => addExistingRuntime(runtime)}
+                    className="inline-flex items-center gap-2 rounded-2xl bg-[#111111] px-4 py-3 text-sm font-semibold text-white transition hover:bg-black dark:bg-white dark:text-[#111111]"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add existing
+                  </button>
+                  <button
+                    onClick={() => navigate('/dashboard/discover')}
+                    className="inline-flex items-center gap-2 rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-[#111111] transition hover:border-black/20 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-white"
+                  >
+                    Review evidence
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </motion.section>
+
+      <motion.section variants={item} className="rounded-[30px] border border-black/8 bg-white p-6 shadow-[0_25px_70px_-55px_rgba(0,0,0,0.35)] dark:border-transparent dark:bg-[#151a1f] dark:shadow-[0_32px_80px_-52px_rgba(0,0,0,0.82)]">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-black/42 dark:text-white/42">Backend integrations</p>
             <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-[#111111] dark:text-white">Available runtime connectors</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-black/58 dark:text-white/58">
               Common connectors stay obvious. Infrastructure and harder-to-explain tools are grouped lower under Developer and Other.
+            </p>
+            <p className="mt-3 text-xs uppercase tracking-[0.18em] text-black/40 dark:text-white/40">
+              {connectorSummary.connected_count} connected · {connectorSummary.incomplete_count} incomplete · {connectorSummary.catalog_count} in catalog
             </p>
           </div>
           <div className="relative w-full max-w-xl">
@@ -262,15 +377,30 @@ function Skills() {
                             <Wrench className="h-4 w-4" />
                           )}
                         </div>
-                        <span className="rounded-full bg-[#3ecf8e]/12 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#1e8a5c]">
-                          Ready
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${
+                            skill.connected
+                              ? 'bg-[#3ecf8e]/12 text-[#1e8a5c]'
+                              : skill.status === 'incomplete'
+                                ? 'bg-[#d59f2a]/12 text-[#a87410]'
+                                : 'bg-black/6 text-black/50 dark:bg-white/[0.06] dark:text-white/52'
+                          }`}
+                        >
+                          {skill.connected ? 'Connected via CLI' : skill.status === 'incomplete' ? 'Incomplete setup' : 'Available'}
                         </span>
                       </div>
                       <h3 className="mt-5 text-lg font-semibold text-[#111111] dark:text-white">{skill.name}</h3>
                       <p className="mt-2 text-sm leading-6 text-black/62 dark:text-white/62">{skill.description}</p>
+                      <p className="mt-3 text-xs leading-6 text-black/48 dark:text-white/48">
+                        {skill.connected
+                          ? `${skill.configuredFields.length} configured field${skill.configuredFields.length === 1 ? '' : 's'} detected in the local Nova skill store.`
+                          : skill.status === 'incomplete'
+                            ? `Credential file found, but ${Math.max(skill.requiredFields.length - skill.configuredFields.length, 1)} required field${Math.max(skill.requiredFields.length - skill.configuredFields.length, 1) === 1 ? '' : 's'} still need values.`
+                            : 'No local connector credentials detected yet.'}
+                      </p>
                       <div className="mt-5 flex items-center justify-between border-t border-black/8 pt-4 text-xs text-black/46 dark:border-white/[0.06] dark:text-white/46">
                         <span>{skill.category}</span>
-                        <span>{skill.fields} auth fields</span>
+                        <span>{skill.capabilities.length || skill.fields} capabilities</span>
                       </div>
                     </div>
                   ))}
@@ -278,6 +408,24 @@ function Skills() {
               </div>
             ))
           )}
+        </div>
+      </motion.section>
+
+      <motion.section variants={item} className="rounded-[30px] border border-[#d59f2a]/20 bg-[#fffaf0] p-6 shadow-[0_25px_70px_-55px_rgba(0,0,0,0.15)] dark:border-[#d59f2a]/20 dark:bg-[#1b1812] dark:shadow-[0_32px_80px_-52px_rgba(0,0,0,0.82)]">
+        <div className="flex items-start gap-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[18px] bg-[#d59f2a]/12 text-[#a87410]">
+            <MailWarning className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-black/42 dark:text-white/42">Gmail duplicate guard</p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-[#111111] dark:text-white">What the anti-duplicate check actually validates today</h2>
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-black/62 dark:text-white/62">
+              Nova currently checks duplicate emails against its own ledger of governed `send_email` actions. That means it can reliably block repeats that already passed through Nova, but it does not automatically read your full Gmail Sent mailbox unless you wire a Gmail API/OAuth sync for that purpose.
+            </p>
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-black/62 dark:text-white/62">
+              For n8n, the safe pattern is still: Nova duplicate check before send, Gmail send, then Nova evaluation/ledger write after approval. If you want cross-checking against historical messages already in Gmail, that is a separate integration step and should be surfaced as Gmail mailbox sync, not implied as if it already exists.
+            </p>
+          </div>
         </div>
       </motion.section>
 

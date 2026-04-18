@@ -10,7 +10,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-nova}
       POSTGRES_USER: ${POSTGRES_USER:-nova}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nova_local_dev_only}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nova_secret_2026}
     volumes:
       - nova_db_data:/var/lib/postgresql/data
       - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -28,7 +28,7 @@ services:
     container_name: nova_api
     restart: unless-stopped
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://nova:nova_local_dev_only@db:5432/nova}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://nova:nova_secret_2026@db:5432/nova}
       SECRET_KEY: ${SECRET_KEY:-nova_signing_key_local_dev_only}
       WORKSPACE_ADMIN_TOKEN: ${WORKSPACE_ADMIN_TOKEN:-nova_admin_token_local_dev_only}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3005}

@@ -32,6 +32,9 @@ class AgentRegistry:
         provider: str,
         description: str = "",
         capabilities: list[str] | None = None,
+        permissions: list[str] | None = None,
+        metadata: dict[str, object] | None = None,
+        status: str = AgentStatus.ACTIVE.value,
     ) -> AgentRecord:
         async with session_scope() as session:
             workspace_repo = WorkspaceRepository(session)
@@ -45,11 +48,11 @@ class AgentRegistry:
                 name=name,
                 model=model,
                 provider=provider,
-                status=AgentStatus.ACTIVE.value,
+                status=status,
                 description=description,
                 capabilities=capabilities or [],
-                permissions=[],
-                extra_metadata={},
+                permissions=permissions or [],
+                extra_metadata=metadata or {},
             )
             await repo.create(agent)
             agent.workspace = workspace
@@ -106,9 +109,11 @@ class AgentRegistry:
             agent = await repo.get(agent_id)
             if agent is None:
                 return None
+            field_map = {"metadata": "extra_metadata"}
             for key, value in changes.items():
-                if value is not None and hasattr(agent, key):
-                    setattr(agent, key, value)
+                target = field_map.get(key, key)
+                if value is not None and hasattr(agent, target):
+                    setattr(agent, target, value)
             await session.flush()
             return self._to_record(agent)
 

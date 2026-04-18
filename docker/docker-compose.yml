@@ -1,0 +1,11 @@
+version: "3.9"
+services:
+  nova:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "9800:9800"
+      - "9700:9700"
+    env_file:
+      - ../.env

@@ -17,12 +17,14 @@ from nova.core.action_executor import ActionExecutor
 from nova.core.decision_engine import DecisionEngine
 from nova.core.intent_analyzer import IntentAnalyzer
 from nova.core.pipeline import EvaluationPipeline
+from nova.discovery.discovery_engine import DiscoveryEngine
 from nova.core.risk_engine import RiskEngine
 from nova.ledger.intent_ledger import IntentLedger
 from nova.memory.memory_engine import MemoryEngine
 from nova.observability.alerts import AlertManager
 from nova.observability.logger import configure_logging, get_logger
 from nova.observability.metrics import MetricsCollector
+from nova.realtime.event_bus import RuntimeEventBus
 from nova.security.anomaly_detector import AnomalyDetector
 from nova.security.burst_detector import BurstDetector
 from nova.security.loop_detector import LoopDetector
@@ -42,7 +44,8 @@ class NovaKernel:
         self.config = config or NovaConfig()
         self.config.ensure_directories()
         self.logger = configure_logging(self.config)
-        self.alerts = AlertManager()
+        self.events = RuntimeEventBus(limit=300)
+        self.alerts = AlertManager(event_bus=self.events)
         self.metrics = MetricsCollector()
         self.workspace_manager = WorkspaceManager(self.config)
         self.agent_registry = AgentRegistry()
@@ -59,6 +62,12 @@ class NovaKernel:
         self.sensitivity_scanner = SensitivityScanner()
         self.anomaly_detector = AnomalyDetector(self.config, self.alerts)
         self.action_executor = ActionExecutor(self.config, self.gateway)
+        self.discovery = DiscoveryEngine(
+            kernel=self,
+            event_bus=self.events,
+            scan_ttl_seconds=self.config.discovery_scan_ttl_seconds,
+            watch_interval_seconds=self.config.discovery_watch_interval_seconds,
+        )
         self.pipeline = EvaluationPipeline(
             agent_registry=self.agent_registry,
             quota_manager=self.quota_manager,
@@ -89,6 +98,8 @@ class NovaKernel:
         await self.workspace_manager.ensure_default_workspace()
         await self.anomaly_detector.start()
         await self.gateway.start()
+        if self.config.discovery_enabled:
+            await self.discovery.start()
         self._startup_time = time.time()
         self._initialized = True
 
@@ -121,13 +132,27 @@ class NovaKernel:
             await self._bridge.stop()
         for task in self._background_tasks:
             task.cancel()
+        if self.config.discovery_enabled:
+            await self.discovery.stop()
         await self.gateway.stop()
         await self.anomaly_detector.stop()
         await dispose_engine()
         self.logger.info("kernel_shutdown_complete")
 
     async def evaluate(self, request: EvaluationRequest) -> EvaluationResult:
-        return await self.pipeline.evaluate(request)
+        result = await self.pipeline.evaluate(request)
+        await self.events.publish(
+            "evaluation_completed",
+            {
+                "eval_id": result.eval_id,
+                "agent_id": request.agent_id,
+                "risk_score": result.risk_score.value,
+                "decision": result.decision.action.value,
+                "duration_ms": round(result.duration_ms, 2),
+                "status": result.status,
+            },
+        )
+        return result
 
     async def get_status(self) -> SystemStatus:
         await self.initialize()
@@ -151,6 +176,7 @@ class NovaKernel:
                 "security": "ok",
                 "bridge": "ok" if self._bridge is not None else "idle",
                 "api": "ok" if self._api_server is not None else "idle",
+                "discovery": "ok" if self.discovery.last_scan_at else "idle",
             },
             providers=[provider.snapshot() for provider in self.gateway.providers.values()],
             timestamp=datetime.now(timezone.utc),

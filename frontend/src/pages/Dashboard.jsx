@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
+import { useNavigate } from 'react-router-dom'
 import {
   Activity,
   AlertTriangle,
@@ -11,6 +12,7 @@ import {
   KeyRound,
   NotebookPen,
   Plus,
+  ScanSearch,
   ShieldCheck,
   Sparkles,
   Waves,
@@ -19,7 +21,6 @@ import {
 import { api } from '../utils/api'
 import { useLanguage } from '../context/LanguageContext'
 import { useStream } from '../hooks/useStream'
-import CreateAgentModal from '../components/CreateAgentModal'
 import OperatorAssistant from '../components/OperatorAssistant'
 import ProviderMark from '../components/brand/ProviderMark'
 import { providerStatus } from '../lib/mock-data'
@@ -35,6 +36,7 @@ const item = {
 }
 
 function Dashboard() {
+  const navigate = useNavigate()
   const { t } = useLanguage()
   const events = useStream()
   const [workspace, setWorkspace] = useState(null)
@@ -43,7 +45,6 @@ function Dashboard() {
   const [risk, setRisk] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
-  const [isModalOpen, setIsModalOpen] = useState(false)
 
   const loadDashboard = useCallback(async () => {
     setLoadError('')
@@ -114,11 +115,18 @@ function Dashboard() {
 
   const operatorCards = [
     {
+      title: 'Scan runtimes before binding',
+      description: 'Discovery shows which host runtime Nova can actually reach before you create a managed agent.',
+      icon: ScanSearch,
+      actionLabel: 'Open discovery',
+      onClick: () => navigate('/dashboard/discover'),
+    },
+    {
       title: 'Create a governed agent',
-      description: 'Mint a new operator-facing token and bring one more workflow under runtime control.',
+      description: 'Use the full wizard so the operator sees workspace, runtime target, and execution location before creating anything.',
       icon: Bot,
-      actionLabel: 'Create agent',
-      onClick: () => setIsModalOpen(true),
+      actionLabel: 'Open wizard',
+      onClick: () => navigate('/dashboard/agents/new'),
     },
     {
       title: 'Talk with your agent',
@@ -149,15 +157,8 @@ function Dashboard() {
 
   return (
     <motion.div variants={container} initial="hidden" animate="show" className="space-y-8 pb-20 xl:pr-[480px]">
-      <CreateAgentModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onCreated={loadDashboard}
-      />
-
       <OperatorAssistant
         workspaceName={workspace?.name || 'workspace'}
-        onCreateAgent={() => setIsModalOpen(true)}
         onRefresh={loadDashboard}
       />
 
@@ -182,18 +183,18 @@ function Dashboard() {
 
             <div className="mt-8 flex flex-wrap gap-3">
               <button
-                onClick={() => setIsModalOpen(true)}
+                onClick={() => navigate('/dashboard/discover')}
                 className="inline-flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-[#111111] transition hover:bg-[#f2f2f2]"
+              >
+                <ScanSearch className="h-4 w-4" />
+                Scan runtimes
+              </button>
+              <button
+                onClick={() => navigate('/dashboard/agents/new')}
+                className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.07] px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/[0.11]"
               >
                 <Plus className="h-4 w-4" />
                 Create agent
-              </button>
-              <button
-                onClick={loadDashboard}
-                className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.07] px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/[0.11]"
-              >
-                <Activity className="h-4 w-4" />
-                Refresh runtime
               </button>
             </div>
 
@@ -431,7 +432,7 @@ function Dashboard() {
               title="Full provider lane"
               description="The assistant now exposes the full Nova gateway with real provider marks, real model names, and clear default routes."
               providers={providerStatus}
-              tone="dark"
+              tone="light"
             />
             <ProviderSurface
               title="Default model routes"
@@ -536,6 +537,9 @@ function ProviderSurface({ title, description, providers = [], chips = [], tone 
   const classes = tone === 'dark'
     ? 'border-transparent bg-[#11151b] text-white'
     : 'border-black/8 bg-white/75 text-[#111111] dark:border-white/[0.06] dark:bg-white/[0.03] dark:text-white'
+  const rowClasses = tone === 'dark'
+    ? 'border-white/10 bg-white/[0.05]'
+    : 'border-black/8 bg-black/[0.03] dark:border-white/10 dark:bg-white/[0.05]'
 
   return (
     <div className={`rounded-[26px] border p-5 ${classes}`}>
@@ -545,13 +549,13 @@ function ProviderSurface({ title, description, providers = [], chips = [], tone 
       {providers.length > 0 && (
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           {providers.map((provider) => (
-            <div key={provider.name} className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 dark:border-white/10 dark:bg-white/[0.05]">
+            <div key={provider.name} className={`flex items-center gap-4 rounded-2xl border px-4 py-3 ${rowClasses}`}>
               <div className="flex min-w-0 items-center gap-3">
                 <ProviderMark
                   src={provider.logo}
                   alt={`${provider.name} logo`}
-                  frameClassName="min-w-[72px] rounded-[16px] px-3 py-2"
-                  imageClassName="max-h-[18px] max-w-[82px]"
+                  frameClassName="h-16 w-16 rounded-[20px] p-3"
+                  imageClassName="h-8 w-8"
                 />
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold">{provider.name}</div>
@@ -560,9 +564,6 @@ function ProviderSurface({ title, description, providers = [], chips = [], tone 
                   </div>
                 </div>
               </div>
-              <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${tone === 'dark' ? 'bg-white/[0.08] text-white/66' : 'bg-black/[0.05] text-black/50 dark:bg-white/[0.05] dark:text-white/64'}`}>
-                {provider.status}
-              </span>
             </div>
           ))}
         </div>

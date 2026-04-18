@@ -37,6 +37,7 @@ import base64
 import csv
 import hashlib
 import hmac
+import importlib.util
 import io
 import json
 import logging
@@ -51,10 +52,11 @@ import time
 import uuid
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone, timedelta
 from enum import Enum
 from functools import wraps
+from pathlib import Path
 from typing import (
     Any, AsyncGenerator, Dict, List, Optional,
     Tuple, Union, Callable, TypeVar, Generic, Annotated
@@ -313,7 +315,10 @@ async def init_database():
         CREATE TABLE IF NOT EXISTS workspaces (
             id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             name            TEXT NOT NULL,
+            owner_name      TEXT DEFAULT '',
+            email           TEXT UNIQUE,
             api_key         TEXT UNIQUE NOT NULL,
+            password_hash   TEXT DEFAULT '',
             plan            TEXT DEFAULT 'free',
             settings        JSONB DEFAULT '{}',
             usage_this_month INTEGER DEFAULT 0,
@@ -546,6 +551,9 @@ async def init_database():
         "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS usage_this_month INTEGER DEFAULT 0",
         "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS quota_monthly INTEGER DEFAULT 10000",
         "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS features TEXT[] DEFAULT '{}'",
+        "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS email TEXT",
+        "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS owner_name TEXT DEFAULT ''",
+        "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS password_hash TEXT DEFAULT ''",
     ]
 
     for migration in migrations:
@@ -1008,7 +1016,7 @@ class ValidateResponse(BaseModel):
     memories_used:   int
     duplicate_check: str
     duplicate_of:    Optional[Dict[str, Any]]
-    score_factors:   Optional[Dict[str, int]]
+    score_factors:   Optional[Dict[str, Any]]
     skill_evidence:  Optional[Dict[str, Any]]
     llm_provider:    Optional[str]
     request_id:      str
@@ -1099,7 +1107,7 @@ class StatsResponse(BaseModel):
 
 
 class AssistantRequest(BaseModel):
-    message: str = Field(..., min_length=1, max_length=4000)
+    message: str = Field(..., min_length=1, max_length=16000)
     page: str = Field(default="dashboard", max_length=100)
     provider: Optional[str] = Field(default=None, max_length=100)
     model: Optional[str] = Field(default=None, max_length=200)
@@ -1128,6 +1136,7 @@ class CommandResponse(BaseModel):
     output: str
     exit_code: int
     success: bool
+    display_output: Optional[str] = None
 
 
 ASSISTANT_MODEL_CATALOG: Dict[str, Dict[str, Any]] = {
@@ -1215,7 +1224,7 @@ ASSISTANT_MODEL_CATALOG: Dict[str, Dict[str, Any]] = {
     },
     "deepseek": {
         "label": "DeepSeek",
-        "logo": "/llm-brands/deepseek.png",
+        "logo": "/llm-brands/deepseek.svg",
         "description": "Reasoning-heavy DeepSeek models for low-cost analysis.",
         "models": [
             {"id": "deepseek-chat", "label": "DeepSeek Chat", "family": "DeepSeek", "status": "default"},
@@ -1336,6 +1345,54 @@ async def _warm_runtime_bridge() -> None:
     except Exception as exc:
         _runtime_bridge_error = str(exc)
         log.warning(f"Nova runtime bridge unavailable: {exc}")
+
+
+def _runtime_to_payload(value: Any) -> Any:
+    """Convert runtime dataclasses and enums into JSON-safe payloads."""
+
+    if is_dataclass(value):
+        return {key: _runtime_to_payload(item) for key, item in asdict(value).items()}
+    if isinstance(value, dict):
+        return {key: _runtime_to_payload(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_runtime_to_payload(item) for item in value]
+    if hasattr(value, "value"):
+        return value.value
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except TypeError:
+            return value
+    return value
+
+
+def _workspace_profile_payload(workspace: Dict[str, Any]) -> Dict[str, Any]:
+    settings_payload = workspace.get("settings") or {}
+    if isinstance(settings_payload, str):
+        try:
+            settings_payload = json.loads(settings_payload)
+        except json.JSONDecodeError:
+            settings_payload = {}
+    settings_payload = dict(settings_payload or {})
+    profile = dict(settings_payload.get("profile") or {})
+
+    return {
+        "owner_name": workspace.get("owner_name", ""),
+        "preferred_name": profile.get("preferred_name", ""),
+        "role_title": profile.get("role_title", ""),
+        "birth_date": profile.get("birth_date"),
+        "default_assistant": profile.get("default_assistant", "both"),
+        "onboarding_completed_at": profile.get("onboarding_completed_at"),
+    }
+
+
+async def _get_runtime_workspace_context(legacy_workspace: Dict[str, Any]):
+    """Return the embedded runtime kernel and the mirrored runtime workspace."""
+
+    runtime_bridge = _load_runtime_bridge()
+    kernel = await runtime_bridge.get_runtime_kernel()
+    runtime_workspace = await runtime_bridge.ensure_workspace_synced(legacy_workspace)
+    return runtime_bridge, kernel, runtime_workspace
 
 
 def _legacy_verdict_from_runtime(action: str) -> Verdict:
@@ -1720,6 +1777,43 @@ class WorkspaceRegistrationRequest(BaseModel):
 
 class BootstrapWorkspaceRequest(WorkspaceRegistrationRequest):
     bootstrap_token: str = Field(..., min_length=8, description="One-time setup token")
+    owner_name: Optional[str] = Field(None, min_length=2, max_length=120)
+    password: Optional[str] = Field(None, min_length=6, max_length=256)
+
+
+class AuthLoginRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=6, max_length=256)
+
+
+class AuthSignupRequest(BaseModel):
+    name: str = Field(..., min_length=2, max_length=120)
+    email: EmailStr
+    password: str = Field(..., min_length=6, max_length=256)
+    company: Optional[str] = Field(None, max_length=160)
+    plan: str = Field("trial", description="Workspace tier")
+    api_key: Optional[str] = Field(
+        None,
+        min_length=settings.API_KEY_MIN_LENGTH,
+        description="Custom workspace API key; generated automatically if omitted",
+    )
+
+
+class WorkspaceProfileUpdateRequest(BaseModel):
+    owner_name: Optional[str] = Field(None, min_length=2, max_length=120)
+    preferred_name: Optional[str] = Field(None, max_length=80)
+    role_title: Optional[str] = Field(None, max_length=120)
+    birth_date: Optional[str] = Field(None, max_length=10, description="YYYY-MM-DD")
+    default_assistant: Optional[str] = Field(None, max_length=32)
+    complete_onboarding: bool = False
+    reopen_onboarding: bool = False
+
+
+class RuntimeEvaluateBridgeRequest(BaseModel):
+    agent_id: str = Field(..., min_length=6)
+    action: str = Field(..., min_length=1)
+    payload: Dict[str, Any] = Field(default_factory=dict)
+    workspace_id: Optional[str] = Field(None, min_length=6)
 
 
 class SetupStatusResponse(BaseModel):
@@ -1750,6 +1844,32 @@ def _b64url_encode(value: bytes) -> str:
 def _b64url_decode(value: str) -> bytes:
     padding = "=" * (-len(value) % 4)
     return base64.urlsafe_b64decode(f"{value}{padding}".encode())
+
+
+def _hash_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    iterations = 210_000
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, iterations)
+    return f"pbkdf2_sha256${iterations}${_b64url_encode(salt)}${_b64url_encode(digest)}"
+
+
+def _verify_password(password: str, password_hash: Optional[str]) -> bool:
+    if not password_hash:
+        return False
+
+    try:
+        algorithm, iterations, salt, digest = password_hash.split("$", 3)
+        if algorithm != "pbkdf2_sha256":
+            return False
+        derived = hashlib.pbkdf2_hmac(
+            "sha256",
+            password.encode(),
+            _b64url_decode(salt),
+            int(iterations),
+        )
+        return hmac.compare_digest(derived, _b64url_decode(digest))
+    except Exception:
+        return False
 
 
 def _build_workspace_session_token(workspace: Dict[str, Any]) -> str:
@@ -1807,14 +1927,25 @@ async def _get_workspace_by_email(email: str) -> Optional[Dict[str, Any]]:
     return dict(row) if row else None
 
 
+async def _get_first_workspace() -> Optional[Dict[str, Any]]:
+    row = await db.fetch_one(
+        "SELECT * FROM workspaces ORDER BY created_at ASC LIMIT 1"
+    )
+    return dict(row) if row else None
+
+
 async def _get_workspace_count() -> int:
     row = await db.fetch_one("SELECT COUNT(*) AS c FROM workspaces")
     return int(row["c"]) if row else 0
 
 
-async def _create_workspace_record(payload: WorkspaceRegistrationRequest) -> Dict[str, Any]:
+async def _create_workspace_record(
+    payload: WorkspaceRegistrationRequest,
+    password_hash: Optional[str] = None,
+    owner_name: Optional[str] = None,
+) -> Dict[str, Any]:
     existing = await db.fetch_one(
-        "SELECT id FROM workspaces WHERE email = :email",
+        "SELECT id FROM workspaces WHERE LOWER(email) = LOWER(:email)",
         {"email": payload.email},
     )
     if existing:
@@ -1823,14 +1954,16 @@ async def _create_workspace_record(payload: WorkspaceRegistrationRequest) -> Dic
     api_key = await _ensure_unique_workspace_api_key(payload.api_key)
     row = await db.fetch_one(
         """
-        INSERT INTO workspaces (name, email, api_key, plan)
-        VALUES (:name, :email, :api_key, :plan)
-        RETURNING id, name, email, plan, api_key, created_at
+        INSERT INTO workspaces (name, owner_name, email, api_key, password_hash, plan)
+        VALUES (:name, :owner_name, :email, :api_key, :password_hash, :plan)
+        RETURNING id, name, owner_name, email, plan, api_key, created_at
         """,
         {
             "name": payload.name,
+            "owner_name": owner_name or "",
             "email": payload.email,
             "api_key": api_key,
+            "password_hash": password_hash or "",
             "plan": payload.plan,
         },
     )
@@ -1847,6 +1980,11 @@ async def _resolve_workspace_token_id(workspace_id: str, proposed: Optional[str]
         {"wid": workspace_id},
     )
     return str(row["id"]) if row else None
+
+
+def _normalize_token_lookup_id(token_id: Any) -> Any:
+    raw = str(token_id).strip()
+    return int(raw) if raw.isdigit() else raw
 
 
 def _extract_action_text(payload: Union[WebhookBody, GatewayForwardBody, Dict[str, Any]]) -> Optional[str]:
@@ -2713,14 +2851,29 @@ def _assistant_actions_from_message(message: str, stats: Dict[str, Any], risk_ag
 
     if any(term in lowered for term in ["alert", "incident", "queue", "riesgo", "risk"]):
         actions.append(AssistantAction(type="route", label="Open ledger", value="/ledger"))
-        actions.append(AssistantAction(type="copy_command", label="Copy `nova watch`", value="nova watch"))
+        if risk_agents:
+            actions.append(
+                AssistantAction(
+                    type="copy_command",
+                    label=f"Copy `nova stream --agent {risk_agents[0]['agent_name']}`",
+                    value=f"nova stream --agent {risk_agents[0]['agent_name']}",
+                )
+            )
+        else:
+            actions.append(AssistantAction(type="copy_command", label="Copy `nova status`", value="nova status"))
 
     if any(term in lowered for term in ["skill", "connector", "integration", "mcp"]):
         actions.append(AssistantAction(type="route", label="Open skills", value="/skills"))
-        actions.append(AssistantAction(type="copy_command", label="Copy `nova skill`", value="nova skill"))
+        actions.append(AssistantAction(type="copy_command", label="Copy `nova connect --help`", value="nova connect --help"))
 
     if any(term in lowered for term in ["policy", "governance", "rules"]):
-        actions.append(AssistantAction(type="copy_command", label="Copy `nova policy`", value="nova policy"))
+        actions.append(
+            AssistantAction(
+                type="copy_command",
+                label="Copy `nova validate --action ...`",
+                value='nova validate --action "Describe the action to review"',
+            )
+        )
 
     if not actions and not stats.get("active_agents"):
         actions.append(AssistantAction(type="modal", label="Create first agent", value="create_agent"))
@@ -2743,14 +2896,91 @@ def _assistant_actions_from_message(message: str, stats: Dict[str, Any], risk_ag
 
 
 def _assistant_command_suggestions(stats: Dict[str, Any], risk_agents: List[Dict[str, Any]]) -> List[str]:
-    commands = ["nova status", "nova watch"]
+    commands = ["nova status", "nova discover"]
     if not stats.get("active_agents"):
         commands.append("nova agent create")
     else:
         commands.append("nova validate --action \"Describe the action to review\"")
     if risk_agents:
-        commands.append(f"nova stream --agent {risk_agents[0]['agent_name']}")
+        commands.append(f"nova stream --agent {risk_agents[0]['agent_name']} --limit 10")
+    else:
+        commands.append("nova agents")
     return commands[:4]
+
+
+def _clean_assistant_command_output(output: str) -> str:
+    if not output:
+        return ""
+
+    lines = output.splitlines()
+    cleaned: List[str] = []
+    skipping_aiosqlite_trace = False
+
+    for line in lines:
+        stripped = line.strip()
+
+        if stripped.startswith("HTTP Request:"):
+            continue
+
+        if stripped.startswith("Exception ignored in: <function Connection.__del__"):
+            skipping_aiosqlite_trace = True
+            continue
+
+        if skipping_aiosqlite_trace:
+            if not stripped:
+                skipping_aiosqlite_trace = False
+            continue
+
+        cleaned.append(line)
+
+    return "\n".join(cleaned).strip()
+
+
+def _humanize_assistant_command_output(cmd: str, output: str, exit_code: int, *, timed_out: bool = False) -> str:
+    cleaned = _clean_assistant_command_output(output)
+
+    if timed_out and cmd == "nova watch":
+        if cleaned:
+            return (
+                "Nova abrió una vista previa corta de `nova watch`, pero el dashboard no mantiene sesiones "
+                "de observación continuas todavía. Para vigilancia en vivo, usa terminal. "
+                "Esto fue lo primero que alcanzó a ver:\n\n"
+                f"{cleaned}"
+            )
+        return (
+            "Nova intentó abrir `nova watch`, pero el dashboard no mantiene sesiones continuas. "
+            "Úsalo desde terminal si quieres dejarlo observando en vivo."
+        )
+
+    if "ModuleNotFoundError: No module named 'aiosqlite'" in output:
+        return (
+            "Nova no pudo arrancar la CLI porque al runtime le faltaba `aiosqlite`. "
+            "Ese problema ya apunta a dependencias del contenedor, no a tu comando."
+        )
+
+    if "invalid choice: 'skill'" in output:
+        return (
+            "El comando `nova skill` no existe en la CLI actual de Nova. "
+            "Para integraciones usa la página Skills o `nova connect`."
+        )
+
+    if "invalid choice: 'policy'" in output:
+        return (
+            "El comando `nova policy` no existe en la CLI actual de Nova. "
+            "Para revisar una acción usa `nova validate --action ...`."
+        )
+
+    if exit_code == 0:
+        if cleaned:
+            return f"Nova ejecutó `{cmd}` correctamente.\n\n{cleaned}"
+        return f"Nova ejecutó `{cmd}` correctamente."
+
+    if cleaned:
+        meaningful_lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
+        detail = meaningful_lines[-1] if meaningful_lines else cleaned
+        return f"Nova no pudo completar `{cmd}`. Motivo: {detail}"
+
+    return f"Nova no pudo completar `{cmd}`."
 
 
 def _resolve_assistant_command(cmd: str) -> Tuple[List[str], str]:
@@ -3110,7 +3340,7 @@ async def root():
             "batch_validation", "skill_executor",
         ],
         "llm_provider": provider or "none",
-        "docs": "/docs" if not settings.is_production() else "https://docs.nova-os.com"
+        "docs": "/docs"
     }
 
 
@@ -3195,6 +3425,71 @@ async def auth_providers():
             "redirect_uri": settings.GITHUB_REDIRECT_URI if settings.github_enabled() else None,
         }
     }
+
+
+@app.post("/auth/login", tags=["Auth"])
+async def auth_login(payload: AuthLoginRequest):
+    workspace = await _get_workspace_by_email(payload.email)
+    if not workspace:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    password_hash = workspace.get("password_hash") or ""
+    if password_hash:
+        if not _verify_password(payload.password, password_hash):
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+    elif settings.is_production():
+        raise HTTPException(status_code=401, detail="Password login is not configured for this workspace")
+    else:
+        password_hash = _hash_password(payload.password)
+        await db.execute(
+            """
+            UPDATE workspaces
+            SET password_hash = :password_hash, updated_at = NOW()
+            WHERE id = :wid
+            """,
+            {"password_hash": password_hash, "wid": workspace["id"]},
+        )
+
+    response = JSONResponse(
+        {
+            "id": str(workspace["id"]),
+            "name": workspace.get("name", ""),
+            "owner_name": workspace.get("owner_name", ""),
+            "email": workspace.get("email", ""),
+            "plan": workspace.get("plan", "free"),
+        }
+    )
+    _set_workspace_session_cookie(response, workspace)
+    return response
+
+
+@app.post("/auth/signup", tags=["Auth"], status_code=201)
+async def auth_signup(payload: AuthSignupRequest):
+    workspace_name = (payload.company or payload.name).strip()
+    registration = WorkspaceRegistrationRequest(
+        name=workspace_name,
+        email=payload.email,
+        plan=payload.plan,
+        api_key=payload.api_key,
+    )
+    workspace = await _create_workspace_record(
+        registration,
+        password_hash=_hash_password(payload.password),
+        owner_name=payload.name.strip(),
+    )
+    response = JSONResponse(
+        {
+            "id": str(workspace["id"]),
+            "name": workspace.get("name", ""),
+            "owner_name": workspace.get("owner_name", ""),
+            "email": workspace.get("email", ""),
+            "plan": workspace.get("plan", payload.plan),
+            "api_key": workspace.get("api_key"),
+        },
+        status_code=201,
+    )
+    _set_workspace_session_cookie(response, workspace)
+    return response
 
 
 @app.get("/auth/github/start", tags=["Auth"])
@@ -3318,13 +3613,257 @@ async def logout():
     return response
 
 
+@app.get("/auth/session", tags=["Auth"])
+async def auth_session(request: Request):
+    try:
+        ws = await get_workspace(request=request, x_api_key=None)
+    except HTTPException:
+        return {"authenticated": False}
+
+    return {
+        "authenticated": True,
+        "workspace": {
+            "id": str(ws["id"]),
+            "name": ws.get("name", ""),
+            "owner_name": ws.get("owner_name", ""),
+            "email": ws.get("email", ""),
+            "plan": ws.get("plan", "free"),
+            "profile": _workspace_profile_payload(ws),
+        },
+    }
+
+
 @app.get("/auth/me", tags=["Auth"])
 async def auth_me(ws: Dict = Depends(get_workspace)):
     return {
         "id": str(ws["id"]),
         "name": ws.get("name", ""),
+        "owner_name": ws.get("owner_name", ""),
         "email": ws.get("email", ""),
         "plan": ws.get("plan", "free"),
+        "profile": _workspace_profile_payload(ws),
+    }
+
+
+@app.get("/discovery/scan", tags=["Discovery"])
+async def discovery_scan(ws: Dict = Depends(get_workspace)):
+    _, kernel, _ = await _get_runtime_workspace_context(ws)
+    agents = await kernel.discovery.scan(force=True)
+    return {
+        "agents": _runtime_to_payload(agents),
+        "last_scan_at": kernel.discovery.last_scan_at.isoformat() if kernel.discovery.last_scan_at else None,
+        "duration_ms": round(kernel.discovery.last_scan_duration_ms or 0, 2),
+    }
+
+
+@app.get("/discovery/agents", tags=["Discovery"])
+async def discovery_agents(ws: Dict = Depends(get_workspace)):
+    _, kernel, _ = await _get_runtime_workspace_context(ws)
+    agents = await kernel.discovery.scan(force=False)
+    return {
+        "agents": _runtime_to_payload(agents),
+        "last_scan_at": kernel.discovery.last_scan_at.isoformat() if kernel.discovery.last_scan_at else None,
+        "duration_ms": round(kernel.discovery.last_scan_duration_ms or 0, 2),
+    }
+
+
+@app.post("/discovery/agents/{agent_key}/connect", tags=["Discovery"])
+async def discovery_connect_agent(
+    agent_key: str,
+    payload: Dict[str, Any] = Body(default_factory=dict),
+    ws: Dict = Depends(get_workspace),
+):
+    _, kernel, runtime_workspace = await _get_runtime_workspace_context(ws)
+    result = await kernel.discovery.connect(
+        agent_key=agent_key,
+        workspace_id=runtime_workspace.id,
+        config=dict(payload.get("config") or {}),
+    )
+    if not result.success:
+        raise HTTPException(status_code=400, detail=result.error or "Unable to connect discovered agent")
+    return _runtime_to_payload(result)
+
+
+@app.delete("/discovery/agents/{agent_key}/disconnect", tags=["Discovery"])
+async def discovery_disconnect_agent(agent_key: str, ws: Dict = Depends(get_workspace)):
+    _, kernel, _ = await _get_runtime_workspace_context(ws)
+    disconnected = await kernel.discovery.disconnect(agent_key)
+    if not disconnected:
+        raise HTTPException(status_code=404, detail="Agent is not connected")
+    return {"disconnected": True, "agent_key": agent_key}
+
+
+@app.get("/discovery/agents/{agent_key}/status", tags=["Discovery"])
+async def discovery_agent_status(agent_key: str, ws: Dict = Depends(get_workspace)):
+    _, kernel, _ = await _get_runtime_workspace_context(ws)
+    return _runtime_to_payload(await kernel.discovery.get_status(agent_key))
+
+
+@app.get("/discovery/agents/{agent_key}/logs", tags=["Discovery"])
+async def discovery_agent_logs(agent_key: str, limit: int = Query(100, ge=1, le=500), ws: Dict = Depends(get_workspace)):
+    _, kernel, _ = await _get_runtime_workspace_context(ws)
+    return _runtime_to_payload(await kernel.discovery.get_logs(agent_key, limit=limit))
+
+
+@app.post("/discovery/agents/{agent_key}/pause", tags=["Discovery"])
+async def discovery_pause_agent(agent_key: str, ws: Dict = Depends(get_workspace)):
+    _, kernel, _ = await _get_runtime_workspace_context(ws)
+    paused = await kernel.discovery.pause(agent_key)
+    if not paused:
+        raise HTTPException(status_code=404, detail="Agent is not connected")
+    return {"agent_key": agent_key, "paused": True}
+
+
+@app.post("/discovery/agents/{agent_key}/resume", tags=["Discovery"])
+async def discovery_resume_agent(agent_key: str, ws: Dict = Depends(get_workspace)):
+    _, kernel, _ = await _get_runtime_workspace_context(ws)
+    resumed = await kernel.discovery.resume(agent_key)
+    if not resumed:
+        raise HTTPException(status_code=404, detail="Agent is not connected")
+    return {"agent_key": agent_key, "resumed": True}
+
+
+@app.post("/agents/create", tags=["Discovery"], status_code=201)
+async def discovery_create_agent(
+    payload: Dict[str, Any] = Body(...),
+    ws: Dict = Depends(get_workspace),
+):
+    _, kernel, runtime_workspace = await _get_runtime_workspace_context(ws)
+    agent_type = str(payload.get("type") or "custom")
+    model = str(payload.get("model") or "gpt-4o-mini")
+    name = str(payload.get("name") or f"{agent_type.title()} Control Lane")
+    config = dict(payload.get("config") or {})
+    permissions = dict(payload.get("permissions") or {})
+    risk_thresholds = dict(payload.get("risk_thresholds") or {})
+    quota = dict(payload.get("quota") or {})
+    agent, connection = await kernel.discovery.create_managed_agent(
+        workspace_id=runtime_workspace.id,
+        name=name,
+        agent_type=agent_type,
+        model=model,
+        config=config,
+        permissions=permissions,
+        risk_thresholds=risk_thresholds,
+        quota=quota,
+    )
+    return {
+        "agent": _runtime_to_payload(agent),
+        "connection": _runtime_to_payload(connection) if connection else None,
+    }
+
+
+@app.post("/api/agents/create", tags=["Discovery"], status_code=201)
+async def api_discovery_create_agent(
+    payload: Dict[str, Any] = Body(...),
+    ws: Dict = Depends(get_workspace),
+):
+    return await discovery_create_agent(payload, ws)
+
+
+@app.post("/api/evaluate", tags=["Runtime"])
+async def api_runtime_evaluate(
+    payload: RuntimeEvaluateBridgeRequest,
+    ws: Dict = Depends(get_workspace),
+):
+    from nova.types import EvaluationRequest
+
+    _, kernel, runtime_workspace = await _get_runtime_workspace_context(ws)
+    result = await kernel.evaluate(
+        EvaluationRequest(
+            agent_id=payload.agent_id,
+            workspace_id=payload.workspace_id or runtime_workspace.id,
+            action=payload.action,
+            payload=payload.payload,
+            source="n8n-api-bridge",
+        )
+    )
+    return _runtime_to_payload(result)
+
+
+@app.get("/api/gmail/check-duplicate", tags=["Runtime"])
+async def api_runtime_check_duplicate(
+    recipient: str = Query(..., min_length=3),
+    subject: str = Query(..., min_length=1),
+    timeframe_hours: int = Query(24, ge=1, le=24 * 30),
+    ws: Dict = Depends(get_workspace),
+):
+    _, kernel, runtime_workspace = await _get_runtime_workspace_context(ws)
+    recipient_key = recipient.strip().casefold()
+    subject_key = subject.strip().casefold()
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=timeframe_hours)
+    entries = await kernel.ledger.list_entries(runtime_workspace.id, limit=500)
+
+    for entry in entries:
+        if entry.action_type != "send_email":
+            continue
+        if str(entry.decision).upper() != "ALLOW":
+            continue
+        entry_timestamp = entry.timestamp
+        if entry_timestamp.tzinfo is None:
+            entry_timestamp = entry_timestamp.replace(tzinfo=timezone.utc)
+        if entry_timestamp < cutoff:
+            continue
+
+        record_metadata = dict(entry.record_metadata or {})
+        dedupe_keys = dict(record_metadata.get("dedupe_keys") or {})
+        if dedupe_keys.get("recipient") != recipient_key:
+            continue
+        if dedupe_keys.get("subject") != subject_key:
+            continue
+
+        return {
+            "is_duplicate": True,
+            "recipient": recipient,
+            "subject": subject,
+            "last_sent_at": entry_timestamp.isoformat(),
+            "action_id": entry.action_id,
+            "eval_id": entry.eval_id,
+            "ledger_hash": entry.hash,
+        }
+
+    return {
+        "is_duplicate": False,
+        "recipient": recipient,
+        "subject": subject,
+        "timeframe_hours": timeframe_hours,
+    }
+
+
+@app.get("/api/ledger", tags=["Runtime"])
+async def api_runtime_ledger(
+    limit: int = Query(100, ge=1, le=5000),
+    ws: Dict = Depends(get_workspace),
+):
+    _, kernel, runtime_workspace = await _get_runtime_workspace_context(ws)
+    entries = await kernel.ledger.list_entries(runtime_workspace.id, limit)
+    return [
+        {
+            "action_id": entry.action_id,
+            "eval_id": entry.eval_id,
+            "action_type": entry.action_type,
+            "risk_score": entry.risk_score,
+            "decision": entry.decision,
+            "hash": entry.hash,
+            "previous_hash": entry.previous_hash,
+            "timestamp": entry.timestamp.isoformat(),
+            "payload_summary": entry.payload_summary,
+        }
+        for entry in entries
+    ]
+
+
+@app.get("/api/ledger/verify", tags=["Runtime"])
+async def api_runtime_verify_ledger(
+    ws: Dict = Depends(get_workspace),
+):
+    _, kernel, runtime_workspace = await _get_runtime_workspace_context(ws)
+    result = await kernel.ledger.hash_chain.verify_integrity(runtime_workspace.id)
+    return {
+        "is_valid": result.is_valid,
+        "total_records": result.total_records,
+        "verified_records": result.verified_records,
+        "broken_at": result.broken_at,
+        "verified_at": result.verified_at.isoformat(),
     }
 
 
@@ -3394,18 +3933,20 @@ async def assistant_chat(request: Request, payload: AssistantRequest, ws: Dict =
     selected_api_key = _assistant_provider_key(payload, selected_provider)
     system_prompt = (
         "You are Nova Operator, an embedded assistant for a security operations dashboard. "
-        "Be concise, practical, and operator-focused. "
+        "Be practical, precise, and operator-focused. "
         "Use the workspace snapshot to answer clearly. "
         "Never claim you executed shell commands or changed infrastructure. "
         "You may suggest Nova CLI commands and UI navigation. "
-        "Prefer short paragraphs or flat bullets."
+        "If the user provides a large natural-language instruction, preserve its constraints, extract the execution intent, "
+        "identify the target runtime or connector when possible, and surface blockers explicitly. "
+        "Prefer short paragraphs or flat bullets when helpful, but do not truncate important reasoning."
     )
     user_prompt = (
         f"User message: {payload.message}\n"
         f"Current page: {payload.page}\n"
         f"Workspace snapshot:\n{json.dumps(stats_summary, default=str)}\n"
         f"Suggested commands already available:\n{json.dumps(suggested_commands)}\n"
-        "Answer in under 140 words."
+        "Handle long natural-language instructions faithfully. Summarize only when it preserves the actionable meaning."
     )
     assistant_agent_name = "Nova Operator Assistant"
     assistant_can_do = ["generate_response", "execute_nova_command", "query_database"]
@@ -3476,7 +4017,7 @@ async def assistant_chat(request: Request, payload: AssistantRequest, ws: Dict =
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                max_tokens=220,
+                max_tokens=640,
                 temperature=0.15,
                 provider=selected_provider,
                 model=selected_model,
@@ -3509,6 +4050,7 @@ async def assistant_execute(request: Request, payload: CommandRequest, ws: Dict 
             "output": f"Security violation: Command '{cmd}' is not allowed. Only 'nova' commands are permitted via the dashboard.",
             "exit_code": 1,
             "success": False,
+            "display_output": "Ese comando no está permitido desde el dashboard. Aquí solo se pueden ejecutar comandos que empiecen por `nova`.",
         }
 
     # Further sanitization: avoid command chaining and redirection
@@ -3517,6 +4059,7 @@ async def assistant_execute(request: Request, payload: CommandRequest, ws: Dict 
             "output": "Security violation: Special characters detected. Command execution aborted.",
             "exit_code": 1,
             "success": False,
+            "display_output": "El comando fue bloqueado porque contiene caracteres inseguros para ejecución desde el dashboard.",
         }
 
     runtime_result = None
@@ -3560,7 +4103,7 @@ async def assistant_execute(request: Request, payload: CommandRequest, ws: Dict 
                 response_override=response_text,
                 provider_override=runtime_provider,
             )
-            return {"output": response_text, "exit_code": 1, "success": False}
+            return {"output": response_text, "exit_code": 1, "success": False, "display_output": response_text}
     except Exception as exc:
         log.warning(f"Assistant command runtime bridge fallback used: {exc}")
 
@@ -3588,18 +4131,22 @@ async def assistant_execute(request: Request, payload: CommandRequest, ws: Dict 
             "output": process.stdout + process.stderr,
             "exit_code": process.returncode,
             "success": process.returncode == 0,
+            "display_output": _humanize_assistant_command_output(cmd, process.stdout + process.stderr, process.returncode),
         }
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
+        partial_output = f"{exc.stdout or ''}{exc.stderr or ''}"
         return {
-            "output": "Command timed out after 10 seconds.",
+            "output": partial_output or "Command timed out after 10 seconds.",
             "exit_code": 124,
             "success": False,
+            "display_output": _humanize_assistant_command_output(cmd, partial_output, 124, timed_out=True),
         }
     except Exception as exc:
         return {
             "output": f"Internal error during execution: {str(exc)}",
             "exit_code": 500,
             "success": False,
+            "display_output": f"Nova no pudo ejecutar `{cmd}` por un error interno del backend: {str(exc)}",
         }
 
 
@@ -3612,7 +4159,7 @@ async def setup_status():
         "workspace_count": workspace_count,
         "github_enabled": settings.github_enabled(),
         "setup_enabled": needs_setup,
-        "recommended_login": "bootstrap" if needs_setup else ("github" if settings.github_enabled() else "api_key"),
+        "recommended_login": "bootstrap" if needs_setup else ("github" if settings.github_enabled() else "credentials"),
     }
 
 
@@ -3625,11 +4172,18 @@ async def bootstrap_workspace(payload: BootstrapWorkspaceRequest):
     if not hmac.compare_digest(payload.bootstrap_token, settings.WORKSPACE_ADMIN_TOKEN):
         raise HTTPException(status_code=403, detail="Invalid bootstrap token")
 
-    workspace = await _create_workspace_record(payload)
+    owner_name = (payload.owner_name or payload.name).strip()
+    password_hash = _hash_password(payload.password) if payload.password else None
+    workspace = await _create_workspace_record(
+        payload,
+        password_hash=password_hash,
+        owner_name=owner_name,
+    )
     response = JSONResponse(
         {
             "id":         str(workspace["id"]),
             "name":       workspace["name"],
+            "owner_name": workspace.get("owner_name", ""),
             "email":      workspace["email"],
             "plan":       workspace["plan"],
             "api_key":    workspace["api_key"],
@@ -3648,6 +4202,7 @@ async def get_my_workspace(ws: Dict = Depends(get_workspace)):
     return {
         "id":               str(ws["id"]),
         "name":             ws.get("name", ""),
+        "owner_name":       ws.get("owner_name", ""),
         "email":            ws.get("email", ""),
         "plan":             ws.get("plan", "free"),
         "features":         ws.get("features", []),
@@ -3655,6 +4210,79 @@ async def get_my_workspace(ws: Dict = Depends(get_workspace)):
         "quota_monthly":    ws.get("quota_monthly", 10000),
         "stats":            stats,
         "created_at":       ws.get("created_at"),
+        "profile":          _workspace_profile_payload(ws),
+    }
+
+
+@app.patch("/workspaces/me/profile", tags=["Workspace"])
+async def update_my_workspace_profile(
+    payload: WorkspaceProfileUpdateRequest,
+    ws: Dict = Depends(get_workspace),
+):
+    settings_payload = ws.get("settings") or {}
+    if isinstance(settings_payload, str):
+        try:
+            settings_payload = json.loads(settings_payload)
+        except json.JSONDecodeError:
+            settings_payload = {}
+    settings_payload = dict(settings_payload or {})
+    profile = dict(settings_payload.get("profile") or {})
+
+    owner_name = (payload.owner_name or ws.get("owner_name") or "").strip()
+    preferred_name = payload.preferred_name if payload.preferred_name is not None else profile.get("preferred_name", "")
+    role_title = payload.role_title if payload.role_title is not None else profile.get("role_title", "")
+    birth_date = payload.birth_date if payload.birth_date is not None else profile.get("birth_date")
+    default_assistant = payload.default_assistant if payload.default_assistant is not None else profile.get("default_assistant", "both")
+
+    if default_assistant not in {"nova", "melissa", "both"}:
+        raise HTTPException(status_code=422, detail="default_assistant must be one of: nova, melissa, both")
+
+    profile.update({
+        "preferred_name": preferred_name.strip() if isinstance(preferred_name, str) else preferred_name,
+        "role_title": role_title.strip() if isinstance(role_title, str) else role_title,
+        "birth_date": birth_date,
+        "default_assistant": default_assistant,
+    })
+
+    if payload.reopen_onboarding:
+        profile["onboarding_completed_at"] = None
+    elif payload.complete_onboarding:
+        profile["onboarding_completed_at"] = datetime.now(timezone.utc).isoformat()
+
+    settings_payload["profile"] = profile
+
+    await db.execute(
+        """
+        UPDATE workspaces
+        SET owner_name = :owner_name,
+            settings = :settings,
+            updated_at = NOW()
+        WHERE id = :wid
+        """,
+        {
+            "wid": ws["id"],
+            "owner_name": owner_name,
+            "settings": json.dumps(settings_payload),
+        },
+    )
+
+    updated = await _get_workspace_by_id(str(ws["id"]))
+    if not updated:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    stats = await AnalyticsEngine.get_stats(str(updated["id"]))
+    return {
+        "id": str(updated["id"]),
+        "name": updated.get("name", ""),
+        "owner_name": updated.get("owner_name", ""),
+        "email": updated.get("email", ""),
+        "plan": updated.get("plan", "free"),
+        "features": updated.get("features", []),
+        "usage_this_month": updated.get("usage_this_month", 0),
+        "quota_monthly": updated.get("quota_monthly", 10000),
+        "stats": stats,
+        "created_at": updated.get("created_at"),
+        "profile": _workspace_profile_payload(updated),
     }
 
 
@@ -3671,6 +4299,7 @@ async def register_workspace(
     return {
         "id":         str(row["id"]),
         "name":       row["name"],
+        "owner_name": row.get("owner_name", ""),
         "email":      row["email"],
         "plan":       row["plan"],
         "api_key":    row["api_key"],
@@ -3898,7 +4527,7 @@ async def list_tokens(
 async def get_token(token_id: str, ws: Dict = Depends(get_workspace)):
     row = await db.fetch_one(
         "SELECT * FROM intent_tokens WHERE id = :tid AND workspace_id = :wid",
-        {"tid": token_id, "wid": ws["id"]}
+        {"tid": _normalize_token_lookup_id(token_id), "wid": ws["id"]}
     )
     if not row:
         raise HTTPException(404, "Token not found")
@@ -3918,7 +4547,7 @@ async def update_token(
     # Save current state to history
     current = await db.fetch_one(
         "SELECT * FROM intent_tokens WHERE id = :tid AND workspace_id = :wid",
-        {"tid": token_id, "wid": ws["id"]}
+        {"tid": _normalize_token_lookup_id(token_id), "wid": ws["id"]}
     )
     if not current:
         raise HTTPException(404, "Token not found")
@@ -4007,11 +4636,12 @@ async def _run_validation(
     12. Trigger anomaly detection (background)
     """
     start_time = time.time()
+    lookup_token_id = _normalize_token_lookup_id(payload.token_id)
 
     # ── Load token ────────────────────────────────────────────────────────────
     token = await db.fetch_one(
         "SELECT * FROM intent_tokens WHERE id = :tid AND workspace_id = :wid AND active = TRUE",
-        {"tid": payload.token_id, "wid": workspace["id"]}
+        {"tid": lookup_token_id, "wid": workspace["id"]}
     )
     if not token:
         raise HTTPException(404, "Intent Token not found or inactive")
@@ -4031,7 +4661,7 @@ async def _run_validation(
     # ── Duplicate check ───────────────────────────────────────────────────────
     if payload.check_duplicates:
         dup = await DuplicateGuard.check(
-            str(workspace["id"]), payload.token_id, payload.action,
+            str(workspace["id"]), lookup_token_id, payload.action,
             payload.duplicate_window_minutes, payload.duplicate_threshold
         )
         if dup:
@@ -4098,7 +4728,7 @@ async def _run_validation(
         prev_hash = prev_row["own_hash"] if prev_row else "GENESIS"
         own_hash  = Crypto.chain_hash(prev_hash, {
             "workspace_id": str(workspace["id"]),
-            "token_id":     payload.token_id,
+            "token_id":     lookup_token_id,
             "action":       payload.action,
             "score":        score,
             "verdict":      verdict.value,
@@ -4117,7 +4747,7 @@ async def _run_validation(
                        :rid, :ip, :ua, :prov, :lat)
                RETURNING id""",
             {
-                "wid":     workspace["id"], "tid":     payload.token_id,
+                "wid":     workspace["id"], "tid":     lookup_token_id,
                 "agent":   token["agent_name"], "action":  payload.action,
                 "ctx":     payload.context or "",
                 "score":   score, "conf":    confidence,
@@ -4319,7 +4949,7 @@ async def explain_validation(
 
     token = await db.fetch_one(
         "SELECT * FROM intent_tokens WHERE id = :tid AND workspace_id = :wid AND active = TRUE",
-        {"tid": payload.token_id, "wid": ws["id"]}
+        {"tid": _normalize_token_lookup_id(payload.token_id), "wid": ws["id"]}
     )
     if not token:
         raise HTTPException(404, "Intent Token not found")
@@ -5115,13 +5745,8 @@ async def get_available_skills():
     Get available system integrations and their credential schemas.
     """
     try:
-        # Dynamic import from parent directory
-        import sys
-        parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        if parent_dir not in sys.path:
-            sys.path.append(parent_dir)
-        
-        from integrations import INTEGRATION_SCHEMAS
+        from nova.integrations_catalog import INTEGRATION_SCHEMAS
+
         return INTEGRATION_SCHEMAS
     except Exception as e:
         log.error(f"Failed to load integration schemas: {e}")
@@ -5129,6 +5754,29 @@ async def get_available_skills():
         return {
             "slack": {"name": "Slack", "category": "Communication", "description": "Slack integration"},
             "gmail": {"name": "Gmail", "category": "Communication", "description": "Gmail integration"}
+        }
+
+
+@app.get("/connectors", tags=["Skills"])
+async def get_connector_registry(ws: Dict = Depends(get_workspace)):
+    """
+    Get the workspace connector registry derived from the local Nova skill store.
+    """
+    del ws
+    try:
+        from nova.connector_registry import build_connector_inventory
+
+        return build_connector_inventory()
+    except Exception as e:
+        log.error(f"Failed to build connector registry: {e}")
+        return {
+            "connectors": [],
+            "summary": {
+                "catalog_count": 0,
+                "connected_count": 0,
+                "incomplete_count": 0,
+                "skills_dir": str((Path.home() / '.nova' / 'skills')),
+            },
         }
 
 
@@ -5162,7 +5810,7 @@ async def stream_events(
             raise HTTPException(401, "Invalid API key")
         ws = dict(ws)
     else:
-        ws = await get_workspace(request=request)
+        ws = await get_workspace(request=request, x_api_key=None)
 
     # Send recent events if resuming
     backlog = []

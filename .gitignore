@@ -14,8 +14,16 @@ __pycache__/
 *.pyo
 *.pyd
 *.bak
+*.bak_*
+*.backup.json
+*.live.backup.json
 *.bak2
 *.log
+.coverage
+
+output/
+data/
+.claude/
 
 .pytest_cache/
 .mypy_cache/

@@ -1,10 +1,9 @@
-import React, { useContext, useState } from 'react'
+import React, { useContext, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AuthContext } from './AuthContext'
 import { api } from '../utils/api'
 import { GITHUB_AUTH_URL } from '../config/appConfig'
-
-const novaIsotipoWhite = new URL('../../nova-branding/Nova I/White Nova Isotipo.png', import.meta.url).href
+import { getNovaIsotipoSrc } from '../lib/nova-brand-assets'
 const datacenterInfra = '/images/datacenter-infra.jpg'
 
 const capabilityList = [
@@ -20,11 +19,46 @@ const operatorStats = [
   { value: '24/7', label: 'security operations visibility' },
 ]
 
+const GENERIC_NAMES = new Set(['Admin User', 'User', 'Operator'])
+
+function workspaceToUser(workspace, fallback = {}) {
+  const profile = workspace?.profile || {}
+  const preferredName = profile.preferred_name || ''
+  const ownerName = workspace?.owner_name || ''
+  const email = workspace?.email || fallback.email || ''
+  const name = preferredName || ownerName || workspace?.name || fallback.name || email.split('@')[0] || 'User'
+
+  return {
+    name,
+    email,
+    ownerName,
+    workspaceName: workspace?.name || fallback.workspaceName || '',
+    preferredName,
+    roleTitle: profile.role_title || '',
+    birthDate: profile.birth_date || '',
+    defaultAssistant: profile.default_assistant || 'both',
+    onboardingCompletedAt: profile.onboarding_completed_at || null,
+    plan: workspace?.plan || fallback.plan || 'trial',
+  }
+}
+
+async function hydrateCredentialUser(fallback = {}) {
+  try {
+    const workspace = await api.get('/auth/me')
+    return workspaceToUser(workspace, fallback)
+  } catch {
+    return {
+      name: fallback.name || fallback.email?.split('@')[0] || 'User',
+      email: fallback.email || '',
+    }
+  }
+}
+
 function Login() {
   const navigate = useNavigate()
-  const { setIsAuthenticated, setUser, setApiKey } = useContext(AuthContext)
+  const { setIsAuthenticated, setUser, setApiKey, user } = useContext(AuthContext)
   const [isSignUp, setIsSignUp] = useState(false)
-  const [useApiKey, setUseApiKey] = useState(true)
+  const [useApiKey, setUseApiKey] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const [formData, setFormData] = useState({
@@ -34,6 +68,28 @@ function Login() {
     company: '',
     apiKey: '',
   })
+
+  useEffect(() => {
+    let cancelled = false
+
+    api.get('/setup/status')
+      .then((status) => {
+        if (cancelled) return
+        if (status.needs_setup) {
+          setIsSignUp(true)
+          setUseApiKey(false)
+          return
+        }
+        if (status.recommended_login === 'credentials') {
+          setUseApiKey(false)
+        }
+      })
+      .catch(() => null)
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -46,17 +102,44 @@ function Login() {
         try {
           const workspace = await api.get('/workspaces/me')
           setApiKey(formData.apiKey)
-          setUser({ name: workspace.name, email: 'workspace@nova-os.com' })
+          setUser(workspaceToUser(workspace, { email: workspace.email || 'workspace@nova-os.com' }))
           setIsAuthenticated(true)
           navigate('/dashboard')
         } catch {
           localStorage.removeItem('nova_api_key')
           throw new Error('Invalid Workspace API Key')
         }
-      } else {
-        await new Promise((resolve) => setTimeout(resolve, 900))
+      } else if (!isSignUp) {
+        const session = await api.post('/auth/login', {
+          email: formData.email,
+          password: formData.password,
+        })
+        setApiKey('')
+        setUser(await hydrateCredentialUser({
+          name: user?.name && !GENERIC_NAMES.has(user.name)
+            ? user.name
+            : session.owner_name || session.name || formData.email.split('@')[0] || 'User',
+          email: session.email || formData.email,
+          plan: session.plan,
+          workspaceName: session.name,
+        }))
         setIsAuthenticated(true)
-        setUser({ name: formData.name || 'User', email: formData.email })
+        navigate('/dashboard')
+      } else {
+        const session = await api.post('/auth/signup', {
+          name: formData.name,
+          company: formData.company,
+          email: formData.email,
+          password: formData.password,
+        })
+        setApiKey('')
+        setIsAuthenticated(true)
+        setUser(await hydrateCredentialUser({
+          name: session.owner_name || formData.name || session.name || 'User',
+          email: session.email || formData.email,
+          plan: session.plan,
+          workspaceName: session.name,
+        }))
         navigate('/dashboard')
       }
     } catch (err) {
@@ -71,9 +154,9 @@ function Login() {
     window.location.href = GITHUB_AUTH_URL
   }
 
-  const panelTitle = isSignUp ? 'Request Access' : 'Operator access'
+  const panelTitle = isSignUp ? 'Create account' : 'Operator access'
   const panelSubtitle = isSignUp
-    ? 'Self-registration is restricted. Please contact your system administrator for a Workspace API Key.'
+    ? 'Create your workspace account using the current Nova API without leaving this login surface.'
     : 'Sign in to access runtime controls, validation history, and system status.'
 
   return (
@@ -92,7 +175,7 @@ function Login() {
             <div className="relative z-10">
               <div className="flex items-center gap-4">
                 <div className="flex h-16 w-16 items-center justify-center rounded-[22px] border border-white/10 bg-white/10 backdrop-blur-sm">
-                  <img src={novaIsotipoWhite} alt="Nova isotipo" className="h-14 w-14 object-contain" />
+                  <img src={getNovaIsotipoSrc('light')} alt="Nova isotipo" className="h-14 w-14 object-contain" />
                 </div>
                 <div>
                   <div className="text-[11px] font-mono uppercase tracking-[0.22em] text-white/45">Nova Governance</div>
@@ -243,7 +326,7 @@ function Login() {
                       <span>Processing</span>
                     </>
                   ) : (
-                    <span>{isSignUp ? 'Request API Key' : useApiKey ? 'Connect Workspace' : 'Sign in'}</span>
+                    <span>{isSignUp ? 'Create account' : useApiKey ? 'Connect Workspace' : 'Sign in'}</span>
                   )}
                 </button>
               </form>
@@ -273,14 +356,14 @@ function Login() {
               </p>
 
               <p className="mt-8 text-center text-sm" style={{ color: 'rgba(17,17,17,0.54)' }}>
-                {isSignUp ? 'Already have an account?' : "Don't have an API Key?"}{' '}
+                {isSignUp ? 'Already have an account?' : "Don't have an account yet?"}{' '}
                 <button
                   type="button"
                   onClick={() => setIsSignUp((current) => !current)}
                   className="font-medium transition-opacity hover:opacity-70"
                   style={{ color: '#111111' }}
                 >
-                  {isSignUp ? 'Sign in' : 'Request one'}
+                  {isSignUp ? 'Sign in' : 'Create one'}
                 </button>
               </p>
             </div>

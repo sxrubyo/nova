@@ -4,7 +4,7 @@
   "icon": "file:nova_icon.svg",
   "displayName": "Nova Validate",
   "description": "Validate AI agent actions against Nova governance rules",
-  "documentation": "https://docs.nova-os.com/n8n",
+  "documentation": "https://github.com/sxrubyo/nova-os/tree/main/n8n-nodes-nova",
   "subtitle": "Governance Layer",
   "inputs": ["main"],
   "outputs": ["main", "escalated"],
@@ -90,7 +90,7 @@
   ],
   "methods": {
     "listSearch": {
-      "getAgents": "https://api.nova-os.com/v1/agents/list"
+      "getAgents": "http://127.0.0.1:8000/api/agents/list"
     }
   }
 }

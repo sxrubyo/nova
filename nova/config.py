@@ -63,6 +63,9 @@ class NovaConfig(BaseSettings):
     anomaly_burst_threshold: int = Field(default=50, alias="NOVA_ANOMALY_BURST_THRESHOLD")
     anomaly_loop_similarity: float = Field(default=0.85, alias="NOVA_ANOMALY_LOOP_SIMILARITY")
     anomaly_check_interval: int = Field(default=30, alias="NOVA_ANOMALY_CHECK_INTERVAL")
+    discovery_enabled: bool = Field(default=True, alias="NOVA_DISCOVERY_ENABLED")
+    discovery_scan_ttl_seconds: int = Field(default=60, alias="NOVA_DISCOVERY_SCAN_TTL")
+    discovery_watch_interval_seconds: int = Field(default=60, alias="NOVA_DISCOVERY_WATCH_INTERVAL")
 
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")

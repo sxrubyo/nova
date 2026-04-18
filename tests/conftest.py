@@ -22,6 +22,7 @@ def test_config(tmp_path: Path) -> NovaConfig:
         NOVA_WORKSPACE_ROOT=tmp_path,
         NOVA_DATA_DIR=tmp_path / "data",
         NOVA_LOG_FORMAT="console",
+        NOVA_DISCOVERY_ENABLED=False,
     )
 
 

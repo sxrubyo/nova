@@ -14,6 +14,32 @@ from nova.utils.crypto import generate_id, sha256_hex, stable_json
 from nova.utils.text import flatten_payload, truncate
 
 
+def _email_dedupe_keys(action_type: str, payload: dict[str, object]) -> dict[str, str]:
+    if action_type != "send_email":
+        return {}
+
+    recipient = ""
+    for key in ("recipient", "to", "email", "recipientEmail"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            recipient = value.strip().casefold()
+            break
+
+    subject = ""
+    for key in ("subject", "emailSubject"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            subject = value.strip().casefold()
+            break
+
+    dedupe: dict[str, str] = {}
+    if recipient:
+        dedupe["recipient"] = recipient
+    if subject:
+        dedupe["subject"] = subject
+    return dedupe
+
+
 @dataclass(slots=True)
 class ChainVerification:
     """Verification result for a ledger hash chain."""
@@ -34,6 +60,7 @@ class HashChain:
             previous = await repo.latest(entry.workspace_id)
             previous_hash = previous.hash if previous else None
             payload_digest = sha256_hex(stable_json(entry.payload))
+            dedupe_keys = _email_dedupe_keys(entry.action_type, entry.payload)
             hash_input = (
                 entry.eval_id
                 + entry.agent_id
@@ -59,7 +86,11 @@ class HashChain:
                 anomalies=entry.anomalies,
                 hash=current_hash,
                 previous_hash=previous_hash,
-                record_metadata={"payload_digest": payload_digest, "timestamp_iso": entry.timestamp.isoformat()},
+                record_metadata={
+                    "payload_digest": payload_digest,
+                    "timestamp_iso": entry.timestamp.isoformat(),
+                    "dedupe_keys": dedupe_keys,
+                },
                 timestamp=entry.timestamp,
             )
             await repo.add(model)
