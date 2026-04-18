@@ -1,36 +1,47 @@
-# 🏛️ Nova OS Architecture
-**Maintained by Nova Governance**
+# Nova OS Architecture
 
-Nova OS is a high-performance, low-latency governance layer for autonomous systems. The architecture follows a Security-by-Design principle: no action is executed without cryptographic verification, and every decision is traceable end-to-end.
+Nova OS tiene dos capas activas en este repo:
 
-## 🏗️ System Overview
-The system is composed of three primary layers:
+1. `nova.py` como CLI y entrypoint del runtime.
+2. `nova/` como paquete modular con API, kernel, discovery, ledger, memoria y seguridad.
 
-1. **The Core CLI (nova.py)**: A zero-dependency Python engine that acts as the primary interface. It manages local state, UX primitives, and interactive navigation.
-2. **The Validation API**: A FastAPI backend that processes intents, calculates scores (heuristic or LLM), enforces duplicate detection, and triggers alerts.
-3. **The Intent Ledger**: A PostgreSQL-backed immutable log where every action is hashed and chained to ensure auditability.
+El objetivo actual no es “enterprise-only”. El objetivo es correr el mismo núcleo en Linux normal, macOS y Termux, degradando dependencias externas cuando el host no las tenga.
 
-Supporting services:
-- **Memory Engine**: relevance-based context retrieval and auto-save.
-- **Duplicate Guard**: similarity-based suppression with time windows.
-- **Alert System**: escalations and violations routed into alerts.
-- **Analytics Engine**: usage metrics, score trends, and operational stats.
+## Runtime actual
 
-## 🔄 The Validation Flow
-Every intent follows this lifecycle:
-- **Ingestion**: The agent sends an action request via Webhook or CLI.
-- **Scoring**: Nova evaluates the intent against active rules (heuristic or LLM).
-- **Duplicate Check**: A similarity window prevents repeated actions.
-- **Consensus**: A verdict is reached (APPROVED, BLOCKED, ESCALATED, DUPLICATE).
-- **Hashing**: The action, timestamp, and verdict are hashed to create a unique fingerprint.
-- **Ledger Entry**: The signed record is written to the immutable ledger.
-- **Alerts + Memory**: Violations create alerts; key context is stored for future decisions.
+- **CLI**: `nova.py`
+- **API**: FastAPI + Uvicorn
+- **Kernel**: `nova/kernel.py`
+- **Storage principal**: SQLAlchemy async con SQLite por defecto y PostgreSQL cuando el host lo soporte
+- **DB portable extra**: `nova/db.py` para bootstrap sin depender del ORM completo
+- **Descubrimiento**: `nova/discovery/`
+- **Ledger**: `nova/ledger/`
+- **Memoria**: `nova/memory/`
 
-## 🛠️ Tech Stack
-- **Language**: Python 3.8+ (Zero external dependencies for the CLI).
-- **Backend**: FastAPI / Uvicorn.
-- **Database**: PostgreSQL (relational integrity for the Ledger).
-- **Environment**: Docker & Docker Compose for enterprise-grade deployment.
+## Decisiones de plataforma
 
----
-*Architecture defined by Nova OS Engineering.*
+- **Detección de host**: `nova/platform.py`
+- **Termux**: sin Docker, sin systemd, sin PostgreSQL obligatorio
+- **Linux con systemd**: puede correr como servicio
+- **PM2/screen/nohup**: fallback cuando no hay systemd
+- **Node**: opcional para frontend y discovery ampliado; no es requisito del core
+
+## Base de datos
+
+- Si hay PostgreSQL real y el runtime lo puede usar, Nova puede apuntar a `postgresql+asyncpg`.
+- Si no, cae a SQLite en `~/.nova/nova.db`.
+- La meta es mantener la misma interfaz del runtime y bajar dependencias externas, no reescribir el dominio.
+
+## Flujo de validación
+
+1. El agente envía una acción vía API, bridge o CLI.
+2. El kernel aplica análisis de intención, reglas, sensibilidad, riesgo y cuota.
+3. El pipeline decide `ALLOW`, `BLOCK`, `ESCALATE` o equivalentes operativos.
+4. El ledger encadena la evidencia con firma SHA-256/HMAC.
+5. Memoria y observabilidad guardan contexto operativo.
+
+## Restricciones prácticas
+
+- El repo todavía contiene código legacy en `backend/` y `legacy/`.
+- El camino crítico productivo hoy es `nova.py` + `nova/`.
+- Los scripts auxiliares deben degradar con gracia cuando no existe Docker, systemd o PostgreSQL.

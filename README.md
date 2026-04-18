@@ -25,9 +25,9 @@ tests/                 suite de backend y discovery
 
 ## Requisitos
 
-- Python 3.11+
-- Node.js 20+
-- Docker y Docker Compose para el stack local completo
+- Python 3.10+
+- Node.js 20+ para compilar el frontend
+- Docker y Docker Compose solo si quieres el stack local completo
 
 ## Arranque local
 
@@ -61,6 +61,50 @@ CLI:
 
 ```bash
 python nova.py --help
+```
+
+## 📱 Termux / Android Installation
+
+Nova OS corre nativamente en Android vía Termux sin root.
+
+### Prerrequisitos
+
+```sh
+pkg install python git openssl
+```
+
+### Instalación
+
+```sh
+curl -sSL https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh | sh
+```
+
+En Termux, Nova:
+
+- usa SQLite en `~/.nova/nova.db`
+- evita Docker, nginx y PostgreSQL
+- arranca en segundo plano con `nohup`
+- guarda logs y PID en `~/.nova/`
+- puede aprovechar `Termux:API` si está disponible
+
+### Funciones opcionales con Termux:API
+
+```sh
+pkg install termux-api
+```
+
+Habilita notificaciones locales, vibración, batería y wake lock.
+
+### Detener Nova
+
+```sh
+kill "$(cat ~/.nova/nova.pid)"
+```
+
+### Ver logs
+
+```sh
+tail -f ~/.nova/nova.log
 ```
 
 ## Configuración

@@ -6,7 +6,8 @@
 # ═══════════════════════════════════════════════════════════════
 set -e
 
-INSTALL_DIR="/home/ubuntu/nova-os/installers"
+REPO_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+INSTALL_DIR="$REPO_DIR/installers"
 NGINX_CONF="/etc/nginx/sites-available/nova-installer"
 
 echo ""
@@ -19,8 +20,8 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-if [ ! -f "$HOME/nova-os/install.sh" ] || [ ! -f "$HOME/nova-os/install.ps1" ]; then
-    echo "  ✗ No se encontraron installers en ~/nova-os/"
+if [ ! -f "$REPO_DIR/install.sh" ] || [ ! -f "$REPO_DIR/install.ps1" ]; then
+    echo "  ✗ No se encontraron installers en $REPO_DIR"
     exit 1
 fi
 
@@ -28,18 +29,18 @@ fi
 mkdir -p "$INSTALL_DIR"
 echo "  ✓ Directorio: $INSTALL_DIR"
 
-# 2. Copiar los installers (deben estar en ~/nova-os/)
-cp ~/nova-os/install.sh    "$INSTALL_DIR/install.sh"
-cp ~/nova-os/install.ps1   "$INSTALL_DIR/install.ps1"
+# 2. Copiar los installers
+cp "$REPO_DIR/install.sh"    "$INSTALL_DIR/install.sh"
+cp "$REPO_DIR/install.ps1"   "$INSTALL_DIR/install.ps1"
 chmod 644 "$INSTALL_DIR"/*.sh "$INSTALL_DIR"/*.ps1
 echo "  ✓ Installers copiados"
 
 # 3. Config nginx
-cat > "$NGINX_CONF" << 'NGINX'
+cat > "$NGINX_CONF" << NGINX
 server {
     listen 3005;
     server_name _;
-    root /home/ubuntu/nova-os/installers;
+    root $INSTALL_DIR;
 
     location = /install {
         default_type text/plain;

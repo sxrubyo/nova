@@ -67,6 +67,16 @@ def create_app(kernel: NovaKernel | None = None) -> FastAPI:
             content={"success": False, "error": {"code": exc.code, "message": exc.message, "eval_id": exc.eval_id}},
         )
 
+    @app.exception_handler(Exception)
+    async def handle_unexpected_exception(request: Request, exc: Exception) -> JSONResponse:
+        logger = getattr(getattr(request.app.state, "kernel", None), "logger", None)
+        if logger is not None:
+            logger.exception("unhandled_api_exception", path=request.url.path, method=request.method, error=str(exc))
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": {"code": "internal_error", "message": "unexpected server error"}},
+        )
+
     return app
 
 

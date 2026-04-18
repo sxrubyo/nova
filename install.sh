@@ -1,80 +1,199 @@
-#!/usr/bin/env bash
-# nova CLI — Linux / macOS Installer
-# curl -sSL https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh | bash
-set -euo pipefail
+#!/usr/bin/env sh
+# nova-os universal installer — Linux, macOS, Termux
+set -eu
 
-NOVA_VERSION="3.1.5"
+REPO_URL="https://github.com/sxrubyo/nova-os.git"
+DEFAULT_CLONE_DIR="$HOME/nova-os"
 NOVA_DIR="$HOME/.nova"
-NOVA_PY="$NOVA_DIR/nova.py"
-NOVA_BIN="$NOVA_DIR/nova"
-NOVA_PY_URL="https://raw.githubusercontent.com/sxrubyo/nova-os/main/nova.py"
+LOCAL_BIN_DIR="$HOME/.local/bin"
 
-R='\033[38;5;196m'; G='\033[38;5;84m'; B='\033[38;5;39m'
-D='\033[38;5;238m'; W='\033[38;5;255m'; Y='\033[38;5;244m'
-BLD='\033[1m'; RST='\033[0m'
-
-# NOVA gold gradient (bright→dark), CLI white
-N1='\033[38;5;180m'; N2='\033[38;5;179m'; N3='\033[38;5;178m'
-N4='\033[38;5;172m'; N5='\033[38;5;136m'; N6='\033[38;5;94m'
-
-clear; echo ""
-printf "${BLD}${N1}  ███╗   ██╗  ██████╗  ██╗   ██╗  █████╗  ${W} ██████╗██╗     ██╗${RST}\n"
-printf "${BLD}${N2}  ████╗  ██║ ██╔═══██╗ ██║   ██║ ██╔══██╗ ${W}██╔════╝██║     ██║${RST}\n"
-printf "${BLD}${N3}  ██╔██╗ ██║ ██║   ██║ ██║   ██║ ███████║ ${W}██║     ██║     ██║${RST}\n"
-printf "${BLD}${N4}  ██║╚██╗██║ ██║   ██║ ╚██╗ ██╔╝ ██╔══██║ ${W}██║     ██║     ██║${RST}\n"
-printf "${BLD}${N5}  ██║ ╚████║ ╚██████╔╝  ╚████╔╝  ██║  ██║ ${W}╚██████╗███████╗██║${RST}\n"
-printf "${BLD}${N6}  ╚═╝  ╚═══╝  ╚═════╝    ╚═══╝   ╚═╝  ╚═╝ ${W} ╚═════╝╚══════╝╚═╝${RST}\n"
-echo ""; printf "  ${Y}Agents that answer for themselves.${RST}\n"
-printf "  ${D}──────────────────────────────────────────────────────${RST}\n\n"
-
-ok()   { printf "  ${G}+${RST}  ${W}$1${RST}\n"; }
-fail() { printf "  ${R}x${RST}  ${W}$1${RST}\n"; exit 1; }
-step() { printf "  ${B}o${RST}  ${Y}$1${RST}\n"; }
-
-printf "  ${W}${BLD}Installing nova CLI $NOVA_VERSION${RST}\n"
-printf "  ${D}Fresh install mode: previous local Nova state will be removed.${RST}\n\n"
-
-PYTHON=""
-for cmd in python3 python python3.12 python3.11 python3.10 python3.9 python3.8; do
-    if command -v "$cmd" &>/dev/null; then
-        maj=$($cmd -c "import sys;print(sys.version_info.major)" 2>/dev/null)
-        min=$($cmd -c "import sys;print(sys.version_info.minor)" 2>/dev/null)
-        ver=$($cmd -c "import sys;print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null)
-        if [ "$maj" -ge 3 ] && [ "$min" -ge 8 ] 2>/dev/null; then PYTHON="$cmd"; ok "Python $ver"; break; fi
-    fi
-done
-[ -z "$PYTHON" ] && fail "Python 3.8+ not found. Install from https://python.org"
-
-if [ -d "$NOVA_DIR" ]; then
-    step "Removing previous installation and local state..."
-    rm -rf "$NOVA_DIR"
-fi
-mkdir -p "$NOVA_DIR"; ok "Directory ready"
-step "Fetching nova.py..."
-
-fetch() {
-    if command -v curl &>/dev/null; then curl -fsSL "$NOVA_PY_URL" -o "$NOVA_PY"; return $?; fi
-    if command -v wget &>/dev/null; then wget -qO "$NOVA_PY" "$NOVA_PY_URL"; return $?; fi
-    return 1
+is_termux() {
+  [ -n "${TERMUX_VERSION:-}" ] || [ -d "/data/data/com.termux" ]
 }
 
-if ! fetch; then fail "Failed to download nova.py. Check your network."; fi
-if ! grep -q "Nova CLI" "$NOVA_PY" 2>/dev/null; then fail "Downloaded nova.py looks invalid."; fi
-ok "nova.py ready"
+is_macos() {
+  [ "$(uname)" = "Darwin" ]
+}
 
-printf '#!/usr/bin/env bash\nexec '"$PYTHON"' "'"$NOVA_PY"'" "$@"\n' > "$NOVA_BIN"
-chmod +x "$NOVA_BIN"
-ok "nova command created"
+log() {
+  printf '\033[0;32m✓ %s\033[0m\n' "$1"
+}
 
-for rc in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile"; do
-    if [ -f "$rc" ] && ! grep -q '\.nova' "$rc" 2>/dev/null; then
-        echo 'export PATH="$HOME/.nova:$PATH"' >> "$rc"; ok "PATH updated in $rc"; break
+warn() {
+  printf '\033[0;33m⚠ %s\033[0m\n' "$1"
+}
+
+die() {
+  printf '\033[0;31m✗ %s\033[0m\n' "$1" >&2
+  exit 1
+}
+
+sudo_cmd() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo "$@"
+  else
+    "$@"
+  fi
+}
+
+detect_python() {
+  for cmd in python3 python; do
+    if command -v "$cmd" >/dev/null 2>&1; then
+      printf '%s' "$cmd"
+      return 0
     fi
-done
-export PATH="$HOME/.nova:$PATH"
+  done
+  return 1
+}
 
-echo ""; printf "  ${D}──────────────────────────────────────────────────────${RST}\n"
-printf "  ${W}nova CLI installed.${RST}\n"
-printf "  ${D}──────────────────────────────────────────────────────${RST}\n\n"
+install_deps() {
+  if is_termux; then
+    log "Termux detectado"
+    pkg update -y -q || true
+    pkg install -y python git openssl libsqlite curl >/dev/null 2>&1 || true
+    return
+  fi
 
-exec "$PYTHON" "$NOVA_PY" init </dev/tty
+  if is_macos; then
+    log "macOS detectado"
+    if ! command -v brew >/dev/null 2>&1; then
+      warn "Homebrew no está instalado; se omite instalación automática de dependencias"
+      return
+    fi
+    brew install python git curl >/dev/null 2>&1 || true
+    return
+  fi
+
+  log "Linux detectado"
+  if command -v apt-get >/dev/null 2>&1; then
+    sudo_cmd apt-get update -qq
+    sudo_cmd apt-get install -y -qq python3 python3-pip git curl sqlite3
+  elif command -v dnf >/dev/null 2>&1; then
+    sudo_cmd dnf install -y python3 python3-pip git curl sqlite
+  elif command -v pacman >/dev/null 2>&1; then
+    sudo_cmd pacman -Sy --noconfirm python python-pip git curl sqlite
+  else
+    warn "No se detectó gestor de paquetes soportado; continúo con las dependencias existentes"
+  fi
+}
+
+setup_repo() {
+  if [ -f "./nova.py" ] && [ -d "./nova" ] && [ -f "./requirements.txt" ]; then
+    REPO_DIR="$(pwd)"
+    log "Usando repo actual en $REPO_DIR"
+    return
+  fi
+
+  if [ -d "$DEFAULT_CLONE_DIR/.git" ]; then
+    log "Actualizando repo existente en $DEFAULT_CLONE_DIR"
+    git -C "$DEFAULT_CLONE_DIR" pull --ff-only >/dev/null 2>&1 || git -C "$DEFAULT_CLONE_DIR" pull --no-rebase >/dev/null 2>&1 || true
+    REPO_DIR="$DEFAULT_CLONE_DIR"
+    return
+  fi
+
+  log "Clonando nova-os en $DEFAULT_CLONE_DIR"
+  git clone "$REPO_URL" "$DEFAULT_CLONE_DIR" >/dev/null 2>&1 || die "No se pudo clonar $REPO_URL"
+  REPO_DIR="$DEFAULT_CLONE_DIR"
+}
+
+install_python_deps() {
+  PYTHON_BIN="$(detect_python)" || die "Python no está disponible"
+  "$PYTHON_BIN" -m pip install --upgrade pip >/dev/null 2>&1 || true
+  CORE_PKGS="fastapi uvicorn aiosqlite httpx rich click python-dotenv pydantic tomli"
+
+  if [ -f "$REPO_DIR/requirements.txt" ]; then
+    "$PYTHON_BIN" -m pip install -r "$REPO_DIR/requirements.txt" >/dev/null 2>&1 || {
+      warn "requirements.txt completo falló; instalo el núcleo portable"
+      "$PYTHON_BIN" -m pip install $CORE_PKGS >/dev/null 2>&1 || die "No se pudieron instalar las dependencias Python"
+    }
+  else
+    "$PYTHON_BIN" -m pip install $CORE_PKGS >/dev/null 2>&1 || die "No se pudieron instalar las dependencias Python"
+  fi
+}
+
+install_cli_wrapper() {
+  PYTHON_BIN="$(detect_python)" || die "Python no está disponible"
+  mkdir -p "$LOCAL_BIN_DIR"
+  cat > "$LOCAL_BIN_DIR/nova" <<EOF
+#!/usr/bin/env sh
+exec "$PYTHON_BIN" "$REPO_DIR/nova.py" "\$@"
+EOF
+  chmod +x "$LOCAL_BIN_DIR/nova"
+  export PATH="$LOCAL_BIN_DIR:$PATH"
+  log "Wrapper CLI instalado en $LOCAL_BIN_DIR/nova"
+}
+
+init_db() {
+  PYTHON_BIN="$(detect_python)" || die "Python no está disponible"
+  mkdir -p "$NOVA_DIR"
+  (
+    cd "$REPO_DIR"
+    "$PYTHON_BIN" -c "import asyncio; from nova.db import init_db; asyncio.run(init_db())"
+  ) >/dev/null 2>&1 || warn "Inicialización portable de DB omitida"
+}
+
+start_nova() {
+  PYTHON_BIN="$(detect_python)" || die "Python no está disponible"
+  mkdir -p "$NOVA_DIR"
+  LOG_FILE="$NOVA_DIR/nova.log"
+  PID_FILE="$NOVA_DIR/nova.pid"
+
+  if is_termux; then
+    log "Iniciando Nova en modo headless Termux"
+    nohup "$PYTHON_BIN" "$REPO_DIR/nova.py" serve --host 0.0.0.0 --port 8000 --api-only >"$LOG_FILE" 2>&1 &
+    echo "$!" > "$PID_FILE"
+    log "Nova disponible en http://127.0.0.1:8000"
+    return
+  fi
+
+  if command -v pm2 >/dev/null 2>&1; then
+    pm2 delete nova-os >/dev/null 2>&1 || true
+    pm2 start "$REPO_DIR/nova.py" --name nova-os --interpreter "$PYTHON_BIN" -- serve --host 0.0.0.0 --port 8000 --api-only >/dev/null 2>&1 || die "pm2 no pudo iniciar Nova"
+    log "Nova iniciada con PM2"
+    return
+  fi
+
+  if command -v systemctl >/dev/null 2>&1 && { [ "$(id -u)" -eq 0 ] || command -v sudo >/dev/null 2>&1; }; then
+    SERVICE_FILE="/etc/systemd/system/nova-os.service"
+    sudo_cmd sh -c "cat > '$SERVICE_FILE' <<EOF
+[Unit]
+Description=Nova OS Governance Layer
+After=network.target
+
+[Service]
+Type=simple
+User=$(id -un)
+WorkingDirectory=$REPO_DIR
+ExecStart=$PYTHON_BIN $REPO_DIR/nova.py serve --host 0.0.0.0 --port 8000 --api-only
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF"
+    sudo_cmd systemctl daemon-reload
+    sudo_cmd systemctl enable --now nova-os >/dev/null 2>&1 || die "systemd no pudo iniciar Nova"
+    log "Nova iniciada con systemd"
+    return
+  fi
+
+  nohup "$PYTHON_BIN" "$REPO_DIR/nova.py" serve --host 0.0.0.0 --port 8000 --api-only >"$LOG_FILE" 2>&1 &
+  echo "$!" > "$PID_FILE"
+  log "Nova iniciada con nohup"
+}
+
+main() {
+  install_deps
+  setup_repo
+  install_python_deps
+  install_cli_wrapper
+  init_db
+  start_nova
+  log "Instalación completada"
+  printf '\nComandos útiles:\n'
+  printf '  nova --help\n'
+  printf '  tail -f %s/nova.log\n' "$NOVA_DIR"
+}
+
+main "$@"

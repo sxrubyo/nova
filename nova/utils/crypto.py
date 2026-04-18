@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import secrets
 from typing import Any
@@ -31,6 +32,15 @@ def chain_hash(previous_hash: str | None, payload: dict[str, Any]) -> str:
     """Compute a ledger chain hash."""
 
     return sha256_hex(f"{stable_json(payload)}::{previous_hash or 'NOVA_GENESIS_BLOCK'}")
+
+
+def sign_entry(entry: dict[str, Any], secret: str | None = None) -> str:
+    """Return an HMAC-SHA256 signature when a secret exists, SHA-256 otherwise."""
+
+    payload = stable_json(entry).encode("utf-8")
+    if secret:
+        return hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+    return hashlib.sha256(payload).hexdigest()
 
 
 def generate_id(prefix: str) -> str:

@@ -9,7 +9,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -18,7 +17,13 @@ import httpx
 
 from nova.discovery.agent_manifest import DiscoveredAgent
 from nova.discovery.fingerprints import AGENT_FINGERPRINTS
+from nova.platform import PLATFORM
 from nova.utils.crypto import generate_id, sha256_hex
+
+try:
+    import tomllib
+except ImportError:  # pragma: no cover - Python 3.10 compatibility
+    import tomli as tomllib
 
 try:
     import psutil
@@ -40,8 +45,10 @@ class SystemScanner:
         discovered.extend(await self._scan_npm_packages())
         discovered.extend(await self._scan_processes())
         discovered.extend(await self._scan_ports())
-        discovered.extend(await self._scan_docker())
-        discovered.extend(await self._scan_systemd())
+        if PLATFORM.has_docker:
+            discovered.extend(await self._scan_docker())
+        if PLATFORM.has_systemd:
+            discovered.extend(await self._scan_systemd())
 
         consolidated = self._deduplicate(discovered)
         confirmed = self._filter_confirmed_agents(consolidated)
@@ -217,6 +224,8 @@ class SystemScanner:
 
     async def _scan_docker(self) -> list[DiscoveredAgent]:
         found: list[DiscoveredAgent] = []
+        if not PLATFORM.has_docker:
+            return found
         payload = await self._command_output(["docker", "ps", "--format", "{{json .}}"], timeout=10)
         if not payload:
             return found
@@ -276,6 +285,8 @@ class SystemScanner:
 
     async def _scan_systemd(self) -> list[DiscoveredAgent]:
         found: list[DiscoveredAgent] = []
+        if not PLATFORM.has_systemd:
+            return found
         output = await self._command_output(
             ["systemctl", "list-units", "--type=service", "--all", "--no-pager", "--plain"],
             timeout=10,
@@ -440,15 +451,23 @@ class SystemScanner:
     async def _listening_ports(self) -> set[int]:
         ports: set[int] = set()
         if psutil is not None:
-            for connection in psutil.net_connections(kind="tcp"):
-                if connection.status == "LISTEN":
-                    ports.add(connection.laddr.port)
-            return ports
-        output = await self._command_output(["ss", "-tln"], timeout=5)
-        for line in output.splitlines():
-            match = re.search(r":(\d+)\s", line)
-            if match:
-                ports.add(int(match.group(1)))
+            try:
+                for connection in psutil.net_connections(kind="tcp"):
+                    if connection.status == "LISTEN":
+                        ports.add(connection.laddr.port)
+                return ports
+            except Exception:  # noqa: BLE001
+                ports.clear()
+        for command in (["ss", "-tln"], ["netstat", "-tln"], ["lsof", "-nP", "-iTCP", "-sTCP:LISTEN"]):
+            output = await self._command_output(command, timeout=5)
+            if not output:
+                continue
+            for line in output.splitlines():
+                match = re.search(r":(\d+)\s", line)
+                if match:
+                    ports.add(int(match.group(1)))
+            if ports:
+                break
         return ports
 
     async def _probe_http(self, port: int, *, health_paths: list[str] | None = None) -> tuple[bool, str | None]:

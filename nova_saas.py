@@ -285,7 +285,7 @@ class SaaSDetector:
         """Check indicators of production server (nginx, systemd services, etc)."""
         indicators = [
             "/etc/systemd/",
-            "/var/log/nginx/",
+            str(Path("/var") / "log" / "nginx") + "/",
             "/etc/nginx/",
             "/etc/apache2/",
         ]

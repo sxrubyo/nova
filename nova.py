@@ -37,6 +37,19 @@ except ImportError:  # pragma: no cover - optional host fallback
 CLI_SESSION_PATH = Path.home() / ".nova" / "web_session.json"
 
 
+def _platform_bootstrap() -> None:
+    """Initialize portable runtime defaults before command execution."""
+
+    try:
+        from nova.db import init_db
+        from nova.platform import PLATFORM
+
+        if PLATFORM.db_engine == "sqlite":
+            asyncio.run(init_db())
+    except ImportError:
+        pass
+
+
 def _resolve_api_url(api_url: str | None) -> str:
     return (api_url or os.getenv("NOVA_API_URL") or os.getenv("NOVA_SERVER_URL") or "http://127.0.0.1:8000").rstrip("/")
 
@@ -254,6 +267,13 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("start")
+    init_cmd = subparsers.add_parser("init")
+    init_cmd.add_argument("--json", action="store_true")
+    serve = subparsers.add_parser("serve")
+    serve.add_argument("--host")
+    serve.add_argument("--port", type=int)
+    serve.add_argument("--bridge-port", type=int)
+    serve.add_argument("--api-only", action="store_true")
     subparsers.add_parser("status")
     subparsers.add_parser("version")
     subparsers.add_parser("seed")
@@ -453,17 +473,63 @@ async def _serve_shield(kernel: Any, listen: str) -> None:
     await server.serve()
 
 
+async def _serve_api(kernel: Any, *, host: str | None = None, port: int | None = None, api_only: bool = False) -> None:
+    from nova.api.server import create_app
+    from nova.bridge.bridge_server import NovaBridge
+
+    await kernel.initialize()
+    if not api_only:
+        kernel._bridge = NovaBridge(kernel, kernel.config)
+        await kernel._bridge.start()
+    app = create_app(kernel)
+    kernel._api_server = uvicorn.Server(
+        uvicorn.Config(
+            app,
+            host=host or kernel.config.host,
+            port=port or kernel.config.api_port,
+            log_level=kernel.config.log_level.lower(),
+        )
+    )
+    try:
+        await kernel._api_server.serve()
+    finally:
+        await kernel.shutdown()
+
+
 async def run_async(args: argparse.Namespace) -> None:
     if args.command == "auth":
         await _run_auth_command(args)
         return
 
     kernel = get_kernel(NovaConfig())
+    if getattr(args, "host", None):
+        kernel.config.host = args.host
+    if getattr(args, "port", None):
+        kernel.config.api_port = args.port
+    if getattr(args, "bridge_port", None):
+        kernel.config.bridge_port = args.bridge_port
     await kernel.initialize()
     default_workspace = await kernel.workspace_manager.ensure_default_workspace()
 
+    if args.command == "init":
+        payload = {"status": "initialized", "workspace_id": default_workspace.id}
+        if args.json:
+            print(json.dumps(payload, indent=2))
+        else:
+            print("Nova initialized")
+        return
+
     if args.command == "start":
         await kernel.start()
+        return
+
+    if args.command == "serve":
+        await _serve_api(
+            kernel,
+            host=getattr(args, "host", None),
+            port=getattr(args, "port", None),
+            api_only=getattr(args, "api_only", False),
+        )
         return
 
     if args.command == "status":
@@ -659,6 +725,7 @@ async def run_async(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    _platform_bootstrap()
     parser = build_parser()
     args = parser.parse_args()
     asyncio.run(run_async(args))

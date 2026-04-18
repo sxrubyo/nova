@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, select
 
 from nova.config import NovaConfig
+from nova.platform import PLATFORM
 from nova.memory.core_memory import CoreMemory
 from nova.memory.episodic_memory import EpisodicMemory
 from nova.memory.working_memory import WorkingMemory
@@ -14,6 +16,38 @@ from nova.storage.database import session_scope
 from nova.storage.models import MemoryModel
 from nova.types import MemoryItem, MemoryType
 from nova.utils.crypto import generate_id
+
+
+class LRUMemoryCache:
+    """Small O(1) LRU cache tuned for low-memory environments."""
+
+    def __init__(self, maxsize: int | None = None) -> None:
+        self._max = maxsize or (500 if PLATFORM.type == "termux" else 5000)
+        self._data: OrderedDict[str, object] = OrderedDict()
+
+    @property
+    def size(self) -> int:
+        return len(self._data)
+
+    def keys(self) -> list[str]:
+        return list(self._data.keys())
+
+    def get(self, key: str) -> object | None:
+        if key not in self._data:
+            return None
+        self._data.move_to_end(key)
+        return self._data[key]
+
+    def put(self, key: str, value: object) -> None:
+        if key in self._data:
+            self._data.move_to_end(key)
+        self._data[key] = value
+        if len(self._data) > self._max:
+            self._data.popitem(last=False)
+
+    def discard_prefix(self, prefix: str) -> None:
+        for key in [item for item in self._data if item.startswith(prefix)]:
+            self._data.pop(key, None)
 
 
 class MemoryEngine:
@@ -24,10 +58,17 @@ class MemoryEngine:
         self.core_memory = CoreMemory()
         self.episodic_memory = EpisodicMemory(ttl_hours=config.episodic_ttl_hours)
         self.working_memory = WorkingMemory()
+        self.cache = LRUMemoryCache()
 
     async def get_recent(self, agent_id: str, limit: int = 10) -> list[dict[str, object]]:
+        cache_key = f"recent:{agent_id}:{limit}"
+        cached = self.cache.get(cache_key)
+        if isinstance(cached, list):
+            return cached
         items = await self.episodic_memory.recent(agent_id, limit)
-        return [item.value for item in items]
+        payload = [item.value for item in items]
+        self.cache.put(cache_key, payload)
+        return payload
 
     async def store(
         self,
@@ -51,6 +92,8 @@ class MemoryEngine:
             expires_at=expires_at,
         )
         await self.episodic_memory.append(item)
+        self.cache.discard_prefix(f"recent:{agent_id}:")
+        self.cache.discard_prefix(f"persistent:{agent_id}:")
         async with session_scope() as session:
             session.add(
                 MemoryModel(
@@ -67,6 +110,10 @@ class MemoryEngine:
         return item
 
     async def load_persistent(self, agent_id: str, limit: int = 100) -> list[MemoryItem]:
+        cache_key = f"persistent:{agent_id}:{limit}"
+        cached = self.cache.get(cache_key)
+        if isinstance(cached, list):
+            return cached
         async with session_scope() as session:
             result = await session.execute(
                 select(MemoryModel)
@@ -87,8 +134,9 @@ class MemoryEngine:
                         importance=row.importance,
                         created_at=row.created_at,
                         expires_at=row.expires_at,
-                    )
+                        )
                 )
+            self.cache.put(cache_key, items)
             return items
 
     async def prune(self) -> None:
@@ -100,3 +148,4 @@ class MemoryEngine:
                     MemoryModel.expires_at < datetime.now(timezone.utc),
                 )
             )
+        self.cache = LRUMemoryCache()

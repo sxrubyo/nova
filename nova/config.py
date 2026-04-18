@@ -24,6 +24,21 @@ except ImportError:  # pragma: no cover - host compatibility fallback
         """Minimal BaseSettings-compatible fallback."""
 
 from nova.constants import NOVA_VERSION
+from nova.platform import PLATFORM
+
+
+def _default_db_url() -> str:
+    if PLATFORM.db_engine == "postgres":
+        return "postgresql+asyncpg://nova:nova@localhost/nova"
+    return f"sqlite+aiosqlite:///{Path(PLATFORM.nova_dir) / 'nova.db'}"
+
+
+def _default_workspace_root() -> Path:
+    return Path.cwd()
+
+
+def _default_data_dir() -> Path:
+    return Path(PLATFORM.nova_dir) / "data"
 
 
 class NovaConfig(BaseSettings):
@@ -44,9 +59,9 @@ class NovaConfig(BaseSettings):
     log_level: str = Field(default="INFO", alias="NOVA_LOG_LEVEL")
     log_format: str = Field(default="json", alias="NOVA_LOG_FORMAT")
 
-    db_url: str = Field(default="sqlite+aiosqlite:///./nova.db", alias="NOVA_DB_URL")
-    workspace_root: Path = Field(default=Path("."), alias="NOVA_WORKSPACE_ROOT")
-    data_dir: Path = Field(default=Path("./data"), alias="NOVA_DATA_DIR")
+    db_url: str = Field(default_factory=_default_db_url, alias="NOVA_DB_URL")
+    workspace_root: Path = Field(default_factory=_default_workspace_root, alias="NOVA_WORKSPACE_ROOT")
+    data_dir: Path = Field(default_factory=_default_data_dir, alias="NOVA_DATA_DIR")
 
     jwt_secret: str = Field(default="change-me", alias="NOVA_JWT_SECRET")
     jwt_algorithm: str = Field(default="HS256", alias="NOVA_JWT_ALGORITHM")
@@ -57,8 +72,11 @@ class NovaConfig(BaseSettings):
     escalate_threshold: int = Field(default=60, alias="NOVA_RISK_ESCALATE_THRESHOLD")
     auto_block_threshold: int = Field(default=80, alias="NOVA_RISK_AUTO_BLOCK_THRESHOLD")
 
-    rate_limit_per_minute: int = Field(default=100, alias="NOVA_RATE_LIMIT_PER_MINUTE")
-    rate_limit_burst: int = Field(default=20, alias="NOVA_RATE_LIMIT_BURST")
+    rate_limit_per_minute: int = Field(
+        default=(600 if PLATFORM.type == "termux" else 6000),
+        alias="NOVA_RATE_LIMIT_PER_MINUTE",
+    )
+    rate_limit_burst: int = Field(default=(20 if PLATFORM.type == "termux" else 200), alias="NOVA_RATE_LIMIT_BURST")
 
     anomaly_burst_threshold: int = Field(default=50, alias="NOVA_ANOMALY_BURST_THRESHOLD")
     anomaly_loop_similarity: float = Field(default=0.85, alias="NOVA_ANOMALY_LOOP_SIMILARITY")
@@ -136,6 +154,7 @@ class NovaConfig(BaseSettings):
     def ensure_directories(self) -> None:
         """Create runtime directories used by the kernel."""
 
+        Path(PLATFORM.nova_dir).mkdir(parents=True, exist_ok=True)
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
     def public_dict(self) -> dict[str, Any]:

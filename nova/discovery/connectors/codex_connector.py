@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import time
-import tomllib
 from pathlib import Path
 
 from nova.discovery.agent_manifest import AgentLogEntry, AgentTask, ConnectionResult, DiscoveredAgent, HealthStatus, TaskResult
 from nova.discovery.connectors.base_connector import BaseAgentConnector
+
+try:
+    import tomllib
+except ImportError:  # pragma: no cover - Python 3.10 compatibility
+    import tomli as tomllib
 
 try:
     import psutil

@@ -24,6 +24,7 @@ import threading
 import uuid
 import secrets
 import re
+import tempfile
 import shutil
 import platform
 import subprocess
@@ -31,6 +32,9 @@ import shlex
 from typing import Any, Dict, List, Optional, Tuple, Union
 from datetime import datetime, timezone
 from pathlib import Path
+
+UBUNTU_HOME = Path.home().parent / "ubuntu"
+NOVA_CORE_LOG_FILE = Path(tempfile.gettempdir()) / "nova_core.log"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PLATFORM COMPATIBILITY - Works on ANY terminal
@@ -1798,7 +1802,7 @@ _AGENT_REGISTRY: dict = {
         "binary":       None,
         "process_kw":   ["melissa"],
         "home_dirs":    [str(Path.home() / "melissa"), str(Path.home() / "melissa-ultra"),
-                         "/home/ubuntu/melissa", "/opt/melissa"],
+                         str(UBUNTU_HOME / "melissa"), "/opt/melissa"],
         "shell_vars":   ["MELISSA_API_KEY", "MELISSA_TOKEN", "MELISSA_URL"],
         "npm_pkg":      None,
         "pip_pkg":      None,
@@ -3749,7 +3753,10 @@ def _harden_file_permissions(path, mode=0o600):
 
 def _write_json(path, data, mode=0o600):
     """Write JSON and apply restrictive permissions when possible."""
-    path.write_text(json.dumps(data, indent=2))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(f"{path.name}.tmp")
+    temp_path.write_text(json.dumps(data, indent=2))
+    temp_path.replace(path)
     _harden_file_permissions(path, mode)
 
 
@@ -7290,7 +7297,7 @@ def _find_nova_core_py() -> str:
     search_dirs = [
         Path.cwd(),
         Path.home(),
-        Path("/home/ubuntu"),
+        UBUNTU_HOME,
         Path("/opt/nova"),
         Path("/app"),
         Path("/srv"),
@@ -7605,7 +7612,7 @@ def cmd_doctor(args):
     syntax_checks = []
     script_dir = Path(sys.argv[0]).parent if sys.argv[0] else Path.cwd()
     for fname in ["nova.py", "nova_core.py", "integrations.py", "skill_executor.py"]:
-        for search in [script_dir, Path.cwd(), Path.home(), Path("/home/ubuntu")]:
+        for search in [script_dir, Path.cwd(), Path.home(), UBUNTU_HOME]:
             p = search / fname
             if p.exists():
                 syntax_checks.append(_check_python_file_version(p))
@@ -12112,7 +12119,7 @@ def cmd_setup_melissa(args):
 
     Usage:
       nova setup melissa
-      nova setup melissa --path /home/ubuntu/melissa
+      nova setup melissa --path ~/melissa
     """
     print_logo(compact=True)
     section("Setup: Melissa")
@@ -12134,7 +12141,7 @@ def cmd_setup_melissa(args):
         candidates = [
             Path.home() / "melissa",
             Path.home() / "melissa-ultra",
-            Path("/home/ubuntu/melissa"),
+            UBUNTU_HOME / "melissa",
             Path("/opt/melissa"),
             Path("/app/melissa"),
             Path.cwd(),
@@ -14073,7 +14080,7 @@ def _start_nova_core_background(nova_core_path: str = None) -> bool:
     candidates += [
         str(Path.cwd() / "nova_core.py"),
         str(Path.home() / "nova_core.py"),
-        str(Path("/home/ubuntu/nova_core.py")),
+        str(UBUNTU_HOME / "nova_core.py"),
         str(Path("/opt/nova/nova_core.py")),
     ]
     core_path = next((p for p in candidates if Path(p).exists()), None)
@@ -14104,7 +14111,7 @@ def _start_nova_core_background(nova_core_path: str = None) -> bool:
     try:
         subprocess.Popen(
             ["nohup", "python3", core_path],
-            stdout=open("/tmp/nova_core.log", "a"),
+            stdout=NOVA_CORE_LOG_FILE.open("a"),
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
@@ -14117,7 +14124,7 @@ def _start_nova_core_background(nova_core_path: str = None) -> bool:
     try:
         subprocess.Popen(
             ["python3", core_path],
-            stdout=open("/tmp/nova_core.log", "a"),
+            stdout=NOVA_CORE_LOG_FILE.open("a"),
             stderr=subprocess.STDOUT,
         )
         time.sleep(2)
@@ -14187,7 +14194,7 @@ def cmd_boot(args):
             ok("Nova Core started")
         else:
             warn("Nova Core started but not yet responding.")
-            hint("Check logs:  cat /tmp/nova_core.log")
+            hint(f"Check logs:  cat {NOVA_CORE_LOG_FILE}")
             hint("Try again in a few seconds:  nova boot")
             return
 

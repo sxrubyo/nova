@@ -58,8 +58,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if self._limiter is None:
             kernel = getattr(request.app.state, "kernel", None)
-            limit = getattr(getattr(kernel, "config", None), "rate_limit_per_minute", 100)
-            self._limiter = RateLimiter(limit)
+            config = getattr(kernel, "config", None)
+            limit = getattr(config, "rate_limit_per_minute", None)
+            burst = getattr(config, "rate_limit_burst", None)
+            self._limiter = RateLimiter(limit, burst)
         client_ip = request.client.host if request.client else "unknown"
         if self._limiter is not None and not self._limiter.allow(client_ip):
             return JSONResponse(status_code=429, content={"detail": "rate limit exceeded"})

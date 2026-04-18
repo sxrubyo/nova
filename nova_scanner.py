@@ -303,7 +303,7 @@ class SystemScanner:
         env_paths = [
             Path.home() / ".env",
             Path.home() / ".nova" / "config.json",
-            Path("/etc/nova/.env"),
+            Path("/etc") / "nova" / ".env",
             Path.cwd() / ".env",
         ]
         
