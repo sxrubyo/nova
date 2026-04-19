@@ -28,6 +28,24 @@ def test_db_engine_fallback() -> None:
         assert platform_info.db_engine == "sqlite"
 
 
+def test_explicit_postgres_url_forces_postgres_engine(monkeypatch) -> None:
+    import nova.platform as platform_module
+
+    original_which = platform_module.shutil.which
+    monkeypatch.setenv("NOVA_DB_URL", "postgresql+asyncpg://user:pass@db:5432/nova")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setattr(
+        platform_module.shutil,
+        "which",
+        lambda binary: None if binary == "pg_isready" else original_which(binary),
+    )
+
+    platform_info = platform_module.detect()
+
+    assert platform_info.has_postgres is True
+    assert platform_info.db_engine == "postgres"
+
+
 def test_nova_dir_writable() -> None:
     from nova.platform import PLATFORM
 

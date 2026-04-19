@@ -34,9 +34,6 @@ def init_engine(config: NovaConfig) -> AsyncEngine:
     global _engine, _session_factory
     if _engine is None:
         resolved_db_url = config.db_url
-        if resolved_db_url.startswith("postgres") and PLATFORM.db_engine != "postgres":
-            resolved_db_url = f"sqlite+aiosqlite:///{config.data_dir.parent / 'nova.db'}"
-            config.db_url = resolved_db_url
         _engine = create_async_engine(resolved_db_url, echo=False, future=True, pool_pre_ping=True)
         if resolved_db_url.startswith("sqlite"):
             event.listen(_engine.sync_engine, "connect", _sqlite_pragma)

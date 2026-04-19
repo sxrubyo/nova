@@ -27,6 +27,18 @@ class PlatformInfo:
     python: str
 
 
+def _configured_db_engine() -> DatabaseEngine | None:
+    """Infer the desired engine from explicit environment configuration."""
+
+    for env_name in ("NOVA_DB_URL", "DATABASE_URL"):
+        raw_value = os.environ.get(env_name, "").strip().lower()
+        if raw_value.startswith(("postgresql://", "postgres://", "postgresql+asyncpg://")):
+            return "postgres"
+        if raw_value.startswith(("sqlite:///", "sqlite+aiosqlite:///")):
+            return "sqlite"
+    return None
+
+
 def detect() -> PlatformInfo:
     """Detect the current host runtime with no external dependencies."""
 
@@ -49,9 +61,11 @@ def detect() -> PlatformInfo:
     else:
         platform_type = "unknown"
 
+    configured_db_engine = _configured_db_engine()
     has_docker = shutil.which("docker") is not None and not is_termux
     has_systemd = shutil.which("systemctl") is not None and not is_termux
-    has_postgres = shutil.which("pg_isready") is not None and not is_termux
+    has_postgres_binary = shutil.which("pg_isready") is not None and not is_termux
+    has_postgres = configured_db_engine == "postgres" or has_postgres_binary
     has_node = shutil.which("node") is not None
 
     if has_systemd:
@@ -73,7 +87,7 @@ def detect() -> PlatformInfo:
         has_node=has_node,
         home=home,
         nova_dir=nova_dir,
-        db_engine="postgres" if has_postgres else "sqlite",
+        db_engine=configured_db_engine or ("postgres" if has_postgres_binary else "sqlite"),
         process_manager=process_manager,
         python=sys.executable,
     )
