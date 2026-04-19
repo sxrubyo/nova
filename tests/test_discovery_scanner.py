@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
+
 from nova.discovery.agent_manifest import DiscoveredAgent
 from nova.discovery.scanner import SystemScanner
 
@@ -52,3 +55,27 @@ def test_filter_confirmed_agents_requires_multiple_signals_for_ambiguous_runtime
     assert n8n_metadata["matched_signals"] == 2
     assert n8n_metadata["required_matches"] == 2
     assert n8n_metadata["logo_path"] == "/agent-logos/n8n.svg"
+
+
+def test_full_scan_runs_independent_steps_concurrently() -> None:
+    class TimedScanner(SystemScanner):
+        async def _sleeping_scan(self) -> list[DiscoveredAgent]:
+            await asyncio.sleep(0.05)
+            return []
+
+        _scan_config_files = _sleeping_scan
+        _scan_binaries = _sleeping_scan
+        _scan_pip_packages = _sleeping_scan
+        _scan_npm_packages = _sleeping_scan
+        _scan_environment = _sleeping_scan
+        _scan_dotenv_files = _sleeping_scan
+        _scan_processes = _sleeping_scan
+        _scan_ports = _sleeping_scan
+
+    scanner = TimedScanner()
+    start = time.perf_counter()
+    agents = asyncio.run(scanner.full_scan())
+    elapsed = time.perf_counter() - start
+
+    assert agents == []
+    assert elapsed < 0.2

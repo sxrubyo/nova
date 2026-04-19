@@ -14,18 +14,6 @@ from typing import Any
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
-import uvicorn
-
-from fastapi import FastAPI
-from nova.api.dependencies import to_payload
-from nova.config import NovaConfig
-from nova.constants import NOVA_VERSION
-from nova.discovery.agent_manifest import AgentTask
-from nova.kernel import get_kernel
-from nova.storage.database import session_scope
-from nova.storage.repositories.evaluation_repo import EvaluationRepository
-from nova.types import EvaluationRequest
-
 try:
     from rich.console import Console
     from rich.panel import Panel
@@ -37,6 +25,18 @@ except ImportError:  # pragma: no cover - optional host fallback
 
 
 CLI_SESSION_PATH = Path.home() / ".nova" / "web_session.json"
+
+
+def _nova_version() -> str:
+    from nova.constants import NOVA_VERSION
+
+    return NOVA_VERSION
+
+
+def _to_payload(value: Any) -> Any:
+    from nova.api.dependencies import to_payload
+
+    return to_payload(value)
 
 
 def _platform_bootstrap() -> None:
@@ -281,6 +281,11 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("version")
     subparsers.add_parser("seed")
     subparsers.add_parser("watch")
+    skill = subparsers.add_parser("skill")
+    skill_sub = skill.add_subparsers(dest="skill_command", required=True)
+    skill_install = skill_sub.add_parser("install")
+    skill_install.add_argument("--agent", choices=["codex", "gemini", "opencode", "all"], default="codex")
+    skill_install.add_argument("--json", action="store_true")
     discover = subparsers.add_parser("discover")
     discover.add_argument("--json", action="store_true")
 
@@ -484,6 +489,9 @@ def _print_discovery_table(agents: list[dict[str, Any]], inventory: dict[str, An
 
 
 async def _agent_metrics(kernel: Any, agent_id: str) -> dict[str, Any]:
+    from nova.storage.database import session_scope
+    from nova.storage.repositories.evaluation_repo import EvaluationRepository
+
     async with session_scope() as session:
         repo = EvaluationRepository(session)
         rows = await repo.list_by_agent(agent_id, limit=200)
@@ -497,6 +505,8 @@ async def _agent_metrics(kernel: Any, agent_id: str) -> dict[str, Any]:
 
 
 async def _serve_shield(kernel: Any, listen: str) -> None:
+    import uvicorn
+
     host, _, port_text = listen.partition(":")
     port = int(port_text or "9002")
     from nova.api.server import create_app
@@ -505,7 +515,7 @@ async def _serve_shield(kernel: Any, listen: str) -> None:
 
     @app.get("/health")
     async def health() -> dict[str, str]:
-        return {"status": "ok", "service": "nova-shield", "version": NOVA_VERSION}
+        return {"status": "ok", "service": "nova-shield", "version": _nova_version()}
 
     server = uvicorn.Server(
         uvicorn.Config(
@@ -519,6 +529,8 @@ async def _serve_shield(kernel: Any, listen: str) -> None:
 
 
 async def _serve_api(kernel: Any, *, host: str | None = None, port: int | None = None, api_only: bool = False) -> None:
+    import uvicorn
+
     from nova.api.server import create_app
     from nova.bridge.bridge_server import NovaBridge
 
@@ -549,6 +561,20 @@ async def run_async(args: argparse.Namespace) -> None:
     if args.command == "auth":
         await _run_auth_command(args)
         return
+
+    if args.command == "version":
+        print(f"Nova OS v{_nova_version()} (Enterprise) - Python {platform.python_version()}")
+        return
+
+    if args.command == "skill":
+        from nova.agent_skills import install_skill
+
+        payload = install_skill(args.agent)
+        print(json.dumps(payload, indent=2))
+        return
+
+    from nova.config import NovaConfig
+    from nova.kernel import get_kernel
 
     kernel = get_kernel(NovaConfig())
     if getattr(args, "host", None):
@@ -582,14 +608,14 @@ async def run_async(args: argparse.Namespace) -> None:
         return
 
     if args.command == "status":
-        print(json.dumps(to_payload(await kernel.get_status()), indent=2))
+        print(json.dumps(_to_payload(await kernel.get_status()), indent=2))
         return
 
     if args.command == "watch":
         queue = kernel.events.subscribe()
         console = _console()
         try:
-            agents = [to_payload(agent) for agent in await kernel.discovery.scan(force=True)]
+            agents = [_to_payload(agent) for agent in await kernel.discovery.scan(force=True)]
             if console is not None:
                 console.print(f"[bold]Watching Nova runtime[/bold] - {len(agents)} agents discovered")
             else:
@@ -606,7 +632,7 @@ async def run_async(args: argparse.Namespace) -> None:
         return
 
     if args.command == "discover":
-        agents = [to_payload(agent) for agent in await kernel.discovery.scan(force=True)]
+        agents = [_to_payload(agent) for agent in await kernel.discovery.scan(force=True)]
         payload = {"agents": agents, "inventory": kernel.discovery.last_inventory}
         if args.json:
             print(json.dumps(payload, indent=2))
@@ -636,14 +662,12 @@ async def run_async(args: argparse.Namespace) -> None:
                 if value
             },
         )
-        print(json.dumps(to_payload(result), indent=2))
-        return
-
-    if args.command == "version":
-        print(f"Nova OS v{NOVA_VERSION} (Enterprise) - Python {platform.python_version()}")
+        print(json.dumps(_to_payload(result), indent=2))
         return
 
     if args.command == "chat":
+        from nova.types import EvaluationRequest
+
         workspace_id = args.workspace or default_workspace.id
         agent_id = await _resolve_agent_id(kernel, workspace_id, args.agent)
         result = await kernel.evaluate(
@@ -655,10 +679,12 @@ async def run_async(args: argparse.Namespace) -> None:
                 source="cli_chat",
             )
         )
-        print(json.dumps(to_payload(result), indent=2))
+        print(json.dumps(_to_payload(result), indent=2))
         return
 
     if args.command in {"evaluate", "validate"}:
+        from nova.types import EvaluationRequest
+
         workspace_id = args.workspace or default_workspace.id
         agent_id = await _resolve_agent_id(kernel, workspace_id, getattr(args, "agent", None))
         result = await kernel.evaluate(
@@ -670,14 +696,16 @@ async def run_async(args: argparse.Namespace) -> None:
                 source="cli",
             )
         )
-        print(json.dumps(to_payload(result), indent=2))
+        print(json.dumps(_to_payload(result), indent=2))
         return
 
     if args.command in {"agents", "agent"}:
+        from nova.discovery.agent_manifest import AgentTask
+
         subject = args.subject
         if subject in {None, "list"}:
-            registered = [to_payload(agent) for agent in await kernel.agent_registry.list(default_workspace.id)]
-            discovered = [to_payload(agent) for agent in await kernel.discovery.scan(force=False)]
+            registered = [_to_payload(agent) for agent in await kernel.agent_registry.list(default_workspace.id)]
+            discovered = [_to_payload(agent) for agent in await kernel.discovery.scan(force=False)]
             print(json.dumps({"registered": registered, "discovered": discovered}, indent=2))
             return
         if subject == "create":
@@ -689,7 +717,7 @@ async def run_async(args: argparse.Namespace) -> None:
                 model=args.model,
                 provider=args.provider,
             )
-            print(json.dumps(to_payload(agent), indent=2))
+            print(json.dumps(_to_payload(agent), indent=2))
             return
         if args.action_name == "status":
             agent_record = await kernel.agent_registry.get(subject)
@@ -697,10 +725,10 @@ async def run_async(args: argparse.Namespace) -> None:
                 discovered = await kernel.discovery.get_agent(subject)
                 if discovered is None:
                     raise SystemExit(f"agent {subject} not found")
-                print(json.dumps(to_payload(await kernel.discovery.get_status(subject)), indent=2))
+                print(json.dumps(_to_payload(await kernel.discovery.get_status(subject)), indent=2))
                 return
-            payload = to_payload(agent_record)
-            payload["metrics"] = to_payload(await _agent_metrics(kernel, subject))
+            payload = _to_payload(agent_record)
+            payload["metrics"] = _to_payload(await _agent_metrics(kernel, subject))
             print(json.dumps(payload, indent=2))
             return
         if args.action_name == "send":
@@ -718,7 +746,7 @@ async def run_async(args: argparse.Namespace) -> None:
                     approval_mode=args.approval_mode,
                 ),
             )
-            print(json.dumps(to_payload(result), indent=2))
+            print(json.dumps(_to_payload(result), indent=2))
             return
         raise SystemExit("Unsupported agents command")
 
@@ -731,7 +759,7 @@ async def run_async(args: argparse.Namespace) -> None:
             results = []
             for workspace_id in workspace_ids:
                 result = await kernel.ledger.hash_chain.verify_integrity(workspace_id)
-                results.append({"workspace_id": workspace_id, **to_payload(result)})
+                results.append({"workspace_id": workspace_id, **_to_payload(result)})
             print(json.dumps(results if len(results) > 1 else results[0], indent=2))
             return
         if args.ledger_command == "export":
@@ -747,6 +775,9 @@ async def run_async(args: argparse.Namespace) -> None:
         return
 
     if args.command == "stream":
+        from nova.storage.database import session_scope
+        from nova.storage.repositories.evaluation_repo import EvaluationRepository
+
         workspace_id = args.workspace or default_workspace.id
         agent_id = await _resolve_agent_id(kernel, workspace_id, args.agent)
         async with session_scope() as session:

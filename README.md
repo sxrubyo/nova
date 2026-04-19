@@ -86,6 +86,49 @@ npm run dev
 python3 nova.py --help
 ```
 
+## Agent skill bridge
+
+Nova can install its own governance skill bridge into local agent surfaces.
+
+### Install for Codex
+
+```bash
+nova skill install --agent codex
+```
+
+This writes a native skill bundle to `~/.agents/skills/nova-governance/`.
+
+### Install for Gemini CLI
+
+```bash
+nova skill install --agent gemini
+```
+
+This writes `~/.gemini/skills/nova-governance.md` and adds a bridge block to `~/.gemini/GEMINI.md`.
+
+### Install for OpenCode
+
+```bash
+nova skill install --agent opencode
+```
+
+This writes `~/.config/opencode/skills/nova-governance.md` and adds a bridge block to `~/.config/opencode/AGENTS.md`.
+
+### Core governance flow
+
+```bash
+nova discover --json
+nova connect codex-cli --cannot-do "rm -rf"
+nova validate --agent codex-cli --action terminal.command --payload '{"command":"rm -rf /tmp/demo"}'
+```
+
+### OpenCode first use
+
+```bash
+opencode providers login
+opencode .
+```
+
 ## Termux / Android
 
 Nova OS supports Termux without root.

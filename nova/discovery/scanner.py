@@ -39,19 +39,24 @@ class SystemScanner:
         self._http_timeout = 3.0
 
     async def full_scan(self) -> list[DiscoveredAgent]:
-        discovered: list[DiscoveredAgent] = []
-        discovered.extend(await self._scan_config_files())
-        discovered.extend(await self._scan_binaries())
-        discovered.extend(await self._scan_pip_packages())
-        discovered.extend(await self._scan_npm_packages())
-        discovered.extend(await self._scan_environment())
-        discovered.extend(await self._scan_dotenv_files())
-        discovered.extend(await self._scan_processes())
-        discovered.extend(await self._scan_ports())
+        scan_jobs = [
+            self._scan_config_files(),
+            self._scan_binaries(),
+            self._scan_pip_packages(),
+            self._scan_npm_packages(),
+            self._scan_environment(),
+            self._scan_dotenv_files(),
+            self._scan_processes(),
+            self._scan_ports(),
+        ]
         if PLATFORM.has_docker:
-            discovered.extend(await self._scan_docker())
+            scan_jobs.append(self._scan_docker())
         if PLATFORM.has_systemd:
-            discovered.extend(await self._scan_systemd())
+            scan_jobs.append(self._scan_systemd())
+
+        discovered: list[DiscoveredAgent] = []
+        for batch in await asyncio.gather(*scan_jobs):
+            discovered.extend(batch)
 
         consolidated = self._deduplicate(discovered)
         confirmed = self._filter_confirmed_agents(consolidated)
