@@ -3,12 +3,14 @@
 set -eu
 
 NOVA_DIR="$HOME/.nova"
-REPO_ARCHIVE_URL="https://codeload.github.com/sxrubyo/nova-os/tar.gz/refs/heads/main"
+REPO_ARCHIVE_URL="${NOVA_REPO_ARCHIVE_URL:-https://codeload.github.com/sxrubyo/nova-os/tar.gz/refs/heads/main}"
 REPO_DIR="$HOME/.nova/repo"
 BIN_DIR="$HOME/.nova/bin"
 BOOTSTRAP_PATH=""
 NOVA_CMD="$BIN_DIR/nova"
 TEMP_ROOT=""
+API_PORT="${NOVA_API_PORT:-9800}"
+BRIDGE_PORT="${NOVA_BRIDGE_PORT:-9700}"
 
 print_banner() {
   printf '\033[0;94m%s\033[0m\n' '╭──────────────────────────────────────────────────────────────╮'
@@ -168,14 +170,19 @@ setup_repo() {
   mkdir -p "$NOVA_DIR" "$BIN_DIR"
   TEMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/nova-os.XXXXXX")"
   ARCHIVE_PATH="$TEMP_ROOT/nova-os.tar.gz"
+  EXTRACT_ROOT="$TEMP_ROOT/extracted"
 
   log "Downloading Nova OS"
   curl -fsSL "$REPO_ARCHIVE_URL" -o "$ARCHIVE_PATH" || die "Failed to download $REPO_ARCHIVE_URL"
   log "Archive downloaded"
 
   log "Extracting Nova OS"
-  tar -xzf "$ARCHIVE_PATH" -C "$TEMP_ROOT" || die "Failed to extract Nova OS archive"
-  EXTRACTED_DIR="$(find "$TEMP_ROOT" -maxdepth 1 -type d -name 'nova-os-*' | head -n 1)"
+  mkdir -p "$EXTRACT_ROOT"
+  tar -xzf "$ARCHIVE_PATH" -C "$EXTRACT_ROOT" || die "Failed to extract Nova OS archive"
+  EXTRACTED_DIR="$(find "$EXTRACT_ROOT" -maxdepth 1 -type d -name 'nova-os-*' | head -n 1)"
+  if [ -z "$EXTRACTED_DIR" ] && [ -f "$EXTRACT_ROOT/nova/bootstrap.py" ]; then
+    EXTRACTED_DIR="$EXTRACT_ROOT"
+  fi
   [ -n "$EXTRACTED_DIR" ] || die "Could not locate extracted Nova OS repository"
   [ -f "$EXTRACTED_DIR/nova/bootstrap.py" ] || die "Extracted archive does not contain nova/bootstrap.py"
   rm -rf "$REPO_DIR"
@@ -213,10 +220,35 @@ fresh_shell_resolve_nova() {
 
 validate_nova() {
   log "Validating nova"
-  "$NOVA_CMD" help >/dev/null 2>&1 || die "Installed nova wrapper failed to run"
+  "$NOVA_CMD" >/dev/null 2>&1 || die "Installed nova wrapper failed to run"
+  "$NOVA_CMD" commands >/dev/null 2>&1 || die "Installed nova wrapper failed to show the restored command surface"
   RESOLVED_NOVA="$(fresh_shell_resolve_nova)"
   [ "$RESOLVED_NOVA" = "$NOVA_CMD" ] || die "Shell resolves nova to '$RESOLVED_NOVA' instead of '$NOVA_CMD'"
   log "Nova CLI is ready"
+}
+
+probe_runtime() {
+  curl -fsS "http://127.0.0.1:${API_PORT}/api/status" >/dev/null 2>&1
+}
+
+wait_for_runtime() {
+  attempts=40
+  while [ "$attempts" -gt 0 ]; do
+    if probe_runtime; then
+      return 0
+    fi
+    sleep 0.5
+    attempts=$((attempts - 1))
+  done
+  return 1
+}
+
+write_runtime_env() {
+  ENV_FILE="$NOVA_DIR/.env"
+  cat >"$ENV_FILE" <<EOF
+NOVA_API_PORT=$API_PORT
+NOVA_BRIDGE_PORT=$BRIDGE_PORT
+EOF
 }
 
 start_nova() {
@@ -224,17 +256,24 @@ start_nova() {
   LOG_FILE="$NOVA_DIR/nova.log"
   PID_FILE="$NOVA_DIR/nova.pid"
 
+  if probe_runtime; then
+    log "Existing Nova runtime detected at http://127.0.0.1:${API_PORT}/"
+    return
+  fi
+
   if is_termux; then
     log "Starting Nova in Termux headless mode"
-    nohup "$NOVA_CMD" serve --host 0.0.0.0 --port 8000 >"$LOG_FILE" 2>&1 &
+    nohup env NOVA_API_PORT="$API_PORT" NOVA_BRIDGE_PORT="$BRIDGE_PORT" "$NOVA_CMD" start --no-open-browser >"$LOG_FILE" 2>&1 &
     echo "$!" > "$PID_FILE"
-    log "Nova available at http://127.0.0.1:8000"
+    wait_for_runtime || die "Nova did not come online. Check $LOG_FILE"
+    log "Nova available at http://127.0.0.1:${API_PORT}/"
     return
   fi
 
   if command -v pm2 >/dev/null 2>&1; then
     pm2 delete nova-os >/dev/null 2>&1 || true
-    pm2 start "$NOVA_CMD" --name nova-os --interpreter sh -- serve --host 0.0.0.0 --port 8000 >/dev/null 2>&1 || die "PM2 failed to start Nova"
+    pm2 start "$NOVA_CMD" --name nova-os --interpreter sh -- start --no-open-browser >/dev/null 2>&1 || die "PM2 failed to start Nova"
+    wait_for_runtime || die "Nova did not come online under PM2. Check pm2 logs nova-os"
     log "Nova started with PM2"
     return
   fi
@@ -250,7 +289,9 @@ After=network.target
 Type=simple
 User=$(id -un)
 WorkingDirectory=$REPO_DIR
-ExecStart=$NOVA_CMD serve --host 0.0.0.0 --port 8000
+Environment=NOVA_API_PORT=$API_PORT
+Environment=NOVA_BRIDGE_PORT=$BRIDGE_PORT
+ExecStart=$NOVA_CMD start --no-open-browser
 Restart=on-failure
 
 [Install]
@@ -258,12 +299,14 @@ WantedBy=multi-user.target
 EOF"
     sudo_cmd systemctl daemon-reload
     sudo_cmd systemctl enable --now nova-os >/dev/null 2>&1 || die "systemd failed to start Nova"
+    wait_for_runtime || die "Nova did not come online under systemd. Check systemctl status nova-os"
     log "Nova started with systemd"
     return
   fi
 
-  nohup "$NOVA_CMD" serve --host 0.0.0.0 --port 8000 >"$LOG_FILE" 2>&1 &
+  nohup env NOVA_API_PORT="$API_PORT" NOVA_BRIDGE_PORT="$BRIDGE_PORT" "$NOVA_CMD" start --no-open-browser >"$LOG_FILE" 2>&1 &
   echo "$!" > "$PID_FILE"
+  wait_for_runtime || die "Nova did not come online. Check $LOG_FILE"
   log "Nova started with nohup"
 }
 
@@ -274,12 +317,17 @@ main() {
   resolve_bootstrap
   install_runtime
   validate_nova
+  write_runtime_env
   start_nova
   log "Installation complete"
   printf '\nUseful commands:\n'
   printf '  nova\n'
   printf '  nova commands\n'
+  printf '  nova launchpad\n'
   printf '  nova help\n'
+  printf '  nova start --no-open-browser\n'
+  printf '\nDashboard:\n'
+  printf '  http://127.0.0.1:%s/\n' "$API_PORT"
   printf '  tail -f %s/nova.log\n' "$NOVA_DIR"
 }
 

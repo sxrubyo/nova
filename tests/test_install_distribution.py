@@ -20,6 +20,12 @@ def test_install_script_delegates_python_setup_to_bootstrap_module() -> None:
     assert 'sudo -n true' in install_script
     assert '--api-only' not in install_script
     assert 'NOVA_BOOTSTRAP_EMBEDDED=1' in install_script
+    assert 'start --no-open-browser' in install_script
+    assert '/api/status' in install_script
+    assert '"$NOVA_CMD" commands' in install_script
+    assert 'NOVA_REPO_ARCHIVE_URL' in install_script
+    assert 'NOVA_API_PORT=$API_PORT' in install_script
+    assert 'NOVA_BRIDGE_PORT=$BRIDGE_PORT' in install_script
 
 
 def test_windows_installer_uses_bootstrap_runtime() -> None:
@@ -33,6 +39,10 @@ def test_windows_installer_uses_bootstrap_runtime() -> None:
     assert '.nova\\repo' in install_script
     assert '.nova\\bin' in install_script
     assert 'Get-Command nova' in install_script
+    assert '& $WrapperCmd commands' in install_script
+    assert '$env:NOVA_REPO_ZIP_URL' in install_script
+    assert 'NOVA_API_PORT=$ApiPort' in install_script
+    assert 'NOVA_BRIDGE_PORT=$BridgePort' in install_script
 
 
 def test_npm_package_exposes_nova_bin() -> None:

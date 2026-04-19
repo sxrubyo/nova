@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from nova.config import NovaConfig
 
 
@@ -21,3 +23,15 @@ def test_secret_key_legacy_env_is_accepted(monkeypatch) -> None:
     config = NovaConfig()
 
     assert config.jwt_secret == "legacy-secret"
+
+
+def test_nova_home_env_file_persists_runtime_ports(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    nova_env = tmp_path / ".nova" / ".env"
+    nova_env.parent.mkdir(parents=True, exist_ok=True)
+    nova_env.write_text("NOVA_API_PORT=10800\nNOVA_BRIDGE_PORT=10700\n", encoding="utf-8")
+
+    config = NovaConfig()
+
+    assert config.api_port == 10800
+    assert config.bridge_port == 10700

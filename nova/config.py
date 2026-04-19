@@ -27,6 +27,10 @@ from nova.constants import NOVA_VERSION
 from nova.platform import PLATFORM
 
 
+def _nova_home_env_file() -> Path:
+    return Path.home() / ".nova" / ".env"
+
+
 def _default_db_url() -> str:
     if PLATFORM.db_engine == "postgres":
         return "postgresql+asyncpg://nova:nova@localhost/nova"
@@ -49,7 +53,6 @@ class NovaConfig(BaseSettings):
     """Environment-driven configuration for the Nova kernel."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
         populate_by_name=True,
@@ -119,14 +122,17 @@ class NovaConfig(BaseSettings):
             merged = {**self._fallback_env_values(), **data}
             super().__init__(**merged)
             return
-        super().__init__(**data)
+        super().__init__(_env_file=(str(_nova_home_env_file()), ".env"), **data)
 
     @classmethod
     def _fallback_env_values(cls) -> dict[str, Any]:
         """Load environment values, including a local `.env`, without pydantic-settings."""
 
         values: dict[str, Any] = {}
-        dotenv_values = cls._read_dotenv(Path(".env"))
+        dotenv_values = {
+            **cls._read_dotenv(_nova_home_env_file()),
+            **cls._read_dotenv(Path(".env")),
+        }
         for field_name, field_info in cls.model_fields.items():
             aliases: list[str] = []
             if field_info.alias:

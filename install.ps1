@@ -2,11 +2,14 @@
 # irm https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.ps1 | iex
 $ErrorActionPreference = "Stop"
 
-$RepoZipUrl = "https://github.com/sxrubyo/nova-os/archive/refs/heads/main.zip"
+$RepoZipUrl = if ($env:NOVA_REPO_ZIP_URL) { $env:NOVA_REPO_ZIP_URL } else { "https://github.com/sxrubyo/nova-os/archive/refs/heads/main.zip" }
 $NovaHome = Join-Path $env:USERPROFILE ".nova"
 $RepoDir = Join-Path $env:USERPROFILE ".nova\repo"
 $BinDir = Join-Path $env:USERPROFILE ".nova\bin"
 $WrapperCmd = Join-Path $BinDir "nova.cmd"
+$RuntimeEnvFile = Join-Path $NovaHome ".env"
+$ApiPort = if ($env:NOVA_API_PORT) { $env:NOVA_API_PORT } else { "9800" }
+$BridgePort = if ($env:NOVA_BRIDGE_PORT) { $env:NOVA_BRIDGE_PORT } else { "9700" }
 
 function Write-Banner {
     Write-Host "╭──────────────────────────────────────────────────────────────╮" -ForegroundColor Blue
@@ -124,12 +127,19 @@ if (-not ($UserPath -split ";" | Where-Object { $_ -eq $BinDir })) {
 $env:Path = "$BinDir;$env:Path"
 
 Write-Step "Validating nova"
-& $WrapperCmd help | Out-Null
+& $WrapperCmd | Out-Null
+& $WrapperCmd commands | Out-Null
 $ResolvedNova = (Get-Command nova -ErrorAction Stop).Source
 if ($ResolvedNova -ne $WrapperCmd) {
     Fail "PowerShell resolves nova to $ResolvedNova instead of $WrapperCmd"
 }
 Write-Ok "Nova CLI is ready"
+
+@(
+    "NOVA_API_PORT=$ApiPort"
+    "NOVA_BRIDGE_PORT=$BridgePort"
+) | Set-Content -Path $RuntimeEnvFile -Encoding utf8
+Write-Ok "Runtime defaults persisted"
 
 Write-Host ""
 Write-Host "Nova OS installed." -ForegroundColor White
