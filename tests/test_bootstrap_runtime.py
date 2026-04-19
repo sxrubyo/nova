@@ -54,6 +54,40 @@ def test_ensure_runtime_prefers_venv_over_system_pip(tmp_path: Path) -> None:
     assert "-r" in calls[2]
 
 
+def test_ensure_runtime_skips_reinstall_when_runtime_state_matches(tmp_path: Path) -> None:
+    from nova.bootstrap import ensure_runtime, runtime_python_path, runtime_root
+
+    calls: list[list[str]] = []
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+
+    def fake_run(command: list[str], **_: object) -> None:
+        calls.append(command)
+        if command[:3] == ["/usr/bin/python3", "-m", "venv"]:
+            runtime_python = runtime_python_path(runtime_root(tmp_path))
+            runtime_python.parent.mkdir(parents=True, exist_ok=True)
+            runtime_python.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+
+    ensure_runtime(
+        repo_dir=repo_dir,
+        home_dir=tmp_path,
+        python_bin="/usr/bin/python3",
+        command_runner=fake_run,
+    )
+    first_run = list(calls)
+
+    ensure_runtime(
+        repo_dir=repo_dir,
+        home_dir=tmp_path,
+        python_bin="/usr/bin/python3",
+        command_runner=fake_run,
+    )
+
+    assert len(first_run) == 3
+    assert calls == first_run
+
+
 def test_select_bin_dir_prefers_termux_prefix_bin(tmp_path: Path) -> None:
     from nova.bootstrap import select_bin_dir
 

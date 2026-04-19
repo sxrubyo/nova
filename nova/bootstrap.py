@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -25,6 +27,10 @@ CORE_PACKAGES = [
     "rich",
     "cryptography",
 ]
+
+
+def _status(message: str) -> None:
+    print(message, file=sys.stderr)
 
 
 def select_bin_dir(
@@ -82,6 +88,12 @@ def runtime_root(home_dir: str | Path | None = None) -> Path:
     return home / ".nova" / "runtime"
 
 
+def runtime_state_path(root: str | Path) -> Path:
+    """Return the bootstrap state file stored alongside the isolated runtime."""
+
+    return Path(root) / ".bootstrap-state.json"
+
+
 def runtime_python_path(root: str | Path) -> Path:
     """Return the Python executable inside the isolated runtime."""
 
@@ -116,6 +128,32 @@ def _run_command(command: list[str], *, cwd: Path | None = None) -> None:
     subprocess.run(command, cwd=str(cwd) if cwd else None, check=True, text=True)
 
 
+def _requirements_signature(repo_path: Path) -> str:
+    """Return a stable fingerprint for the dependency set Nova should install."""
+
+    requirements_file = repo_path / "requirements.txt"
+    fallback_file = repo_path / "nova_core_requirements.txt"
+
+    if requirements_file.exists():
+        payload = requirements_file.read_bytes()
+    elif fallback_file.exists():
+        payload = fallback_file.read_bytes()
+    else:
+        payload = "\n".join(CORE_PACKAGES).encode("utf-8")
+
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _load_runtime_state(path: Path) -> dict[str, str] | None:
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def ensure_runtime(
     repo_dir: str | Path,
     *,
@@ -129,12 +167,24 @@ def ensure_runtime(
     root = runtime_root(home_dir)
     root.parent.mkdir(parents=True, exist_ok=True)
     runtime_python = runtime_python_path(root)
+    state_path = runtime_state_path(root)
     runner = command_runner or (lambda command: _run_command(command, cwd=repo_path))
     host_python = python_bin or detect_python()
+    current_state = {
+        "repo_dir": str(repo_path),
+        "python_bin": host_python,
+        "requirements_signature": _requirements_signature(repo_path),
+    }
+
+    if runtime_python.exists() and _load_runtime_state(state_path) == current_state:
+        _status("Nova bootstrap: using existing isolated runtime")
+        return runtime_python
 
     if not runtime_python.exists():
+        _status("Nova bootstrap: creating isolated runtime")
         runner([host_python, "-m", "venv", str(root)])
 
+    _status("Nova bootstrap: installing Python dependencies")
     runner([str(runtime_python), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"])
 
     requirements_file = repo_path / "requirements.txt"
@@ -148,6 +198,9 @@ def ensure_runtime(
             runner([str(runtime_python), "-m", "pip", "install", *CORE_PACKAGES])
     except subprocess.CalledProcessError:
         runner([str(runtime_python), "-m", "pip", "install", *CORE_PACKAGES])
+
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps(current_state, sort_keys=True), encoding="utf-8")
 
     return runtime_python
 
