@@ -229,7 +229,7 @@ function AgentWizard() {
     model: 'o4-mini',
     config: {
       approval_mode: 'full-auto',
-      working_directory: '/home/ubuntu/nova-os',
+      working_directory: '',
       n8n_url: inferHostServiceUrl(5678),
       api_endpoint: inferHostServiceUrl(8080),
       communication_type: 'rest_api',
