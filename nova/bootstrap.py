@@ -27,6 +27,54 @@ CORE_PACKAGES = [
 ]
 
 
+def select_bin_dir(
+    *,
+    home_dir: str | Path | None = None,
+    env: dict[str, str] | None = None,
+    path_value: str | None = None,
+    writable_check: Callable[[Path], bool] | None = None,
+) -> Path:
+    """Pick a wrapper directory that is either already on PATH or native to the host."""
+
+    home = Path(home_dir) if home_dir is not None else Path.home()
+    environment = dict(os.environ if env is None else env)
+    path_entries = [Path(entry) for entry in (path_value or environment.get("PATH", "")).split(os.pathsep) if entry]
+    can_write = writable_check or (lambda candidate: os.access(candidate, os.W_OK))
+
+    prefix = environment.get("PREFIX", "").strip()
+    if environment.get("TERMUX_VERSION") or "com.termux" in prefix:
+        termux_bin = Path(prefix) / "bin" if prefix else home / "../usr/bin"
+        if can_write(termux_bin):
+            return termux_bin
+
+    for candidate in path_entries:
+        if can_write(candidate):
+            return candidate
+
+    fallback = home / ".local" / "bin"
+    fallback.parent.mkdir(parents=True, exist_ok=True)
+    return fallback
+
+
+def ensure_shell_path(bin_dir: str | Path, *, home_dir: str | Path | None = None, path_value: str | None = None) -> None:
+    """Persist the wrapper directory into the user's shell startup files when needed."""
+
+    target = Path(bin_dir)
+    current_path = path_value or os.environ.get("PATH", "")
+    if str(target) in current_path.split(os.pathsep):
+        return
+
+    home = Path(home_dir) if home_dir is not None else Path.home()
+    candidates = [home / ".bashrc", home / ".zshrc", home / ".profile"]
+    profile = next((candidate for candidate in candidates if candidate.exists()), candidates[-1])
+    line = f'export PATH="{target}:$PATH"'
+    existing = profile.read_text(encoding="utf-8") if profile.exists() else ""
+    if line in existing:
+        return
+    prefix = "" if existing.endswith("\n") or not existing else "\n"
+    profile.write_text(f"{existing}{prefix}{line}\n", encoding="utf-8")
+
+
 def runtime_root(home_dir: str | Path | None = None) -> Path:
     """Return the isolated runtime root used by Nova installers."""
 
@@ -114,11 +162,12 @@ def install_cli_wrapper(
     """Create the host-side `nova` shell wrapper."""
 
     runtime_python = ensure_runtime(repo_dir, home_dir=home_dir, python_bin=python_bin)
-    target_dir = Path(bin_dir) if bin_dir is not None else Path.home() / ".local" / "bin"
+    target_dir = Path(bin_dir) if bin_dir is not None else select_bin_dir(home_dir=home_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
     wrapper_path = target_dir / "nova"
     wrapper_path.write_text(build_wrapper_script(runtime_python, Path(repo_dir).resolve()), encoding="utf-8")
     wrapper_path.chmod(0o755)
+    ensure_shell_path(target_dir, home_dir=home_dir)
     return wrapper_path
 
 

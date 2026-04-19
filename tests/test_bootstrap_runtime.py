@@ -52,3 +52,33 @@ def test_ensure_runtime_prefers_venv_over_system_pip(tmp_path: Path) -> None:
     assert calls[2][0].endswith("/.nova/runtime/bin/python")
     assert calls[2][1:4] == ["-m", "pip", "install"]
     assert "-r" in calls[2]
+
+
+def test_select_bin_dir_prefers_termux_prefix_bin(tmp_path: Path) -> None:
+    from nova.bootstrap import select_bin_dir
+
+    prefix_bin = tmp_path / "termux-prefix" / "bin"
+
+    selected = select_bin_dir(
+        home_dir=tmp_path,
+        env={"PREFIX": str(tmp_path / "termux-prefix"), "TERMUX_VERSION": "0.118"},
+        path_value="",
+        writable_check=lambda path: path == prefix_bin,
+    )
+
+    assert selected == prefix_bin
+
+
+def test_ensure_shell_path_persists_wrapper_dir_once(tmp_path: Path) -> None:
+    from nova.bootstrap import ensure_shell_path
+
+    profile = tmp_path / ".profile"
+    profile.write_text("# existing\n", encoding="utf-8")
+    bin_dir = tmp_path / ".local" / "bin"
+
+    ensure_shell_path(bin_dir, home_dir=tmp_path, path_value="/usr/bin")
+    ensure_shell_path(bin_dir, home_dir=tmp_path, path_value="/usr/bin")
+
+    content = profile.read_text(encoding="utf-8")
+    assert 'export PATH="' in content
+    assert content.count(str(bin_dir)) == 1

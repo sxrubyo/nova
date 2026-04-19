@@ -2,8 +2,27 @@
   "name": "nova-os",
   "version": "4.0.0",
   "description": "Portable Nova OS CLI bootstrap for Linux, Ubuntu-in-Termux, and Termux hosts.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sxrubyo/nova-os.git"
+  },
+  "homepage": "https://github.com/sxrubyo/nova-os#readme",
+  "bugs": {
+    "url": "https://github.com/sxrubyo/nova-os/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "nova",
+    "cli",
+    "termux",
+    "governance",
+    "agents"
+  ],
   "bin": {
-    "nova": "bin/nova.js"
+    "nova": "bin/nova.js",
+    "nova-os": "bin/nova.js"
   },
   "files": [
     "bin/nova.js",

@@ -14,6 +14,8 @@ def test_install_script_delegates_python_setup_to_bootstrap_module() -> None:
 
     assert "nova/bootstrap.py" in install_script
     assert "python3 -m pip install -r" not in install_script
+    assert 'command -v nova' in install_script
+    assert 'LOCAL_BIN_DIR/nova' not in install_script
 
 
 def test_npm_package_exposes_nova_bin() -> None:
@@ -31,3 +33,21 @@ def test_npmignore_excludes_python_cache_artifacts() -> None:
 
     assert "__pycache__/" in npmignore
     assert "*.pyc" in npmignore
+
+
+def test_npm_package_is_publish_ready() -> None:
+    package_json = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))
+
+    assert package_json["publishConfig"]["access"] == "public"
+    assert package_json["repository"]["type"] == "git"
+    assert package_json["repository"]["url"].endswith("sxrubyo/nova-os.git")
+    assert package_json["homepage"].endswith("sxrubyo/nova-os#readme")
+    assert package_json["bugs"]["url"].endswith("sxrubyo/nova-os/issues")
+
+
+def test_npm_publish_workflow_exists() -> None:
+    workflow = (REPO_ROOT / ".github" / "workflows" / "npm-publish.yml").read_text(encoding="utf-8")
+
+    assert "npm publish" in workflow
+    assert "NODE_AUTH_TOKEN" in workflow
+    assert "release" in workflow or "workflow_dispatch" in workflow

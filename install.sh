@@ -5,8 +5,8 @@ set -eu
 REPO_URL="https://github.com/sxrubyo/nova-os.git"
 DEFAULT_CLONE_DIR="$HOME/nova-os"
 NOVA_DIR="$HOME/.nova"
-LOCAL_BIN_DIR="$HOME/.local/bin"
 BOOTSTRAP_PATH=""
+NOVA_CMD=""
 
 is_termux() {
   [ -n "${TERMUX_VERSION:-}" ] || [ -d "/data/data/com.termux" ]
@@ -108,18 +108,34 @@ install_runtime() {
   PYTHON_BIN="$(detect_python)" || die "Python no está disponible"
   "$PYTHON_BIN" "$BOOTSTRAP_PATH" install \
     --repo "$REPO_DIR" \
-    --bin-dir "$LOCAL_BIN_DIR" \
     --home-dir "$HOME" \
     --python-bin "$PYTHON_BIN" >/dev/null 2>&1 || die "No se pudo bootstrapear el runtime aislado"
-  export PATH="$LOCAL_BIN_DIR:$PATH"
   log "CLI y runtime aislado instalados"
+}
+
+resolve_nova_cmd() {
+  if command -v nova >/dev/null 2>&1; then
+    NOVA_CMD="$(command -v nova)"
+    return
+  fi
+
+  if is_termux && [ -n "${PREFIX:-}" ] && [ -x "${PREFIX}/bin/nova" ]; then
+    NOVA_CMD="${PREFIX}/bin/nova"
+    return
+  fi
+
+  if [ -x "$HOME/.local/bin/nova" ]; then
+    NOVA_CMD="$HOME/.local/bin/nova"
+    return
+  fi
+
+  die "No se encontró el binario nova después del bootstrap"
 }
 
 start_nova() {
   mkdir -p "$NOVA_DIR"
   LOG_FILE="$NOVA_DIR/nova.log"
   PID_FILE="$NOVA_DIR/nova.pid"
-  NOVA_CMD="$LOCAL_BIN_DIR/nova"
 
   if is_termux; then
     log "Iniciando Nova en modo headless Termux"
@@ -169,6 +185,7 @@ main() {
   setup_repo
   resolve_bootstrap
   install_runtime
+  resolve_nova_cmd
   start_nova
   log "Instalación completada"
   printf '\nComandos útiles:\n'
