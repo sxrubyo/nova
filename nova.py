@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 import platform
+import sys
 from datetime import datetime, timezone
 from http.cookies import SimpleCookie
 from pathlib import Path
@@ -268,7 +269,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="nova", description="Nova OS v4.0.0 control plane CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser("start")
+    start = subparsers.add_parser("start")
+    start.add_argument("--no-open-browser", action="store_true")
     subparsers.add_parser("help")
     init_cmd = subparsers.add_parser("init")
     init_cmd.add_argument("--json", action="store_true")
@@ -277,6 +279,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--port", type=int)
     serve.add_argument("--bridge-port", type=int)
     serve.add_argument("--api-only", action="store_true")
+    serve.add_argument("--open-browser", action="store_true")
     subparsers.add_parser("status")
     subparsers.add_parser("version")
     subparsers.add_parser("seed")
@@ -400,6 +403,16 @@ def build_parser() -> argparse.ArgumentParser:
     auth_logout.add_argument("--api-url")
 
     return parser
+
+
+def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = build_parser()
+    raw_args = list(argv if argv is not None else sys.argv[1:])
+    if not raw_args:
+        raw_args = ["start"]
+    elif raw_args in (["-h"], ["--help"]):
+        raw_args = ["help"]
+    return parser.parse_args(raw_args)
 
 
 async def _resolve_agent_id(kernel: Any, workspace_id: str, requested_agent: str | None) -> str:
@@ -528,17 +541,32 @@ async def _serve_shield(kernel: Any, listen: str) -> None:
     await server.serve()
 
 
-async def _serve_api(kernel: Any, *, host: str | None = None, port: int | None = None, api_only: bool = False) -> None:
+async def _serve_api(
+    kernel: Any,
+    *,
+    host: str | None = None,
+    port: int | None = None,
+    api_only: bool = False,
+    open_browser: bool = False,
+) -> None:
     import uvicorn
 
     from nova.api.server import create_app
     from nova.bridge.bridge_server import NovaBridge
+    from nova.utils.browser import open_dashboard_when_ready
 
     await kernel.initialize()
     if not api_only:
         kernel._bridge = NovaBridge(kernel, kernel.config)
         await kernel._bridge.start()
     app = create_app(kernel, serve_frontend=not api_only)
+    if open_browser and not api_only:
+        kernel._background_tasks.append(
+            asyncio.create_task(
+                open_dashboard_when_ready(kernel.config),
+                name="nova-open-dashboard",
+            )
+        )
     kernel._api_server = uvicorn.Server(
         uvicorn.Config(
             app,
@@ -555,7 +583,9 @@ async def _serve_api(kernel: Any, *, host: str | None = None, port: int | None =
 
 async def run_async(args: argparse.Namespace) -> None:
     if args.command == "help":
-        build_parser().print_help()
+        from nova.utils.formatting import command_launchpad
+
+        print(command_launchpad())
         return
 
     if args.command == "auth":
@@ -575,8 +605,14 @@ async def run_async(args: argparse.Namespace) -> None:
 
     from nova.config import NovaConfig
     from nova.kernel import get_kernel
+    from nova.utils.browser import local_dashboard_url
+    from nova.utils.formatting import launch_banner
 
-    kernel = get_kernel(NovaConfig())
+    config = NovaConfig()
+    if args.command == "start":
+        print(launch_banner(dashboard_url=local_dashboard_url(config), version=config.version), flush=True)
+
+    kernel = get_kernel(config)
     if getattr(args, "host", None):
         kernel.config.host = args.host
     if getattr(args, "port", None):
@@ -595,7 +631,7 @@ async def run_async(args: argparse.Namespace) -> None:
         return
 
     if args.command == "start":
-        await kernel.start()
+        await kernel.start(open_browser=not getattr(args, "no_open_browser", False))
         return
 
     if args.command == "serve":
@@ -604,6 +640,7 @@ async def run_async(args: argparse.Namespace) -> None:
             host=getattr(args, "host", None),
             port=getattr(args, "port", None),
             api_only=getattr(args, "api_only", False),
+            open_browser=getattr(args, "open_browser", False),
         )
         return
 
@@ -815,8 +852,7 @@ async def run_async(args: argparse.Namespace) -> None:
 
 def main() -> None:
     _platform_bootstrap()
-    parser = build_parser()
-    args = parser.parse_args()
+    args = parse_cli_args()
     asyncio.run(run_async(args))
 
 

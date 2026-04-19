@@ -131,5 +131,5 @@ Write-Host ""
 Write-Host "Nova OS installed." -ForegroundColor White
 Write-Host "Open a new terminal if PATH changes are not visible yet." -ForegroundColor DarkGray
 Write-Host "Commands:" -ForegroundColor White
+Write-Host "  nova" -ForegroundColor Gray
 Write-Host "  nova help" -ForegroundColor Gray
-Write-Host "  nova start" -ForegroundColor Gray

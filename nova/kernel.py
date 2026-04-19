@@ -107,17 +107,33 @@ class NovaKernel:
         self._startup_time = time.time()
         self._initialized = True
 
-    async def start(self) -> None:
+    async def start(self, *, open_browser: bool = True) -> None:
         await self.initialize()
         from nova.api.server import create_app
         from nova.bridge.bridge_server import NovaBridge
-        from nova.utils.formatting import banner
+        from nova.utils.browser import bind_api_url, bind_bridge_url, local_dashboard_url, local_docs_url, open_dashboard_when_ready
+        from nova.utils.formatting import startup_banner
 
         self._bridge = NovaBridge(self, self.config)
         await self._bridge.start()
         app = create_app(self, serve_frontend=True)
         self.logger.info("kernel_started", version=self.config.version, api_port=self.config.api_port, bridge_port=self.config.bridge_port)
-        print(banner())
+        print(
+            startup_banner(
+                api_url=bind_api_url(self.config),
+                dashboard_url=local_dashboard_url(self.config),
+                docs_url=local_docs_url(self.config),
+                bridge_url=bind_bridge_url(self.config),
+                version=self.config.version,
+            )
+        )
+        if open_browser:
+            self._background_tasks.append(
+                asyncio.create_task(
+                    open_dashboard_when_ready(self.config),
+                    name="nova-open-dashboard",
+                )
+            )
         self._api_server = uvicorn.Server(
             uvicorn.Config(
                 app,

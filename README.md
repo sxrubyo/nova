@@ -214,6 +214,7 @@ Never commit real `.env` files, tokens, local databases, or operational backups.
 ## Common commands
 
 ```bash
+nova
 nova help
 nova init
 nova discover --json
@@ -221,7 +222,6 @@ nova connect codex_cli-<id> --cannot-do "rm -rf"
 nova validate --action "Send email to customer@example.com"
 nova status
 nova watch
-nova start
 nova serve --host 0.0.0.0 --port 8000
 ```
 

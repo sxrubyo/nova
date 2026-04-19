@@ -255,7 +255,8 @@ main() {
   start_nova
   log "Installation complete"
   printf '\nUseful commands:\n'
-  printf '  nova --help\n'
+  printf '  nova\n'
+  printf '  nova help\n'
   printf '  tail -f %s/nova.log\n' "$NOVA_DIR"
 }
 

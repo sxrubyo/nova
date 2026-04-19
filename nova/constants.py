@@ -8,26 +8,14 @@ NOVA_NAME: Final[str] = "Nova OS"
 NOVA_VERSION: Final[str] = "4.0.0"
 NOVA_BUILD: Final[str] = "enterprise"
 
-NOVA_ASCII_BANNER: Final[str] = r"""
-╔══════════════════════════════════════════════╗
-║                                              ║
-║                ▄███████                      ║
-║            ▄████████████                     ║
-║         ▄███████   ██████████                ║
-║       ▄███████████████████████               ║
-║         ▀████████████████████▀               ║
-║          ▄██████████████████▄                ║
-║          ▀██████████████████▀                ║
-║                                              ║
-║         NOVA OS v4.0.0 (Enterprise)          ║
-║        AI Governance Control Plane           ║
-║                                              ║
-╠══════════════════════════════════════════════╣
-║  API Server:    http://0.0.0.0:9800          ║
-║  Bridge Server: ws://0.0.0.0:9700            ║
-║  API Docs:      http://0.0.0.0:9800/api/docs ║
-║  Status:        All systems operational ✓    ║
-╚══════════════════════════════════════════════╝
+NOVA_ASCII_LOGO: Final[str] = r"""
+                ▄███████
+            ▄████████████
+         ▄███████   ██████████
+       ▄███████████████████████
+         ▀████████████████████▀
+          ▄██████████████████▄
+          ▀██████████████████▀
 """
 
 DEFAULT_PROVIDER_MODELS: Final[dict[str, list[str]]] = {
