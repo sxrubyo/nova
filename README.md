@@ -78,10 +78,10 @@ nova --help
 
 Ese binario no instala dependencias Python en el sistema. En el primer uso crea un runtime aislado en `~/.nova/runtime`, instala ahí los requisitos de Nova y luego ejecuta [nova.py](/home/ubuntu/nova-os/nova.py).
 
-Si el paquete todavía no está publicado en el registry, puedes instalar exactamente el mismo CLI directo desde GitHub:
+Si el paquete todavía no está publicado en el registry, instala el tarball directo por HTTPS para evitar el camino `git+ssh` que rompe fácil en Termux:
 
 ```bash
-npm install -g github:sxrubyo/nova-os
+npm install -g https://codeload.github.com/sxrubyo/nova-os/tar.gz/refs/heads/main
 nova --help
 ```
 

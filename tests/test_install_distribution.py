@@ -27,6 +27,7 @@ def test_npm_package_exposes_nova_bin() -> None:
     assert "bin/nova.js" in package_json["files"]
     assert "nova/**/*.py" in package_json["files"]
     assert "nova.py" in package_json["files"]
+    assert "frontend/dist/**/*" in package_json["files"]
 
 
 def test_npmignore_excludes_python_cache_artifacts() -> None:

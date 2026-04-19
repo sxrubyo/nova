@@ -5,7 +5,9 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 tests/
-frontend/
+frontend/*
+!frontend/dist/
+!frontend/dist/**
 backend/
 docker/
 docs/

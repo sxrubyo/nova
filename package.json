@@ -28,6 +28,7 @@
     "bin/nova.js",
     "nova/**/*.py",
     "nova.py",
+    "frontend/dist/**/*",
     "requirements.txt",
     "nova_core_requirements.txt",
     "pyproject.toml",
