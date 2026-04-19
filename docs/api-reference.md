@@ -1,6 +1,6 @@
 # API Reference
 
-Endpoints principales:
+Primary endpoints:
 
 - `GET /api/status`
 - `POST /api/evaluate`

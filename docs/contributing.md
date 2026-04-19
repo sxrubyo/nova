@@ -1,6 +1,6 @@
 # Contributing
 
-- Mantén tipado completo.
-- Ejecuta `make format` y `make test` antes de enviar cambios.
-- No rompas compatibilidad de los contratos API sin actualizar `docs/api-reference.md`.
-- Mantén la lógica crítica dentro del paquete `nova/`; los módulos legacy quedan solo como referencia histórica.
+- Keep the supported runtime path centered on `nova.py` + `nova/`.
+- Run formatting and tests before sending changes.
+- Update `docs/api-reference.md` when API contracts change.
+- Treat legacy modules as compatibility code, not the preferred extension point.

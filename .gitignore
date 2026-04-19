@@ -24,6 +24,8 @@ __pycache__/
 output/
 data/
 .claude/
+guia/
+test_list*.py
 
 .pytest_cache/
 .mypy_cache/

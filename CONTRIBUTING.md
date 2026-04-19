@@ -1,36 +1,74 @@
-# 🤝 Contributing to Nova OS
-**Maintained by Nova Governance**
+# Contributing to Nova OS
 
-Thank you for your interest in strengthening Nova. We are building industry-grade infrastructure for AI agent governance, and we value contributions that advance security, performance, and clarity.
+Thanks for contributing.
 
-## ⚖️ Our Philosophy
-- **Zero Dependencies**: Nova's core must remain lightweight. We strictly use standard Python 3.8+. Do not introduce external libraries without a critical justification.
-- **Extreme Speed**: If a validation cycle exceeds 50ms, the code is not production-ready. Performance is a feature.
-- **Cryptographic Integrity**: The Ledger is the heart of Nova. Any changes to signature or hashing logic must be discussed with maximum priority.
-- **Version Compatibility**: Update CLI help strings, error payloads, and documentation when behavior changes.
+Nova OS is being cleaned up into a sharper open-source surface. Contributions are most useful when they improve portability, runtime coherence, security, or developer clarity without adding unnecessary product branches.
 
-## 🛠️ How to Get Started
+## Ground rules
 
-1. **Fork the repository** and clone it to your local environment.
-2. **Create a feature branch**: `git checkout -b feature/amazing-improvement`.
-3. **Develop with Quality**: Write clean, self-documented code and utilize Python type hinting.
-4. **Technical Verification**: Run `python nova.py status` (backend required) to ensure core paths remain intact.
-5. **Pull Request**: Submit your changes with a clear description of the impact and technical reasoning.
+- Keep the supported runtime path centered on `nova.py` + `nova/`.
+- Do not commit secrets, `.env` files, local databases, or operational backups.
+- Avoid hardcoded machine-specific paths.
+- Prefer changes that reduce external dependencies instead of increasing them.
+- Update documentation when behavior changes.
 
-## 📝 Code Standards
-- **Full Compatibility**: Code must run flawlessly across Windows (PowerShell), macOS, and Linux.
-- **User Experience (UX)**: If modifying the CLI, respect the existing visual language and arrow-key navigation system.
-- **Documentation**: If you add a feature, update internal manuals, help strings, and any version references.
+## Development workflow
 
-## 🐛 Bug Reporting
-If you encounter a flaw, please open an **Issue** including:
-- Operating system and Python version.
-- Exact steps to replicate the issue.
-- Expected behavior vs. actual outcome.
+1. Fork the repository.
+2. Create a feature branch.
+3. Make focused changes.
+4. Run the relevant verification commands.
+5. Open a pull request with a clear technical description.
 
-## 💡 Skill Suggestions
-Do you have an idea for a new CRM integration or a payment gateway "Skill"? Suggestions for expanding the **Constellation** are always welcome.
+## Minimum verification
 
----
-**Executive Contact:** `Nova Governance`  
-*Building the nervous system of AI together.*
+```bash
+python3 -m pytest
+cd frontend && npm run build
+```
+
+If your change touches installation or bootstrap behavior, also run:
+
+```bash
+bash -n install.sh
+npm pack --dry-run
+```
+
+## Scope guidance
+
+Good contributions:
+
+- installation fixes
+- portability improvements
+- API correctness
+- frontend and CLI coherence
+- security and runtime hardening
+- documentation that matches real behavior
+
+Changes that usually need extra care:
+
+- new deployment paths
+- dependency-heavy integrations
+- changes to signing, ledger, or auth flows
+- anything that introduces another “official” runtime path
+
+## Pull request quality bar
+
+A good PR should explain:
+
+- what changed
+- why it changed
+- how it was verified
+- whether it affects the supported runtime path
+
+## Issues
+
+Bug reports are most useful when they include:
+
+- operating system
+- Python and Node versions
+- exact commands used
+- expected behavior
+- actual behavior
+
+For security-sensitive issues, follow [SECURITY.md](SECURITY.md).

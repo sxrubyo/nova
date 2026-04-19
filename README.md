@@ -1,48 +1,55 @@
 # Nova OS
 
-Nova OS es una capa de gobernanza para agentes y automatizaciones. El repo combina backend FastAPI, frontend React, CLI y conectores para validar acciones, registrar evidencia y operar agentes desde una sola superficie.
+Nova OS is a unified runtime for governed AI agents and automations. It bundles a Python API, a local web dashboard, and a CLI into one installable system that can run on Linux, macOS, Termux, or Ubuntu inside Termux.
 
-Este árbol está en transición desde un entorno de producto interno a un repo público más limpio. La regla de este README es simple: no prometer nada que el código o la documentación local no puedan respaldar.
+The supported execution path in this repository is `nova.py` + `nova/`. Legacy directories remain for compatibility while the public surface is being cleaned up.
 
-## Qué incluye hoy
+## What ships today
 
-- Backend FastAPI para workspaces, evaluación, discovery, ledger y conectores.
-- Frontend React/Vite para dashboard, discovery y administración.
-- CLI `nova` para inicialización, validación, monitoreo y utilidades operativas.
-- Integración n8n (`n8n-nodes-nova/`) para validación y registro desde workflows.
-- Docker Compose para levantar el stack local.
+- A FastAPI backend for evaluation, workspaces, ledger, discovery, and agent operations.
+- A React dashboard served by the same local runtime when `frontend/dist` is available.
+- A `nova` CLI for bootstrap, validation, status, auth, and operational workflows.
+- A portable storage path with SQLite fallback and PostgreSQL support when explicitly configured.
+- Optional Docker Compose and n8n integration for local or self-hosted environments.
 
-## Estructura
+## Install
 
-```text
-backend/               API legacy y compatibilidad operativa
-frontend/              aplicación React
-nova/                  paquete modular principal
-n8n-nodes-nova/        nodo e integración para n8n
-docs/                  arquitectura, API y despliegue
-tests/                 suite de backend y discovery
+### Recommended: one-line installer
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh | sh
 ```
 
-## Requisitos
+The installer:
 
-- Python 3.10+
-- Node.js 20+ para compilar el frontend
-- Docker y Docker Compose solo si quieres el stack local completo
+- detects the host platform
+- creates an isolated Python runtime in `~/.nova/runtime`
+- installs the `nova` wrapper into a writable user bin directory
+- starts Nova on `http://localhost:8000`
 
-## Arranque local
+### Global CLI via npm
 
-### Opción 1: stack completo con Docker
+Nova is packaged for npm-style global installation, but the public registry release is not the primary distribution channel yet. The reliable path today is the GitHub tarball:
+
+```bash
+npm install -g https://codeload.github.com/sxrubyo/nova-os/tar.gz/refs/heads/main
+nova --help
+```
+
+This still installs a global `nova` command. On first run it bootstraps the isolated Python runtime and then executes the real CLI.
+
+### Docker Compose
 
 ```bash
 cp .env.example .env
 docker-compose up -d --build
 ```
 
-Ese stack ahora usa el runtime modular real (`python3 nova.py serve`) detrás de PostgreSQL y construye el frontend desde `frontend/`, en vez de depender del backend legacy.
+Use this path when you want PostgreSQL and a containerized local stack. The compose setup runs the same modular runtime, not a separate product fork.
 
-### Opción 2: desarrollo por separado
+## Run locally from source
 
-Backend:
+### Backend + dashboard
 
 ```bash
 python3 -m venv .venv
@@ -51,9 +58,12 @@ pip install -r requirements.txt
 python3 nova.py serve --host 0.0.0.0 --port 8000
 ```
 
-Si existe `frontend/dist`, ese mismo proceso sirve el dashboard en `http://localhost:8000` y mantiene la API en `/api/*`.
+If `frontend/dist` exists, the same process serves:
 
-Frontend:
+- dashboard: `http://localhost:8000/`
+- API: `http://localhost:8000/api/*`
+
+### Frontend development
 
 ```bash
 cd frontend
@@ -61,148 +71,122 @@ npm install
 npm run dev
 ```
 
-CLI:
+### CLI
 
 ```bash
-python nova.py --help
+python3 nova.py --help
 ```
 
-## CLI profesional (`npm` + runtime aislado)
+## Termux / Android
 
-Si quieres exponer `nova` como comando global sin depender de `pip` del sistema:
+Nova OS supports Termux without root.
 
-```bash
-npm install -g nova-os
-nova --help
-```
-
-Ese binario no instala dependencias Python en el sistema. En el primer uso crea un runtime aislado en `~/.nova/runtime`, instala ahí los requisitos de Nova y luego ejecuta [nova.py](/home/ubuntu/nova-os/nova.py).
-
-Si el paquete todavía no está publicado en el registry, instala el tarball directo por HTTPS para evitar el camino `git+ssh` que rompe fácil en Termux:
-
-```bash
-npm install -g https://codeload.github.com/sxrubyo/nova-os/tar.gz/refs/heads/main
-nova --help
-```
-
-También funciona sin instalación global:
-
-```bash
-npx nova-os --help
-```
-
-Una vez instalado, el entrypoint local queda en:
-
-```text
-http://localhost:8000
-```
-
-## 📱 Termux / Android Installation
-
-Nova OS corre nativamente en Android vía Termux sin root.
-
-### Prerrequisitos
+### Prerequisites
 
 ```sh
 pkg install python git openssl
 ```
 
-### Instalación
+### Install
 
 ```sh
-TMPDIR="$(mktemp -d)" && \
-curl -L https://github.com/sxrubyo/nova-os/archive/refs/heads/main.tar.gz | tar -xz -C "$TMPDIR" && \
-sh "$TMPDIR/nova-os-main/install.sh"
+curl -fsSL https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh | sh
 ```
 
-En Termux, Nova:
+On Termux, Nova:
 
-- usa SQLite en `~/.nova/nova.db`
-- crea un runtime Python aislado en `~/.nova/runtime`
-- evita Docker, nginx y PostgreSQL
-- arranca en segundo plano con `nohup`
-- guarda logs y PID en `~/.nova/`
-- puede aprovechar `Termux:API` si está disponible
+- uses SQLite at `~/.nova/nova.db`
+- creates an isolated runtime at `~/.nova/runtime`
+- skips Docker, nginx, and PostgreSQL
+- runs in the background with `nohup`
+- stores logs and PID files in `~/.nova/`
 
-### Funciones opcionales con Termux:API
+### Optional Termux:API integration
 
 ```sh
 pkg install termux-api
 ```
 
-Habilita notificaciones locales, vibración, batería y wake lock.
+This enables local notifications, vibration, battery inspection, and wake-lock helpers.
 
-### Detener Nova
+### Stop Nova
 
 ```sh
 kill "$(cat ~/.nova/nova.pid)"
 ```
 
-### Ver logs
+### Logs
 
 ```sh
 tail -f ~/.nova/nova.log
 ```
 
-## Configuración
+## Architecture
 
-Antes de correr Nova fuera de un entorno efímero:
+Nova OS is organized as one runtime, not separate products:
+
+```text
+nova.py                 CLI entrypoint and local server launcher
+nova/                   core package: API, kernel, storage, ledger, discovery
+frontend/               React dashboard
+backend/                compatibility layer and older deployment assets
+n8n-nodes-nova/         n8n node integration
+docs/                   deployment, architecture, API, contribution docs
+tests/                  platform, API, discovery, and runtime tests
+```
+
+Core design points:
+
+- `nova/platform.py` detects the host and degrades features cleanly.
+- `nova/bootstrap.py` installs an isolated runtime instead of polluting system Python.
+- `nova/db.py` provides a SQLite fallback for hosts without PostgreSQL.
+- `nova/api/server.py` serves both API and dashboard from the same process when the frontend bundle exists.
+
+## Configuration
+
+Copy `.env.example` only when you need persistent local configuration:
 
 ```bash
 cp .env.example .env
 ```
 
-Rellena al menos:
+At minimum, production-like environments should define:
 
-- `POSTGRES_PASSWORD`
 - `SECRET_KEY`
 - `WORKSPACE_ADMIN_TOKEN`
-- las llaves LLM que realmente vayas a usar
-- credenciales OAuth solo si habilitas login externo
+- database settings if you want PostgreSQL
+- only the provider keys you actually use
 
-El repo no debe contener `.env` reales, tokens, bases locales ni scripts con secretos embebidos.
+Never commit real `.env` files, tokens, local databases, or operational backups.
 
-## Comandos útiles
+## Common commands
 
 ```bash
 nova init
 nova validate --action "Send email to customer@example.com"
 nova status
 nova watch
+nova serve --host 0.0.0.0 --port 8000
 ```
 
-## Documentación local
+## Documentation
 
-- [Arquitectura](ARCHITECTURE.md)
+- [Architecture](ARCHITECTURE.md)
 - [Security](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
-- [Docs / deployment](docs/deployment.md)
-- [Docs / API](docs/api-reference.md)
+- [Deployment notes](docs/deployment.md)
+- [API reference](docs/api-reference.md)
 
-## Estado actual
+## Project status
 
-Nova OS ya tiene piezas serias de producto, pero el repo aún está en limpieza:
+Nova OS is active and installable today. The remaining cleanup is repository hygiene:
 
-- se están retirando defaults de marketing y dominios ficticios
-- se están separando secretos y scripts locales de Windows del árbol publicable
-- se está alineando el frontend y los prompts para que la UI diga solo lo que el sistema realmente sabe
+- reducing legacy duplication
+- tightening public documentation
+- keeping the supported runtime path explicit
 
-## Contribución
+The goal is straightforward: one repo, one runtime, one local URL, and one public installation story.
 
-Si vas a contribuir:
+## License
 
-```bash
-pytest
-cd frontend && npm run build
-```
-
-No abras PRs con:
-
-- `.env`
-- tokens
-- bases `.db` / `.sqlite`
-- dumps o backups operativos
-
-## Licencia
-
-Consulta [LICENSE](LICENSE).
+Released under the terms in [LICENSE](LICENSE).

@@ -1,14 +1,14 @@
 # Deployment
 
-Desarrollo:
+## Development
 
-1. Crear `.env` desde `.env.example`.
-2. Instalar dependencias.
-3. Ejecutar `python nova.py start`.
+1. Create `.env` from `.env.example` if you need persistent settings.
+2. Install dependencies.
+3. Run `python3 nova.py serve`.
 
-Producción:
+## Production
 
-1. Usar PostgreSQL vía `NOVA_DB_URL`.
-2. Configurar `NOVA_JWT_SECRET`.
-3. Proveer API keys de providers necesarios.
-4. Ejecutar detrás de un reverse proxy con TLS.
+1. Use PostgreSQL only when you explicitly want it.
+2. Set `SECRET_KEY` and admin or auth tokens before exposure.
+3. Provide only the provider keys you actually need.
+4. Run behind a reverse proxy with TLS if exposed beyond localhost.

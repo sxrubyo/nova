@@ -1,14 +1,14 @@
 # Architecture
 
-Nova OS se organiza alrededor de un kernel asincrónico que coordina:
+Nova OS is organized around an async kernel that coordinates:
 
-- evaluación de intenciones
-- scoring de riesgo
-- decisiones allow/block/escalate
-- ledger inmutable
-- memoria contextual
-- routing de providers
-- bridge WebSocket
-- API HTTP
+- intent evaluation
+- risk scoring
+- allow/block/escalate decisions
+- immutable ledger entries
+- contextual memory
+- provider routing
+- WebSocket bridge logic
+- HTTP API handling
 
-El pipeline central vive en `nova/core/pipeline.py` y es consumido tanto por la API como por el bridge.
+The central execution flow lives under `nova/` and is consumed by both the API surface and the operational runtime.
