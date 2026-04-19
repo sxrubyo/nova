@@ -72,6 +72,7 @@ def command_launchpad() -> str:
         "  Start",
         "  nova                            Start Nova and open the dashboard",
         "  nova start                      Explicit runtime start",
+        "  nova commands                   Show this launchpad",
         "  nova serve --api-only           API only, no SPA fallback",
         "",
         "  Discover",

@@ -4,8 +4,8 @@ $ErrorActionPreference = "Stop"
 
 $RepoZipUrl = "https://github.com/sxrubyo/nova-os/archive/refs/heads/main.zip"
 $NovaHome = Join-Path $env:USERPROFILE ".nova"
-$RepoDir = Join-Path $NovaHome "repo"
-$BinDir = Join-Path $NovaHome "bin"
+$RepoDir = Join-Path $env:USERPROFILE ".nova\repo"
+$BinDir = Join-Path $env:USERPROFILE ".nova\bin"
 $WrapperCmd = Join-Path $BinDir "nova.cmd"
 
 function Write-Banner {
@@ -125,6 +125,10 @@ $env:Path = "$BinDir;$env:Path"
 
 Write-Step "Validating nova"
 & $WrapperCmd help | Out-Null
+$ResolvedNova = (Get-Command nova -ErrorAction Stop).Source
+if ($ResolvedNova -ne $WrapperCmd) {
+    Fail "PowerShell resolves nova to $ResolvedNova instead of $WrapperCmd"
+}
 Write-Ok "Nova CLI is ready"
 
 Write-Host ""
@@ -132,4 +136,5 @@ Write-Host "Nova OS installed." -ForegroundColor White
 Write-Host "Open a new terminal if PATH changes are not visible yet." -ForegroundColor DarkGray
 Write-Host "Commands:" -ForegroundColor White
 Write-Host "  nova" -ForegroundColor Gray
+Write-Host "  nova commands" -ForegroundColor Gray
 Write-Host "  nova help" -ForegroundColor Gray

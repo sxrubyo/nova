@@ -55,6 +55,32 @@ def test_top_level_help_flag_routes_to_help_command() -> None:
     assert args.command == "help"
 
 
+def test_commands_alias_routes_to_help_command() -> None:
+    args = NOVA_CLI.parse_cli_args(["commands"])
+
+    assert args.command == "help"
+
+
+def test_help_command_is_case_insensitive_for_primary_alias() -> None:
+    args = NOVA_CLI.parse_cli_args(["Help"])
+
+    assert args.command == "help"
+
+
+def test_commands_alias_prints_launchpad() -> None:
+    result = subprocess.run(
+        [sys.executable, "nova.py", "commands"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "NOVA COMMAND LAUNCHPAD" in result.stdout
+    assert "nova start" in result.stdout
+
+
 def test_command_launchpad_lists_primary_workflows() -> None:
     launchpad = command_launchpad()
 

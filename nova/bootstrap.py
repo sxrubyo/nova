@@ -30,6 +30,25 @@ CORE_PACKAGES = [
 ]
 
 
+def nova_home(home_dir: str | Path | None = None) -> Path:
+    """Return Nova's canonical home directory."""
+
+    home = Path(home_dir) if home_dir is not None else Path.home()
+    return home / ".nova"
+
+
+def repo_root(home_dir: str | Path | None = None) -> Path:
+    """Return the canonical staged repository path."""
+
+    return nova_home(home_dir) / "repo"
+
+
+def bin_root(home_dir: str | Path | None = None) -> Path:
+    """Return the canonical CLI wrapper directory."""
+
+    return nova_home(home_dir) / "bin"
+
+
 def render_bootstrap_banner(*, compact: bool = False) -> str:
     """Return the installer banner shown while Nova bootstraps."""
 
@@ -81,52 +100,42 @@ def select_bin_dir(
     path_value: str | None = None,
     writable_check: Callable[[Path], bool] | None = None,
 ) -> Path:
-    """Pick a wrapper directory that is either already on PATH or native to the host."""
+    """Pick Nova's canonical wrapper directory under ~/.nova/bin."""
 
-    home = Path(home_dir) if home_dir is not None else Path.home()
-    environment = dict(os.environ if env is None else env)
-    path_entries = [Path(entry) for entry in (path_value or environment.get("PATH", "")).split(os.pathsep) if entry]
+    del env
+    del path_value
     can_write = writable_check or (lambda candidate: os.access(candidate, os.W_OK))
-
-    prefix = environment.get("PREFIX", "").strip()
-    if environment.get("TERMUX_VERSION") or "com.termux" in prefix:
-        termux_bin = Path(prefix) / "bin" if prefix else home / "../usr/bin"
-        if can_write(termux_bin):
-            return termux_bin
-
-    for candidate in path_entries:
-        if can_write(candidate):
-            return candidate
-
-    fallback = home / ".local" / "bin"
-    fallback.parent.mkdir(parents=True, exist_ok=True)
-    return fallback
+    target = bin_root(home_dir)
+    if can_write(target.parent):
+        return target
+    return target
 
 
 def ensure_shell_path(bin_dir: str | Path, *, home_dir: str | Path | None = None, path_value: str | None = None) -> None:
     """Persist the wrapper directory into the user's shell startup files when needed."""
 
     target = Path(bin_dir)
-    current_path = path_value or os.environ.get("PATH", "")
-    if str(target) in current_path.split(os.pathsep):
-        return
-
     home = Path(home_dir) if home_dir is not None else Path.home()
-    candidates = [home / ".bashrc", home / ".zshrc", home / ".profile"]
-    profile = next((candidate for candidate in candidates if candidate.exists()), candidates[-1])
     line = f'export PATH="{target}:$PATH"'
-    existing = profile.read_text(encoding="utf-8") if profile.exists() else ""
-    if line in existing:
-        return
-    prefix = "" if existing.endswith("\n") or not existing else "\n"
-    profile.write_text(f"{existing}{prefix}{line}\n", encoding="utf-8")
+    del path_value
+
+    candidates = [home / ".profile", home / ".bashrc", home / ".bash_profile", home / ".zshrc"]
+    targets = [candidate for candidate in candidates if candidate.exists()]
+    if not targets:
+        targets = [home / ".profile"]
+
+    for profile in targets:
+        existing = profile.read_text(encoding="utf-8") if profile.exists() else ""
+        if line in existing:
+            continue
+        prefix = "" if existing.endswith("\n") or not existing else "\n"
+        profile.write_text(f"{existing}{prefix}{line}\n", encoding="utf-8")
 
 
 def runtime_root(home_dir: str | Path | None = None) -> Path:
     """Return the isolated runtime root used by Nova installers."""
 
-    home = Path(home_dir) if home_dir is not None else Path.home()
-    return home / ".nova" / "runtime"
+    return nova_home(home_dir) / "runtime"
 
 
 def runtime_state_path(root: str | Path) -> Path:
@@ -196,17 +205,25 @@ def _run_command(command: list[str], *, cwd: Path | None = None) -> None:
 def _requirements_signature(repo_path: Path) -> str:
     """Return a stable fingerprint for the dependency set Nova should install."""
 
-    requirements_file = repo_path / "requirements.txt"
-    fallback_file = repo_path / "nova_core_requirements.txt"
+    preferred_file = _preferred_requirements_files(repo_path)[0] if _preferred_requirements_files(repo_path) else None
 
-    if requirements_file.exists():
-        payload = requirements_file.read_bytes()
-    elif fallback_file.exists():
-        payload = fallback_file.read_bytes()
+    if preferred_file is not None:
+        payload = preferred_file.read_bytes()
     else:
         payload = "\n".join(CORE_PACKAGES).encode("utf-8")
 
     return hashlib.sha256(payload).hexdigest()
+
+
+def _preferred_requirements_files(repo_path: Path) -> list[Path]:
+    """Return dependency profiles from lightest supported runtime to heaviest."""
+
+    candidates: list[Path] = []
+    for filename in ("nova_core_requirements.txt", "requirements.txt"):
+        path = repo_path / filename
+        if path.exists():
+            candidates.append(path)
+    return candidates
 
 
 def _load_runtime_state(path: Path) -> dict[str, str] | None:
@@ -252,13 +269,19 @@ def ensure_runtime(
     _status("Nova bootstrap: installing Python dependencies")
     runner([str(runtime_python), "-m", "pip", "install", *(_pip_flags()), "--upgrade", "pip", "setuptools", "wheel"])
 
-    requirements_file = repo_path / "requirements.txt"
-    fallback_file = repo_path / "nova_core_requirements.txt"
     try:
-        if requirements_file.exists():
-            runner([str(runtime_python), "-m", "pip", "install", *(_pip_flags()), "-r", str(requirements_file)])
-        elif fallback_file.exists():
-            runner([str(runtime_python), "-m", "pip", "install", *(_pip_flags()), "-r", str(fallback_file)])
+        requirement_profiles = _preferred_requirements_files(repo_path)
+        if requirement_profiles:
+            last_error: subprocess.CalledProcessError | None = None
+            for requirements_file in requirement_profiles:
+                try:
+                    runner([str(runtime_python), "-m", "pip", "install", *(_pip_flags()), "-r", str(requirements_file)])
+                    last_error = None
+                    break
+                except subprocess.CalledProcessError as exc:
+                    last_error = exc
+            if last_error is not None:
+                raise last_error
         else:
             runner([str(runtime_python), "-m", "pip", "install", *(_pip_flags()), *CORE_PACKAGES])
     except subprocess.CalledProcessError:

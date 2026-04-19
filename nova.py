@@ -26,6 +26,12 @@ except ImportError:  # pragma: no cover - optional host fallback
 
 
 CLI_SESSION_PATH = Path.home() / ".nova" / "web_session.json"
+CLI_COMMAND_ALIASES = {
+    "command": "help",
+    "commands": "help",
+    "launchpad": "help",
+    "lp": "help",
+}
 
 
 def _nova_version() -> str:
@@ -410,8 +416,12 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     raw_args = list(argv if argv is not None else sys.argv[1:])
     if not raw_args:
         raw_args = ["start"]
-    elif raw_args in (["-h"], ["--help"]):
-        raw_args = ["help"]
+    else:
+        first = raw_args[0]
+        if first in ("-h", "--help"):
+            raw_args = ["help"]
+        elif not first.startswith("-"):
+            raw_args[0] = CLI_COMMAND_ALIASES.get(first.lower(), first.lower())
     return parser.parse_args(raw_args)
 
 

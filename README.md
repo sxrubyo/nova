@@ -24,8 +24,9 @@ The installer:
 
 - detects the host platform
 - profiles local toolchains and active developer context
+- stages the canonical repo in `~/.nova/repo`
 - creates an isolated Python runtime in `~/.nova/runtime`
-- installs the `nova` wrapper into a writable user bin directory
+- installs the canonical `nova` wrapper in `~/.nova/bin`
 - starts Nova on `http://localhost:8000`
 
 ### Global CLI via npm
@@ -34,7 +35,7 @@ Nova is packaged for npm-style global installation, but the public registry rele
 
 ```bash
 npm install -g https://codeload.github.com/sxrubyo/nova-os/tar.gz/refs/heads/main
-nova --help
+nova commands
 ```
 
 This still installs a global `nova` command. On first run it bootstraps the isolated Python runtime and then executes the real CLI.
@@ -215,6 +216,7 @@ Never commit real `.env` files, tokens, local databases, or operational backups.
 
 ```bash
 nova
+nova commands
 nova help
 nova init
 nova discover --json

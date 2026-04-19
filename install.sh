@@ -2,11 +2,13 @@
 # nova-os universal installer — Linux, macOS, Termux
 set -eu
 
-REPO_URL="https://github.com/sxrubyo/nova-os.git"
-DEFAULT_CLONE_DIR="$HOME/nova-os"
 NOVA_DIR="$HOME/.nova"
+REPO_ARCHIVE_URL="https://codeload.github.com/sxrubyo/nova-os/tar.gz/refs/heads/main"
+REPO_DIR="$HOME/.nova/repo"
+BIN_DIR="$HOME/.nova/bin"
 BOOTSTRAP_PATH=""
-NOVA_CMD=""
+NOVA_CMD="$BIN_DIR/nova"
+TEMP_ROOT=""
 
 print_banner() {
   printf '\033[0;94m%s\033[0m\n' '╭──────────────────────────────────────────────────────────────╮'
@@ -23,6 +25,12 @@ is_termux() {
 is_macos() {
   [ "$(uname)" = "Darwin" ]
 }
+
+cleanup() {
+  [ -n "$TEMP_ROOT" ] && [ -d "$TEMP_ROOT" ] && rm -rf "$TEMP_ROOT"
+}
+
+trap cleanup EXIT INT TERM
 
 log() {
   printf '\033[0;32m✓ %s\033[0m\n' "$1"
@@ -157,22 +165,22 @@ install_deps() {
 }
 
 setup_repo() {
-  if [ -f "./nova.py" ] && [ -d "./nova" ] && [ -f "./requirements.txt" ]; then
-    REPO_DIR="$(pwd)"
-    log "Using current repository at $REPO_DIR"
-    return
-  fi
+  mkdir -p "$NOVA_DIR" "$BIN_DIR"
+  TEMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/nova-os.XXXXXX")"
+  ARCHIVE_PATH="$TEMP_ROOT/nova-os.tar.gz"
 
-  if [ -d "$DEFAULT_CLONE_DIR/.git" ]; then
-    log "Updating existing repository in $DEFAULT_CLONE_DIR"
-    git -C "$DEFAULT_CLONE_DIR" pull --ff-only >/dev/null 2>&1 || git -C "$DEFAULT_CLONE_DIR" pull --no-rebase >/dev/null 2>&1 || true
-    REPO_DIR="$DEFAULT_CLONE_DIR"
-    return
-  fi
+  log "Downloading Nova OS"
+  curl -fsSL "$REPO_ARCHIVE_URL" -o "$ARCHIVE_PATH" || die "Failed to download $REPO_ARCHIVE_URL"
+  log "Archive downloaded"
 
-  log "Cloning nova-os into $DEFAULT_CLONE_DIR"
-  git clone "$REPO_URL" "$DEFAULT_CLONE_DIR" >/dev/null 2>&1 || die "Failed to clone $REPO_URL"
-  REPO_DIR="$DEFAULT_CLONE_DIR"
+  log "Extracting Nova OS"
+  tar -xzf "$ARCHIVE_PATH" -C "$TEMP_ROOT" || die "Failed to extract Nova OS archive"
+  EXTRACTED_DIR="$(find "$TEMP_ROOT" -maxdepth 1 -type d -name 'nova-os-*' | head -n 1)"
+  [ -n "$EXTRACTED_DIR" ] || die "Could not locate extracted Nova OS repository"
+  [ -f "$EXTRACTED_DIR/nova/bootstrap.py" ] || die "Extracted archive does not contain nova/bootstrap.py"
+  rm -rf "$REPO_DIR"
+  mv "$EXTRACTED_DIR" "$REPO_DIR"
+  log "Repository staged in $REPO_DIR"
 }
 
 resolve_bootstrap() {
@@ -183,19 +191,32 @@ resolve_bootstrap() {
 install_runtime() {
   PYTHON_BIN="$(detect_python)" || die "Python is not available"
   log "Bootstrapping isolated runtime"
-  NOVA_BOOTSTRAP_EMBEDDED=1 "$PYTHON_BIN" "$BOOTSTRAP_PATH" install \
-    --repo "$REPO_DIR" \
-    --home-dir "$HOME" \
-    --python-bin "$PYTHON_BIN" || die "Failed to bootstrap the isolated runtime"
-  NOVA_CMD="$("$PYTHON_BIN" - <<PY
-import sys
-sys.path.insert(0, "$REPO_DIR")
-from nova.bootstrap import select_bin_dir
-print(select_bin_dir(home_dir="$HOME"))
-PY
-)/nova"
+  (
+    cd "$REPO_DIR"
+    NOVA_BOOTSTRAP_EMBEDDED=1 "$PYTHON_BIN" -m nova.bootstrap install \
+      --repo "$REPO_DIR" \
+      --bin-dir "$BIN_DIR" \
+      --home-dir "$HOME" \
+      --python-bin "$PYTHON_BIN"
+  ) || die "Failed to bootstrap the isolated runtime"
   [ -x "$NOVA_CMD" ] || die "Failed to resolve the installed nova wrapper"
-  log "CLI and isolated runtime installed"
+  log "CLI wrapper created"
+}
+
+fresh_shell_resolve_nova() {
+  if command -v bash >/dev/null 2>&1; then
+    env HOME="$HOME" PATH="$PATH" bash -lc 'command -v nova' 2>/dev/null | head -n 1
+    return
+  fi
+  env HOME="$HOME" PATH="$PATH" sh -lc 'command -v nova' 2>/dev/null | head -n 1
+}
+
+validate_nova() {
+  log "Validating nova"
+  "$NOVA_CMD" help >/dev/null 2>&1 || die "Installed nova wrapper failed to run"
+  RESOLVED_NOVA="$(fresh_shell_resolve_nova)"
+  [ "$RESOLVED_NOVA" = "$NOVA_CMD" ] || die "Shell resolves nova to '$RESOLVED_NOVA' instead of '$NOVA_CMD'"
+  log "Nova CLI is ready"
 }
 
 start_nova() {
@@ -252,10 +273,12 @@ main() {
   setup_repo
   resolve_bootstrap
   install_runtime
+  validate_nova
   start_nova
   log "Installation complete"
   printf '\nUseful commands:\n'
   printf '  nova\n'
+  printf '  nova commands\n'
   printf '  nova help\n'
   printf '  tail -f %s/nova.log\n' "$NOVA_DIR"
 }

@@ -14,8 +14,9 @@ def test_install_script_delegates_python_setup_to_bootstrap_module() -> None:
 
     assert "nova/bootstrap.py" in install_script
     assert "python3 -m pip install -r" not in install_script
-    assert 'from nova.bootstrap import select_bin_dir' in install_script
-    assert 'command -v nova' not in install_script
+    assert '$HOME/.nova/repo' in install_script
+    assert '$HOME/.nova/bin' in install_script
+    assert 'command -v nova' in install_script
     assert 'sudo -n true' in install_script
     assert '--api-only' not in install_script
     assert 'NOVA_BOOTSTRAP_EMBEDDED=1' in install_script
@@ -29,6 +30,9 @@ def test_windows_installer_uses_bootstrap_runtime() -> None:
     assert "Expand-Archive" in install_script
     assert '"install"' in install_script or "'install'" in install_script
     assert '$env:NOVA_BOOTSTRAP_EMBEDDED = "1"' in install_script
+    assert '.nova\\repo' in install_script
+    assert '.nova\\bin' in install_script
+    assert 'Get-Command nova' in install_script
 
 
 def test_npm_package_exposes_nova_bin() -> None:

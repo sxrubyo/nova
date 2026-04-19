@@ -6,12 +6,13 @@ from pathlib import Path
 
 
 def test_bootstrap_runtime_paths_live_under_nova_home(tmp_path: Path) -> None:
-    from nova.bootstrap import runtime_root, runtime_python_path
+    from nova.bootstrap import repo_root, runtime_root, runtime_python_path
 
     root = runtime_root(tmp_path)
 
     assert root == tmp_path / ".nova" / "runtime"
     assert runtime_python_path(root).is_relative_to(root)
+    assert repo_root(tmp_path) == tmp_path / ".nova" / "repo"
 
 
 def test_wrapper_script_uses_runtime_python_and_repo_path(tmp_path: Path) -> None:
@@ -123,31 +124,51 @@ def test_ensure_runtime_skips_reinstall_when_runtime_state_matches(tmp_path: Pat
     assert calls == first_run
 
 
-def test_select_bin_dir_prefers_termux_prefix_bin(tmp_path: Path) -> None:
-    from nova.bootstrap import select_bin_dir
+def test_ensure_runtime_prefers_core_requirements_profile_when_available(tmp_path: Path) -> None:
+    from nova.bootstrap import ensure_runtime
 
-    prefix_bin = tmp_path / "termux-prefix" / "bin"
+    calls: list[list[str]] = []
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "requirements.txt").write_text("pytest\n", encoding="utf-8")
+    (repo_dir / "nova_core_requirements.txt").write_text("fastapi\nrich\n", encoding="utf-8")
 
-    selected = select_bin_dir(
+    def fake_run(command: list[str], **_: object) -> None:
+        calls.append(command)
+
+    ensure_runtime(
+        repo_dir=repo_dir,
         home_dir=tmp_path,
-        env={"PREFIX": str(tmp_path / "termux-prefix"), "TERMUX_VERSION": "0.118"},
-        path_value="",
-        writable_check=lambda path: path == prefix_bin,
+        python_bin="/usr/bin/python3",
+        command_runner=fake_run,
     )
 
-    assert selected == prefix_bin
+    assert calls[2][-2:] == ["-r", str(repo_dir / "nova_core_requirements.txt")]
+
+
+def test_select_bin_dir_defaults_to_canonical_nova_bin(tmp_path: Path) -> None:
+    from nova.bootstrap import select_bin_dir
+
+    selected = select_bin_dir(home_dir=tmp_path)
+
+    assert selected == tmp_path / ".nova" / "bin"
 
 
 def test_ensure_shell_path_persists_wrapper_dir_once(tmp_path: Path) -> None:
     from nova.bootstrap import ensure_shell_path
 
+    bashrc = tmp_path / ".bashrc"
     profile = tmp_path / ".profile"
+    bashrc.write_text("# bash\n", encoding="utf-8")
     profile.write_text("# existing\n", encoding="utf-8")
-    bin_dir = tmp_path / ".local" / "bin"
+    bin_dir = tmp_path / ".nova" / "bin"
 
     ensure_shell_path(bin_dir, home_dir=tmp_path, path_value="/usr/bin")
     ensure_shell_path(bin_dir, home_dir=tmp_path, path_value="/usr/bin")
 
-    content = profile.read_text(encoding="utf-8")
-    assert 'export PATH="' in content
-    assert content.count(str(bin_dir)) == 1
+    profile_content = profile.read_text(encoding="utf-8")
+    bash_content = bashrc.read_text(encoding="utf-8")
+    assert 'export PATH="' in profile_content
+    assert 'export PATH="' in bash_content
+    assert profile_content.count(str(bin_dir)) == 1
+    assert bash_content.count(str(bin_dir)) == 1
