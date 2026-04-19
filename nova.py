@@ -267,6 +267,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("start")
+    subparsers.add_parser("help")
     init_cmd = subparsers.add_parser("init")
     init_cmd.add_argument("--json", action="store_true")
     serve = subparsers.add_parser("serve")
@@ -497,6 +498,10 @@ async def _serve_api(kernel: Any, *, host: str | None = None, port: int | None =
 
 
 async def run_async(args: argparse.Namespace) -> None:
+    if args.command == "help":
+        build_parser().print_help()
+        return
+
     if args.command == "auth":
         await _run_auth_command(args)
         return

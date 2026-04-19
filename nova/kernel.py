@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import asyncio
-import resource
 import sys
 import time
 from datetime import datetime, timezone
 from typing import Any
 
 import uvicorn
+
+try:
+    import resource
+except ModuleNotFoundError:  # pragma: no cover - Windows compatibility
+    resource = None
 
 from nova.config import NovaConfig
 from nova.constants import NOVA_VERSION
@@ -160,8 +164,7 @@ class NovaKernel:
         active_agents = 0
         default_workspace = await self.workspace_manager.ensure_default_workspace()
         active_agents = len(await self.agent_registry.list(default_workspace.id))
-        usage_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-        memory_mb = usage_kb / 1024 if sys.platform != "darwin" else usage_kb / (1024 * 1024)
+        memory_mb = _memory_usage_mb()
         return SystemStatus(
             status="operational",
             version=NOVA_VERSION,
@@ -193,3 +196,45 @@ def get_kernel(config: NovaConfig | None = None) -> NovaKernel:
     if _DEFAULT_KERNEL is None:
         _DEFAULT_KERNEL = NovaKernel(config)
     return _DEFAULT_KERNEL
+
+
+def _memory_usage_mb() -> float:
+    """Return resident memory usage across supported host platforms."""
+
+    if resource is not None:
+        usage_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        return usage_kb / 1024 if sys.platform != "darwin" else usage_kb / (1024 * 1024)
+
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+                _fields_ = [
+                    ("cb", wintypes.DWORD),
+                    ("PageFaultCount", wintypes.DWORD),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t),
+                ]
+
+            counters = PROCESS_MEMORY_COUNTERS()
+            counters.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
+            process = ctypes.windll.kernel32.GetCurrentProcess()
+            ok = ctypes.windll.psapi.GetProcessMemoryInfo(
+                process,
+                ctypes.byref(counters),
+                counters.cb,
+            )
+            if ok:
+                return counters.WorkingSetSize / (1024 * 1024)
+        except Exception:
+            return 0.0
+
+    return 0.0

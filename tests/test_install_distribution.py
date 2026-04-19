@@ -20,6 +20,15 @@ def test_install_script_delegates_python_setup_to_bootstrap_module() -> None:
     assert '--api-only' not in install_script
 
 
+def test_windows_installer_uses_bootstrap_runtime() -> None:
+    install_script = (REPO_ROOT / "install.ps1").read_text(encoding="utf-8")
+
+    assert "nova/bootstrap.py" in install_script
+    assert "raw.githubusercontent.com/sxrubyo/nova-os/main/nova.py" not in install_script
+    assert "Expand-Archive" in install_script
+    assert '"install"' in install_script or "'install'" in install_script
+
+
 def test_npm_package_exposes_nova_bin() -> None:
     package_json = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))
 

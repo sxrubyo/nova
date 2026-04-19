@@ -38,6 +38,14 @@ nova --help
 
 This still installs a global `nova` command. On first run it bootstraps the isolated Python runtime and then executes the real CLI.
 
+### Windows / PowerShell
+
+```powershell
+irm https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.ps1 | iex
+```
+
+The PowerShell installer downloads the repository archive, bootstraps the same isolated runtime used on Unix hosts, creates `nova.cmd`, and adds the Nova bin directory to the user PATH.
+
 ### Docker Compose
 
 ```bash
@@ -162,10 +170,12 @@ Never commit real `.env` files, tokens, local databases, or operational backups.
 ## Common commands
 
 ```bash
+nova help
 nova init
 nova validate --action "Send email to customer@example.com"
 nova status
 nova watch
+nova start
 nova serve --host 0.0.0.0 --port 8000
 ```
 

@@ -1,67 +1,119 @@
-# nova CLI — Windows Installer
+# Nova OS — Windows installer
 # irm https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.ps1 | iex
 $ErrorActionPreference = "Stop"
-$NOVA_VERSION = "3.1.5"
-$NOVA_DIR = "$env:USERPROFILE\.nova"
-$NOVA_PY  = "$NOVA_DIR\nova.py"
-$NOVA_CMD = "$NOVA_DIR\nova.cmd"
-$NOVA_PY_URL = "https://raw.githubusercontent.com/sxrubyo/nova-os/main/nova.py"
 
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$OutputEncoding = [System.Text.Encoding]::UTF8
-Clear-Host; Write-Host ""
+$RepoZipUrl = "https://github.com/sxrubyo/nova-os/archive/refs/heads/main.zip"
+$NovaHome = Join-Path $env:USERPROFILE ".nova"
+$RepoDir = Join-Path $NovaHome "repo"
+$BinDir = Join-Path $NovaHome "bin"
+$WrapperCmd = Join-Path $BinDir "nova.cmd"
 
-# NOVA = gold gradient (bright→dark), CLI = white
-Write-Host "  ███╗   ██╗  ██████╗  ██╗   ██╗  █████╗  " -ForegroundColor Yellow     -NoNewline; Write-Host " ██████╗██╗     ██╗" -ForegroundColor White
-Write-Host "  ████╗  ██║ ██╔═══██╗ ██║   ██║ ██╔══██╗ " -ForegroundColor Yellow     -NoNewline; Write-Host "██╔════╝██║     ██║" -ForegroundColor White
-Write-Host "  ██╔██╗ ██║ ██║   ██║ ██║   ██║ ███████║ " -ForegroundColor DarkYellow  -NoNewline; Write-Host "██║     ██║     ██║" -ForegroundColor White
-Write-Host "  ██║╚██╗██║ ██║   ██║ ╚██╗ ██╔╝ ██╔══██║ " -ForegroundColor DarkYellow  -NoNewline; Write-Host "██║     ██║     ██║" -ForegroundColor White
-Write-Host "  ██║ ╚████║ ╚██████╔╝  ╚████╔╝  ██║  ██║ " -ForegroundColor DarkRed     -NoNewline; Write-Host "╚██████╗███████╗██║" -ForegroundColor White
-Write-Host "  ╚═╝  ╚═══╝  ╚═════╝    ╚═══╝   ╚═╝  ╚═╝ " -ForegroundColor DarkRed    -NoNewline; Write-Host " ╚═════╝╚══════╝╚═╝" -ForegroundColor White
-Write-Host ""; Write-Host "  Agents that answer for themselves." -ForegroundColor DarkGray
-Write-Host "  ──────────────────────────────────────────────────────" -ForegroundColor DarkGray; Write-Host ""
+function Write-Step([string]$Message) {
+    Write-Host "==> $Message" -ForegroundColor Cyan
+}
 
-function ok($m)   { Write-Host "  " -NoNewline; Write-Host "+" -ForegroundColor Green -NoNewline; Write-Host "  $m" -ForegroundColor White }
-function fail($m) { Write-Host "  " -NoNewline; Write-Host "x" -ForegroundColor Red   -NoNewline; Write-Host "  $m" -ForegroundColor White; exit 1 }
-function step($m) { Write-Host "  " -NoNewline; Write-Host "o" -ForegroundColor Blue  -NoNewline; Write-Host "  $m" -ForegroundColor DarkGray }
+function Write-Ok([string]$Message) {
+    Write-Host "  OK  $Message" -ForegroundColor Green
+}
 
-Write-Host "  Installing nova CLI $NOVA_VERSION" -ForegroundColor White
-Write-Host "  Fresh install mode: previous local Nova state will be removed." -ForegroundColor DarkGray
+function Fail([string]$Message) {
+    Write-Host "  ERR $Message" -ForegroundColor Red
+    exit 1
+}
+
+function Resolve-Python {
+    foreach ($candidate in @("py", "python", "python3")) {
+        try {
+            if ($candidate -eq "py") {
+                $version = & py -3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
+                if ($LASTEXITCODE -eq 0) { return "py -3" }
+            } else {
+                $version = & $candidate -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
+                if ($LASTEXITCODE -eq 0) { return $candidate }
+            }
+        } catch {}
+    }
+    return $null
+}
+
+function Invoke-Python {
+    param(
+        [Parameter(Mandatory = $true)][string]$PythonCommand,
+        [Parameter(Mandatory = $true)][string[]]$Arguments
+    )
+
+    if ($PythonCommand -eq "py -3") {
+        & py -3 @Arguments
+    } else {
+        & $PythonCommand @Arguments
+    }
+}
+
+$Python = Resolve-Python
+if (-not $Python) {
+    Fail "Python 3 was not found. Install Python and retry."
+}
+
+$PythonExecutable = if ($Python -eq "py -3") {
+    & py -3 -c "import sys; print(sys.executable)"
+} else {
+    & $Python -c "import sys; print(sys.executable)"
+}
+
+Write-Step "Preparing Nova OS directories"
+New-Item -ItemType Directory -Force -Path $NovaHome | Out-Null
+New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
+if (Test-Path $RepoDir) {
+    Remove-Item -Recurse -Force $RepoDir
+}
+
+$TempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("nova-os-" + [guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Force -Path $TempRoot | Out-Null
+$ZipPath = Join-Path $TempRoot "nova-os.zip"
+
+Write-Step "Downloading Nova OS"
+Invoke-WebRequest -UseBasicParsing -Uri $RepoZipUrl -OutFile $ZipPath
+Write-Ok "Archive downloaded"
+
+Write-Step "Extracting Nova OS"
+Expand-Archive -Path $ZipPath -DestinationPath $TempRoot -Force
+$Expanded = Join-Path $TempRoot "nova-os-main"
+if (-not (Test-Path (Join-Path $Expanded "nova\bootstrap.py"))) {
+    Fail "Downloaded archive does not contain nova/bootstrap.py"
+}
+Move-Item -Force $Expanded $RepoDir
+Write-Ok "Repository staged in $RepoDir"
+
+Write-Step "Bootstrapping isolated runtime"
+Invoke-Python -PythonCommand $Python -Arguments @(
+    (Join-Path $RepoDir "nova\bootstrap.py"),
+    "install",
+    "--repo", $RepoDir,
+    "--bin-dir", $BinDir,
+    "--home-dir", $env:USERPROFILE,
+    "--python-bin", $PythonExecutable
+)
+if (-not (Test-Path $WrapperCmd)) {
+    Fail "Expected wrapper not found at $WrapperCmd"
+}
+Write-Ok "CLI wrapper created"
+
+$UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if (-not $UserPath) { $UserPath = "" }
+if (-not ($UserPath -split ";" | Where-Object { $_ -eq $BinDir })) {
+    $NewPath = if ([string]::IsNullOrWhiteSpace($UserPath)) { $BinDir } else { "$UserPath;$BinDir" }
+    [Environment]::SetEnvironmentVariable("Path", $NewPath, "User")
+    Write-Ok "User PATH updated"
+}
+$env:Path = "$BinDir;$env:Path"
+
+Write-Step "Validating nova"
+& $WrapperCmd help | Out-Null
+Write-Ok "Nova CLI is ready"
+
 Write-Host ""
-
-$PYTHON = $null
-foreach ($cmd in @("py","python","python3")) {
-    try {
-        $maj = [int](& $cmd -c "import sys; print(sys.version_info.major)" 2>$null)
-        $min = [int](& $cmd -c "import sys; print(sys.version_info.minor)" 2>$null)
-        $ver = & $cmd -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
-        if ($maj -ge 3 -and $min -ge 8) { $PYTHON = $cmd; ok "Python $ver"; break }
-    } catch {}
-}
-if (-not $PYTHON) { fail "Python 3.8+ not found. Install from https://python.org" }
-
-if (Test-Path $NOVA_DIR) { step "Removing previous installation and local state..."; Remove-Item -Recurse -Force $NOVA_DIR }
-New-Item -ItemType Directory -Path $NOVA_DIR -Force | Out-Null; ok "Directory ready"
-step "Fetching nova.py..."
-
-try { Invoke-WebRequest -UseBasicParsing -Uri $NOVA_PY_URL -OutFile $NOVA_PY }
-catch { fail "Failed to download nova.py. Check your network." }
-
-$raw = Get-Content -Path $NOVA_PY -Raw
-if ($raw -notmatch "Nova CLI") { fail "Downloaded nova.py looks invalid." }
-ok "nova.py ready"
-
-"@echo off`r`n$PYTHON `"$NOVA_PY`" %*`r`n" | Set-Content -Path $NOVA_CMD -Encoding ASCII
-ok "nova command created"
-
-$pathUser = [Environment]::GetEnvironmentVariable("Path","User")
-if ($pathUser -notmatch [regex]::Escape($NOVA_DIR)) {
-    [Environment]::SetEnvironmentVariable("Path","$pathUser;$NOVA_DIR","User"); ok "PATH updated"
-}
-$env:Path = "$env:Path;$NOVA_DIR"
-
-Write-Host ""; Write-Host "  ──────────────────────────────────────────────────────" -ForegroundColor DarkGray
-Write-Host "  nova CLI installed." -ForegroundColor White
-Write-Host "  ──────────────────────────────────────────────────────" -ForegroundColor DarkGray; Write-Host ""
-
-& $PYTHON $NOVA_PY init
+Write-Host "Nova OS installed." -ForegroundColor White
+Write-Host "Open a new terminal if PATH changes are not visible yet." -ForegroundColor DarkGray
+Write-Host "Commands:" -ForegroundColor White
+Write-Host "  nova help" -ForegroundColor Gray
+Write-Host "  nova start" -ForegroundColor Gray

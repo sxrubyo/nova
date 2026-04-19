@@ -103,11 +103,35 @@ def runtime_python_path(root: str | Path) -> Path:
     return root_path / "bin" / "python"
 
 
-def build_wrapper_script(runtime_python: str | Path, repo_dir: str | Path) -> str:
+def build_wrapper_script(
+    runtime_python: str | Path,
+    repo_dir: str | Path,
+    *,
+    windows: bool | None = None,
+) -> str:
     """Generate the shell wrapper content for the `nova` command."""
 
     python_path = Path(runtime_python)
     repo_path = Path(repo_dir)
+    return build_wrapper_script_for_platform(python_path, repo_path, windows=windows)
+
+
+def build_wrapper_script_for_platform(
+    runtime_python: str | Path,
+    repo_dir: str | Path,
+    *,
+    windows: bool | None = None,
+) -> str:
+    """Generate the host wrapper content for the `nova` command."""
+
+    python_path = Path(runtime_python)
+    repo_path = Path(repo_dir)
+    is_windows = os.name == "nt" if windows is None else windows
+    if is_windows:
+        return (
+            "@echo off\r\n"
+            f'"{python_path}" "{repo_path / "nova.py"}" %*\r\n'
+        )
     return (
         "#!/usr/bin/env sh\n"
         f'exec "{python_path}" "{repo_path / "nova.py"}" "$@"\n'
@@ -217,8 +241,12 @@ def install_cli_wrapper(
     runtime_python = ensure_runtime(repo_dir, home_dir=home_dir, python_bin=python_bin)
     target_dir = Path(bin_dir) if bin_dir is not None else select_bin_dir(home_dir=home_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
-    wrapper_path = target_dir / "nova"
-    wrapper_path.write_text(build_wrapper_script(runtime_python, Path(repo_dir).resolve()), encoding="utf-8")
+    wrapper_name = "nova.cmd" if os.name == "nt" else "nova"
+    wrapper_path = target_dir / wrapper_name
+    wrapper_path.write_text(
+        build_wrapper_script_for_platform(runtime_python, Path(repo_dir).resolve()),
+        encoding="utf-8",
+    )
     wrapper_path.chmod(0o755)
     ensure_shell_path(target_dir, home_dir=home_dir)
     return wrapper_path
