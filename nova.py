@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib.util
 import json
 import os
 import platform
@@ -32,6 +33,14 @@ CLI_COMMAND_ALIASES = {
     "launchpad": "help",
     "lp": "help",
 }
+LIGHTWEIGHT_COMMANDS = {"help", "version", "skill", "auth"}
+MODERN_RUNTIME_COMMANDS = {"start", "serve", "discover", "evaluate", "agents", "gateway", "auth"}
+LEGACY_ALIAS_MAP = {
+    "command": "help",
+    "commands": "help",
+    "launchpad": "launchpad",
+    "lp": "launchpad",
+}
 
 
 def _nova_version() -> str:
@@ -57,6 +66,47 @@ def _platform_bootstrap() -> None:
             asyncio.run(init_db())
     except ImportError:
         pass
+
+
+def command_requires_platform_bootstrap(command: str | None) -> bool:
+    return bool(command) and command not in LIGHTWEIGHT_COMMANDS
+
+
+def _legacy_cli_path() -> Path:
+    return Path(__file__).resolve().parent / "legacy" / "nova_cli_legacy.py"
+
+
+def _legacy_dispatch_argv(raw_args: list[str]) -> list[str] | None:
+    if not raw_args:
+        return []
+
+    first = raw_args[0]
+    if first in ("-h", "--help"):
+        return ["help"]
+    if first.startswith("-"):
+        return None
+
+    normalized = first.lower()
+    if normalized in LEGACY_ALIAS_MAP:
+        return [LEGACY_ALIAS_MAP[normalized], *raw_args[1:]]
+    if normalized not in MODERN_RUNTIME_COMMANDS:
+        return [normalized, *raw_args[1:]]
+    return None
+
+
+def _run_legacy_cli(argv: list[str]) -> None:
+    legacy_path = _legacy_cli_path()
+    spec = importlib.util.spec_from_file_location("nova_legacy_cli", legacy_path)
+    if spec is None or spec.loader is None:
+        raise SystemExit(f"Legacy CLI not found at {legacy_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    original_argv = sys.argv[:]
+    try:
+        sys.argv = [original_argv[0], *argv]
+        module.main()
+    finally:
+        sys.argv = original_argv
 
 
 def _resolve_api_url(api_url: str | None) -> str:
@@ -276,6 +326,9 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     start = subparsers.add_parser("start")
+    start.add_argument("--host")
+    start.add_argument("--port", type=int)
+    start.add_argument("--bridge-port", type=int)
     start.add_argument("--no-open-browser", action="store_true")
     subparsers.add_parser("help")
     init_cmd = subparsers.add_parser("init")
@@ -566,9 +619,15 @@ async def _serve_api(
     from nova.utils.browser import open_dashboard_when_ready
 
     await kernel.initialize()
+    kernel.start_discovery_background()
     if not api_only:
         kernel._bridge = NovaBridge(kernel, kernel.config)
-        await kernel._bridge.start()
+        try:
+            await kernel._bridge.start()
+        except OSError as exc:
+            if not await kernel._handle_address_in_use(exc, open_browser=open_browser):
+                raise RuntimeError(kernel._port_conflict_message("bridge", kernel.config.bridge_port)) from exc
+            return
     app = create_app(kernel, serve_frontend=not api_only)
     if open_browser and not api_only:
         kernel._background_tasks.append(
@@ -587,6 +646,9 @@ async def _serve_api(
     )
     try:
         await kernel._api_server.serve()
+    except OSError as exc:
+        if not await kernel._handle_address_in_use(exc, open_browser=open_browser):
+            raise RuntimeError(kernel._port_conflict_message("api", kernel.config.api_port)) from exc
     finally:
         await kernel.shutdown()
 
@@ -641,17 +703,23 @@ async def run_async(args: argparse.Namespace) -> None:
         return
 
     if args.command == "start":
-        await kernel.start(open_browser=not getattr(args, "no_open_browser", False))
+        try:
+            await kernel.start(open_browser=not getattr(args, "no_open_browser", False))
+        except RuntimeError as exc:
+            raise SystemExit(str(exc)) from exc
         return
 
     if args.command == "serve":
-        await _serve_api(
-            kernel,
-            host=getattr(args, "host", None),
-            port=getattr(args, "port", None),
-            api_only=getattr(args, "api_only", False),
-            open_browser=getattr(args, "open_browser", False),
-        )
+        try:
+            await _serve_api(
+                kernel,
+                host=getattr(args, "host", None),
+                port=getattr(args, "port", None),
+                api_only=getattr(args, "api_only", False),
+                open_browser=getattr(args, "open_browser", False),
+            )
+        except RuntimeError as exc:
+            raise SystemExit(str(exc)) from exc
         return
 
     if args.command == "status":
@@ -860,9 +928,13 @@ async def run_async(args: argparse.Namespace) -> None:
         print("seed complete")
 
 
-def main() -> None:
-    _platform_bootstrap()
-    args = parse_cli_args()
+def main(argv: list[str] | None = None) -> None:
+    raw_args = list(argv if argv is not None else sys.argv[1:])
+    legacy_args = _legacy_dispatch_argv(raw_args)
+    if legacy_args is not None:
+        _run_legacy_cli(legacy_args)
+        return
+    args = parse_cli_args(raw_args)
     asyncio.run(run_async(args))
 
 

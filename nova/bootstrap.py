@@ -89,6 +89,10 @@ def _status(message: str) -> None:
     print(_styled(f"[nova] {message}", color_code="96"), file=sys.stderr)
 
 
+def _warn(message: str) -> None:
+    print(_styled(f"[nova] {message}", color_code="93"), file=sys.stderr)
+
+
 def _pip_flags() -> list[str]:
     return ["--disable-pip-version-check", "--progress-bar", "off"]
 
@@ -262,12 +266,18 @@ def ensure_runtime(
         _status("Nova bootstrap: using existing isolated runtime")
         return runtime_python
 
+    runtime_created = False
     if not runtime_python.exists():
         _status("Nova bootstrap: creating isolated runtime")
         runner([host_python, "-m", "venv", str(root)])
+        runtime_created = True
 
     _status("Nova bootstrap: installing Python dependencies")
-    runner([str(runtime_python), "-m", "pip", "install", *(_pip_flags()), "--upgrade", "pip", "setuptools", "wheel"])
+    if runtime_created:
+        try:
+            runner([str(runtime_python), "-m", "pip", "install", *(_pip_flags()), "--upgrade", "pip", "setuptools", "wheel"])
+        except subprocess.CalledProcessError:
+            _warn("Nova bootstrap: packaging tool refresh unavailable, continuing with bundled runtime tools")
 
     try:
         requirement_profiles = _preferred_requirements_files(repo_path)

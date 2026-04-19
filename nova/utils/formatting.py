@@ -42,7 +42,7 @@ def startup_banner(
         f"  API Docs:    {docs_url}",
         "  Status:      All systems operational ✓",
     ]
-    return _boxed(lines, width=74)
+    return _boxed(lines, width=78)
 
 
 def launch_banner(*, dashboard_url: str, version: str) -> str:
@@ -58,7 +58,37 @@ def launch_banner(*, dashboard_url: str, version: str) -> str:
         "  Mode:             autonomous local control plane",
         "  Next:             services will come online and open when ready",
     ]
-    return _boxed(lines, width=74)
+    return _boxed(lines, width=78)
+
+
+def existing_runtime_banner(
+    *,
+    api_url: str,
+    dashboard_url: str,
+    docs_url: str,
+    bridge_url: str,
+    version: str,
+    active_agents: int | None = None,
+    uptime_seconds: float | None = None,
+) -> str:
+    """Return the operator-facing banner when Nova is already online."""
+
+    uptime_label = human_duration(uptime_seconds) if uptime_seconds is not None else "unknown"
+    agent_label = str(active_agents) if active_agents is not None else "unknown"
+    lines = [
+        "",
+        "                NOVA OS ONLINE",
+        f"         Connected to governed runtime v{version}",
+        "",
+        f"  Dashboard:   {dashboard_url}",
+        f"  API Server:  {api_url}",
+        f"  Bridge:      {bridge_url}",
+        f"  API Docs:    {docs_url}",
+        f"  Agents:      {agent_label}",
+        f"  Uptime:      {uptime_label}",
+        "  Status:      Existing runtime already active ✓",
+    ]
+    return _boxed(lines, width=78)
 
 
 def command_launchpad() -> str:

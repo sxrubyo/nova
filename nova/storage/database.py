@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from sqlalchemy import event
+from sqlalchemy import create_engine, event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -41,9 +41,25 @@ def init_engine(config: NovaConfig) -> AsyncEngine:
     return _engine
 
 
+def _sync_sqlite_url(resolved_db_url: str) -> str:
+    return resolved_db_url.replace("sqlite+aiosqlite://", "sqlite://", 1)
+
+
+def _create_sqlite_schema_sync(resolved_db_url: str) -> None:
+    engine = create_engine(_sync_sqlite_url(resolved_db_url), future=True)
+    try:
+        Base.metadata.create_all(engine)
+    finally:
+        engine.dispose()
+
+
 async def init_database(config: NovaConfig) -> None:
     """Create all tables if they do not already exist."""
 
+    if config.db_url.startswith("sqlite+aiosqlite://"):
+        _create_sqlite_schema_sync(config.db_url)
+        init_engine(config)
+        return
     engine = init_engine(config)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import sys
 import time
 from datetime import datetime, timezone
@@ -94,6 +95,7 @@ class NovaKernel:
         self._api_server: uvicorn.Server | None = None
         self._bridge: Any = None
         self._background_tasks: list[asyncio.Task[Any]] = []
+        self._discovery_task: asyncio.Task[Any] | None = None
 
     async def initialize(self) -> None:
         if self._initialized:
@@ -102,20 +104,55 @@ class NovaKernel:
         await self.workspace_manager.ensure_default_workspace()
         await self.anomaly_detector.start()
         await self.gateway.start()
-        if self.config.discovery_enabled:
-            await self.discovery.start()
         self._startup_time = time.time()
         self._initialized = True
+
+    def start_discovery_background(self) -> None:
+        if not self.config.discovery_enabled or self._discovery_task is not None:
+            return
+
+        async def _runner() -> None:
+            try:
+                await self.discovery.start()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self.logger.warning("discovery_start_failed", error=str(exc))
+
+        self._discovery_task = asyncio.create_task(_runner(), name="nova-discovery-start")
+        self._background_tasks.append(self._discovery_task)
 
     async def start(self, *, open_browser: bool = True) -> None:
         await self.initialize()
         from nova.api.server import create_app
         from nova.bridge.bridge_server import NovaBridge
-        from nova.utils.browser import bind_api_url, bind_bridge_url, local_dashboard_url, local_docs_url, open_dashboard_when_ready
-        from nova.utils.formatting import startup_banner
+        from nova.utils.browser import bind_api_url, bind_bridge_url, local_dashboard_url, local_docs_url, open_dashboard_when_ready, open_url
+        from nova.utils.formatting import existing_runtime_banner, startup_banner
+
+        existing_runtime = await self._probe_existing_runtime_status()
+        if existing_runtime is not None:
+            print(
+                existing_runtime_banner(
+                    api_url=bind_api_url(self.config),
+                    dashboard_url=local_dashboard_url(self.config),
+                    docs_url=local_docs_url(self.config),
+                    bridge_url=bind_bridge_url(self.config),
+                    version=str(existing_runtime.get("version") or self.config.version),
+                    active_agents=existing_runtime.get("active_agents"),
+                    uptime_seconds=existing_runtime.get("uptime_seconds"),
+                )
+            )
+            if open_browser:
+                open_url(local_dashboard_url(self.config))
+            return
 
         self._bridge = NovaBridge(self, self.config)
-        await self._bridge.start()
+        try:
+            await self._bridge.start()
+        except OSError as exc:
+            if await self._handle_address_in_use(exc, open_browser=open_browser):
+                return
+            raise RuntimeError(self._port_conflict_message("bridge", self.config.bridge_port)) from exc
         app = create_app(self, serve_frontend=True)
         self.logger.info("kernel_started", version=self.config.version, api_port=self.config.api_port, bridge_port=self.config.bridge_port)
         print(
@@ -127,6 +164,7 @@ class NovaKernel:
                 version=self.config.version,
             )
         )
+        self.start_discovery_background()
         if open_browser:
             self._background_tasks.append(
                 asyncio.create_task(
@@ -144,6 +182,10 @@ class NovaKernel:
         )
         try:
             await self._api_server.serve()
+        except OSError as exc:
+            if await self._handle_address_in_use(exc, open_browser=open_browser):
+                return
+            raise RuntimeError(self._port_conflict_message("api", self.config.api_port)) from exc
         finally:
             await self.shutdown()
 
@@ -158,6 +200,63 @@ class NovaKernel:
         await self.anomaly_detector.stop()
         await dispose_engine()
         self.logger.info("kernel_shutdown_complete")
+
+    async def _probe_existing_runtime_status(self) -> dict[str, Any] | None:
+        import httpx
+
+        status_url = f"http://127.0.0.1:{self.config.api_port}/api/status"
+        try:
+            async with httpx.AsyncClient(timeout=1.5, follow_redirects=True) as client:
+                response = await client.get(status_url)
+        except Exception:
+            return None
+
+        if response.status_code != 200:
+            return None
+
+        try:
+            payload = response.json()
+        except ValueError:
+            return None
+
+        if not isinstance(payload, dict):
+            return None
+        if not payload.get("version") and payload.get("status") not in {"operational", "degraded", "starting"}:
+            return None
+        return payload
+
+    async def _handle_address_in_use(self, exc: OSError, *, open_browser: bool) -> bool:
+        if not _is_address_in_use(exc):
+            return False
+
+        existing_runtime = await self._probe_existing_runtime_status()
+        if existing_runtime is None:
+            return False
+
+        from nova.utils.browser import bind_api_url, bind_bridge_url, local_dashboard_url, local_docs_url, open_url
+        from nova.utils.formatting import existing_runtime_banner
+
+        print(
+            existing_runtime_banner(
+                api_url=bind_api_url(self.config),
+                dashboard_url=local_dashboard_url(self.config),
+                docs_url=local_docs_url(self.config),
+                bridge_url=bind_bridge_url(self.config),
+                version=str(existing_runtime.get("version") or self.config.version),
+                active_agents=existing_runtime.get("active_agents"),
+                uptime_seconds=existing_runtime.get("uptime_seconds"),
+            )
+        )
+        if open_browser:
+            open_url(local_dashboard_url(self.config))
+        return True
+
+    def _port_conflict_message(self, target: str, port: int) -> str:
+        return (
+            f"Nova could not start because the {target} port {port} is already in use. "
+            f"If Nova is already running, open http://127.0.0.1:{self.config.api_port}/ . "
+            "Otherwise free the port or start with explicit --port/--bridge-port values."
+        )
 
     async def evaluate(self, request: EvaluationRequest) -> EvaluationResult:
         result = await self.pipeline.evaluate(request)
@@ -254,3 +353,7 @@ def _memory_usage_mb() -> float:
             return 0.0
 
     return 0.0
+
+
+def _is_address_in_use(exc: OSError) -> bool:
+    return getattr(exc, "errno", None) in {errno.EADDRINUSE, 48, 10048}

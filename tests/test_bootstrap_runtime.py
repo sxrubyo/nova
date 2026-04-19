@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 
 
 def test_bootstrap_runtime_paths_live_under_nova_home(tmp_path: Path) -> None:
@@ -144,6 +145,34 @@ def test_ensure_runtime_prefers_core_requirements_profile_when_available(tmp_pat
     )
 
     assert calls[2][-2:] == ["-r", str(repo_dir / "nova_core_requirements.txt")]
+
+
+def test_ensure_runtime_reuses_existing_runtime_without_network_tool_upgrade(tmp_path: Path) -> None:
+    from nova.bootstrap import ensure_runtime, runtime_python_path, runtime_root
+
+    calls: list[list[str]] = []
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+
+    runtime_python = runtime_python_path(runtime_root(tmp_path))
+    runtime_python.parent.mkdir(parents=True, exist_ok=True)
+    runtime_python.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+
+    def fake_run(command: list[str], **_: object) -> None:
+        calls.append(command)
+        if command[:4] == [str(runtime_python), "-m", "pip", "install"] and "--upgrade" in command:
+            raise subprocess.CalledProcessError(1, command)
+
+    ensure_runtime(
+        repo_dir=repo_dir,
+        home_dir=tmp_path,
+        python_bin="/usr/bin/python3",
+        command_runner=fake_run,
+    )
+
+    assert not any(command[:4] == [str(runtime_python), "-m", "pip", "install"] and "--upgrade" in command for command in calls)
+    assert any(command[-2:] == ["-r", str(repo_dir / "requirements.txt")] for command in calls)
 
 
 def test_select_bin_dir_defaults_to_canonical_nova_bin(tmp_path: Path) -> None:
