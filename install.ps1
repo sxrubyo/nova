@@ -8,6 +8,13 @@ $RepoDir = Join-Path $NovaHome "repo"
 $BinDir = Join-Path $NovaHome "bin"
 $WrapperCmd = Join-Path $BinDir "nova.cmd"
 
+function Write-Banner {
+    Write-Host "****************************************" -ForegroundColor Blue
+    Write-Host "*               NOVA OS                *" -ForegroundColor Blue
+    Write-Host "*  discovery, policy, runtime online   *" -ForegroundColor Blue
+    Write-Host "****************************************" -ForegroundColor Blue
+}
+
 function Write-Step([string]$Message) {
     Write-Host "==> $Message" -ForegroundColor Cyan
 }
@@ -60,6 +67,7 @@ $PythonExecutable = if ($Python -eq "py -3") {
     & $Python -c "import sys; print(sys.executable)"
 }
 
+Write-Banner
 Write-Step "Preparing Nova OS directories"
 New-Item -ItemType Directory -Force -Path $NovaHome | Out-Null
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null

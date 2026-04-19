@@ -41,6 +41,16 @@ def test_windows_wrapper_script_uses_cmd_forwarding(tmp_path: Path) -> None:
     assert "%*" in script
 
 
+def test_bootstrap_banner_contains_nova_branding() -> None:
+    from nova.bootstrap import render_bootstrap_banner
+
+    banner = render_bootstrap_banner()
+
+    assert "NOVA OS" in banner
+    assert "runtime online" in banner
+    assert "*" in banner
+
+
 def test_ensure_runtime_prefers_venv_over_system_pip(tmp_path: Path) -> None:
     from nova.bootstrap import ensure_runtime
 

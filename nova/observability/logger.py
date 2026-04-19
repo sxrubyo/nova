@@ -49,9 +49,11 @@ def configure_logging(config: NovaConfig):
     logging.basicConfig(
         level=getattr(logging, config.log_level.upper(), logging.INFO),
         format="%(message)s" if config.log_format == "json" else "%(asctime)s %(levelname)s %(name)s %(message)s",
-        stream=sys.stdout,
+        stream=sys.stderr,
         force=True,
     )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     if structlog is None:
         return _CompatLogger(logging.getLogger("nova"))
     structlog.configure(

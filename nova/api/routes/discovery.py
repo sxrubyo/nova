@@ -20,6 +20,7 @@ async def scan(
     agents = await kernel.discovery.scan(force=True)
     return {
         "agents": [to_payload(agent) for agent in agents],
+        "inventory": kernel.discovery.last_inventory,
         "last_scan_at": kernel.discovery.last_scan_at,
         "duration_ms": kernel.discovery.last_scan_duration_ms,
     }
@@ -33,6 +34,7 @@ async def list_discovered_agents(
     agents = await kernel.discovery.scan(force=False)
     return {
         "agents": [to_payload(agent) for agent in agents],
+        "inventory": kernel.discovery.last_inventory,
         "last_scan_at": kernel.discovery.last_scan_at,
         "duration_ms": kernel.discovery.last_scan_duration_ms,
     }
@@ -49,6 +51,9 @@ async def connect_discovered_agent(
         agent_key=agent_key,
         workspace_id=current_workspace["workspace_id"],
         config=payload.config if payload else {},
+        permissions=payload.permissions if payload else {},
+        risk_thresholds=payload.risk_thresholds if payload else {},
+        quota=payload.quota if payload else {},
     )
     if not result.success:
         raise HTTPException(status_code=400, detail=result.error or "failed to connect agent")

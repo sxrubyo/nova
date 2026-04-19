@@ -8,6 +8,13 @@ NOVA_DIR="$HOME/.nova"
 BOOTSTRAP_PATH=""
 NOVA_CMD=""
 
+print_banner() {
+  printf '\033[0;94m%s\033[0m\n' '****************************************'
+  printf '\033[0;94m%s\033[0m\n' '*               NOVA OS                *'
+  printf '\033[0;94m%s\033[0m\n' '*  discovery, policy, runtime online   *'
+  printf '\033[0;94m%s\033[0m\n' '****************************************'
+}
+
 is_termux() {
   [ -n "${TERMUX_VERSION:-}" ] || [ -d "/data/data/com.termux" ]
 }
@@ -174,6 +181,7 @@ EOF"
 }
 
 main() {
+  print_banner
   install_deps
   setup_repo
   resolve_bootstrap

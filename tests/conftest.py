@@ -58,6 +58,7 @@ async def agent(kernel: NovaKernel, workspace):
 @pytest_asyncio.fixture
 async def api_client(kernel: NovaKernel):
     app = create_app(kernel)
+    app.state.kernel = kernel
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
         yield client

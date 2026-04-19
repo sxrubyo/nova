@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from nova.types import AgentRecord, IntentAnalysis, RuleValidationResult, WorkspaceRules
+from nova.utils.text import flatten_payload
 
 
 class RuleValidator:
@@ -14,10 +15,30 @@ class RuleValidator:
         agent: AgentRecord,
         workspace_rules: WorkspaceRules,
     ) -> RuleValidationResult:
-        target = f"{intent.action_type} {intent.raw_action} {intent.target}".lower()
-        agent_cannot_do = [str(rule) for rule in agent.metadata.get("cannot_do", [])]
-        cannot_do_rules = [*agent_cannot_do, *workspace_rules.cannot_do]
-        can_do_rules = [*agent.permissions, *workspace_rules.can_do]
+        metadata = dict(agent.metadata or {})
+        permission_overrides = dict(metadata.get("permissions") or {})
+        target = " ".join(
+            part
+            for part in [
+                intent.action_type,
+                intent.raw_action,
+                intent.target,
+                intent.inferred_purpose,
+                flatten_payload(intent.parameters),
+            ]
+            if part
+        ).lower()
+        agent_cannot_do = [
+            str(rule)
+            for rule in [
+                *list(metadata.get("cannot_do") or []),
+                *list(permission_overrides.get("cannot_do") or []),
+            ]
+        ]
+        cannot_do_rules = list(dict.fromkeys([*agent_cannot_do, *workspace_rules.cannot_do]))
+        can_do_rules = list(
+            dict.fromkeys([*agent.permissions, *list(permission_overrides.get("can_do") or []), *workspace_rules.can_do])
+        )
         for rule in cannot_do_rules:
             if rule.lower() in target:
                 return RuleValidationResult(

@@ -172,12 +172,20 @@ Never commit real `.env` files, tokens, local databases, or operational backups.
 ```bash
 nova help
 nova init
+nova discover --json
+nova connect codex_cli-<id> --cannot-do "rm -rf"
 nova validate --action "Send email to customer@example.com"
 nova status
 nova watch
 nova start
 nova serve --host 0.0.0.0 --port 8000
 ```
+
+## Discovery and governance
+
+- `nova discover --json` returns both discovered agents and a host inventory summary with repositories, terminals, and local Codex context.
+- `nova connect <agent_key> --cannot-do "rm -rf"` attaches governance rules directly when onboarding a discovered agent.
+- Discovery task execution is routed through Nova's evaluation pipeline before the connector runs, so a matching `cannot_do` rule blocks the task before the agent executes it.
 
 ## Documentation
 

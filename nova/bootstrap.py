@@ -14,6 +14,7 @@ from typing import Callable, Sequence
 
 
 CommandRunner = Callable[[list[str]], None]
+_BANNER_EMITTED = False
 
 CORE_PACKAGES = [
     "fastapi",
@@ -29,8 +30,39 @@ CORE_PACKAGES = [
 ]
 
 
+def render_bootstrap_banner() -> str:
+    """Return the installer banner shown while Nova bootstraps."""
+
+    return "\n".join(
+        [
+            "****************************************",
+            "*               NOVA OS                *",
+            "*  discovery, policy, runtime online   *",
+            "****************************************",
+        ]
+    )
+
+
+def _supports_color() -> bool:
+    return bool(getattr(sys.stderr, "isatty", lambda: False)())
+
+
+def _styled(text: str, *, color_code: str) -> str:
+    if not _supports_color():
+        return text
+    return f"\033[{color_code}m{text}\033[0m"
+
+
+def _emit_banner() -> None:
+    global _BANNER_EMITTED
+    if _BANNER_EMITTED:
+        return
+    _BANNER_EMITTED = True
+    print(_styled(render_bootstrap_banner(), color_code="94"), file=sys.stderr)
+
+
 def _status(message: str) -> None:
-    print(message, file=sys.stderr)
+    print(_styled(f"[nova] {message}", color_code="96"), file=sys.stderr)
 
 
 def select_bin_dir(
@@ -299,6 +331,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv if argv is not None else sys.argv[1:])
 
     if args.command == "install":
+        _emit_banner()
         install_cli_wrapper(
             args.repo,
             bin_dir=args.bin_dir,

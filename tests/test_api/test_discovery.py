@@ -38,6 +38,40 @@ async def test_discovery_scan_endpoint(api_client, workspace, kernel, monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_discovery_scan_endpoint_includes_inventory(api_client, workspace, kernel, monkeypatch) -> None:
+    agent = DiscoveredAgent(
+        agent_key="codex_cli-test",
+        fingerprint_key="codex_cli",
+        name="Codex CLI",
+        type="cli_agent",
+        confidence=0.95,
+        detection_method="binary",
+        detection_methods=["binary"],
+        capabilities={"can_run_commands": True},
+        risk_profile={"base_risk": 45},
+    )
+
+    async def fake_scan(*, force: bool = False):
+        kernel.discovery.last_scan_at = datetime.now(timezone.utc)
+        kernel.discovery.last_scan_duration_ms = 8.5
+        kernel.discovery.last_inventory = {
+            "summary": {"repositories": 1, "terminals": 1},
+            "repositories": [{"name": "nova-os", "path": "/tmp/nova-os", "has_codex": True}],
+            "terminals": [{"pid": 101, "name": "bash", "repo_path": "/tmp/nova-os"}],
+            "signals": {"has_codex_home": True},
+        }
+        return [agent]
+
+    monkeypatch.setattr(kernel.discovery, "scan", fake_scan)
+
+    response = await api_client.get("/api/discovery/scan", headers={"x-api-key": workspace.api_key})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["inventory"]["summary"]["repositories"] == 1
+    assert payload["inventory"]["repositories"][0]["has_codex"] is True
+
+
+@pytest.mark.asyncio
 async def test_create_managed_agent_endpoint(api_client, workspace) -> None:
     response = await api_client.post(
         "/api/agents/create",

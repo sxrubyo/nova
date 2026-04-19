@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import re
@@ -43,6 +44,8 @@ class SystemScanner:
         discovered.extend(await self._scan_binaries())
         discovered.extend(await self._scan_pip_packages())
         discovered.extend(await self._scan_npm_packages())
+        discovered.extend(await self._scan_environment())
+        discovered.extend(await self._scan_dotenv_files())
         discovered.extend(await self._scan_processes())
         discovered.extend(await self._scan_ports())
         if PLATFORM.has_docker:
@@ -64,6 +67,27 @@ class SystemScanner:
             elif agent.detection_methods:
                 agent.status = "idle"
         return sorted(confirmed, key=lambda item: (-item.confidence, item.name))
+
+    def host_inventory(self, *, roots: list[Path] | None = None) -> dict[str, Any]:
+        """Summarize repositories, terminals, and local governance signals."""
+
+        repositories = self._scan_repositories(roots=roots)
+        terminals = self._scan_terminal_processes(repositories=repositories)
+        codex_home = Path.home() / ".codex"
+        return {
+            "summary": {
+                "repositories": len(repositories),
+                "terminals": len(terminals),
+            },
+            "repositories": repositories,
+            "terminals": terminals,
+            "signals": {
+                "has_codex_home": codex_home.exists(),
+                "codex_home": str(codex_home),
+                "cwd": str(Path.cwd()),
+                "platform": PLATFORM.type,
+            },
+        }
 
     async def _scan_config_files(self) -> list[DiscoveredAgent]:
         found: list[DiscoveredAgent] = []
@@ -345,6 +369,165 @@ class SystemScanner:
             if ".env" in filenames:
                 files.append(current / ".env")
         return files
+
+    def _scan_repositories(self, *, roots: list[Path] | None = None, max_depth: int = 3, max_results: int = 40) -> list[dict[str, Any]]:
+        repositories: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        markers = [".git", ".codex", "package.json", "pyproject.toml", "requirements.txt", "docker-compose.yml"]
+
+        for root in self._repository_search_roots(roots):
+            for candidate in self._iter_candidate_directories(root, max_depth=max_depth):
+                if len(repositories) >= max_results:
+                    return repositories
+                marker_hits = [marker for marker in markers if (candidate / marker).exists()]
+                if not marker_hits:
+                    continue
+                resolved = str(candidate.resolve())
+                if resolved in seen:
+                    continue
+                if any(
+                    repository.get("has_git")
+                    and Path(repository["path"]) in Path(resolved).parents
+                    and ".git" not in marker_hits
+                    and ".codex" not in marker_hits
+                    for repository in repositories
+                ):
+                    continue
+                seen.add(resolved)
+                repositories.append(
+                    {
+                        "name": candidate.name,
+                        "path": resolved,
+                        "markers": marker_hits,
+                        "has_git": ".git" in marker_hits,
+                        "has_codex": ".codex" in marker_hits,
+                        "ecosystems": self._detect_ecosystems(candidate),
+                    }
+                )
+        return repositories
+
+    def _repository_search_roots(self, roots: list[Path] | None = None) -> list[Path]:
+        if roots is not None:
+            return [Path(root).expanduser() for root in roots if Path(root).expanduser().exists()]
+
+        candidates = [
+            Path.cwd(),
+            Path(PLATFORM.home),
+            Path(PLATFORM.home) / "projects",
+            Path(PLATFORM.home) / "workspace",
+            Path(PLATFORM.home) / "src",
+        ]
+        unique: list[Path] = []
+        seen: set[str] = set()
+        for candidate in candidates:
+            expanded = candidate.expanduser()
+            if not expanded.exists():
+                continue
+            resolved = str(expanded.resolve())
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            unique.append(expanded)
+        return unique
+
+    def _iter_candidate_directories(self, root: Path, *, max_depth: int) -> list[Path]:
+        candidates: list[Path] = []
+        root = root.expanduser()
+        if not root.exists():
+            return candidates
+        base_depth = len(root.parts)
+        skip_dirs = {".git", ".venv", "venv", "node_modules", "dist", "build", "__pycache__"}
+        for current_root, dirnames, _ in os.walk(root):
+            current = Path(current_root)
+            depth = len(current.parts) - base_depth
+            if depth > max_depth:
+                dirnames[:] = []
+                continue
+            dirnames[:] = [item for item in dirnames if item not in skip_dirs and not item.startswith(".cache")]
+            candidates.append(current)
+        return candidates
+
+    def _detect_ecosystems(self, directory: Path) -> list[str]:
+        ecosystems: list[str] = []
+        if (directory / "package.json").exists():
+            ecosystems.append("node")
+        if (directory / "pyproject.toml").exists() or (directory / "requirements.txt").exists():
+            ecosystems.append("python")
+        if (directory / "docker-compose.yml").exists():
+            ecosystems.append("docker")
+        return ecosystems
+
+    def _scan_terminal_processes(self, *, repositories: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+        if psutil is None:
+            return []
+
+        terminals: list[dict[str, Any]] = []
+        terminal_binaries = {
+            "bash",
+            "zsh",
+            "fish",
+            "sh",
+            "tmux",
+            "screen",
+            "pwsh",
+            "powershell",
+            "cmd.exe",
+            "cmd",
+            "wt.exe",
+            "windows terminal",
+            "konsole",
+            "gnome-terminal",
+            "kitty",
+            "wezterm",
+            "alacritty",
+        }
+
+        for process in psutil.process_iter(["pid", "name", "cmdline", "create_time", "status"]):
+            try:
+                name = str(process.info.get("name") or "")
+                command_parts = [str(item) for item in process.info.get("cmdline") or [] if item]
+                cmdline = " ".join(command_parts)
+                binary_names = {Path(part).name.lower() for part in command_parts}
+                terminal_match = name.lower() in terminal_binaries or bool(binary_names & terminal_binaries)
+                if not terminal_match:
+                    continue
+                haystack = f"{name} {cmdline}".lower()
+                cwd = None
+                with contextlib.suppress(Exception):
+                    cwd = process.cwd()
+                repo = self._match_repository_for_path(cwd, repositories or [])
+                terminals.append(
+                    {
+                        "pid": process.info.get("pid"),
+                        "name": name or "terminal",
+                        "cwd": cwd,
+                        "repo_path": repo.get("path") if repo else None,
+                        "repo_name": repo.get("name") if repo else None,
+                        "has_codex_context": bool((repo or {}).get("has_codex")) or ".codex" in haystack,
+                        "command": cmdline,
+                        "status": process.info.get("status"),
+                    }
+                )
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return terminals[:25]
+
+    def _match_repository_for_path(self, cwd: str | None, repositories: list[dict[str, Any]]) -> dict[str, Any] | None:
+        if not cwd:
+            return None
+        try:
+            current = Path(cwd).resolve()
+        except Exception:  # noqa: BLE001
+            return None
+
+        matches = [
+            repository
+            for repository in repositories
+            if current == Path(repository["path"]) or Path(repository["path"]) in current.parents
+        ]
+        if not matches:
+            return None
+        return max(matches, key=lambda item: len(str(item["path"])))
 
     def _deduplicate(self, agents: list[DiscoveredAgent]) -> list[DiscoveredAgent]:
         grouped: dict[str, DiscoveredAgent] = {}

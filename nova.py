@@ -289,6 +289,8 @@ def build_parser() -> argparse.ArgumentParser:
     connect.add_argument("--url")
     connect.add_argument("--user")
     connect.add_argument("--password")
+    connect.add_argument("--can-do", action="append", default=[])
+    connect.add_argument("--cannot-do", action="append", default=[])
 
     evaluate = subparsers.add_parser("evaluate")
     evaluate.add_argument("--agent", required=True)
@@ -421,10 +423,10 @@ def _console() -> Console | None:
     return Console() if Console is not None else None
 
 
-def _print_discovery_table(agents: list[dict[str, Any]]) -> None:
+def _print_discovery_table(agents: list[dict[str, Any]], inventory: dict[str, Any] | None = None) -> None:
     console = _console()
     if console is None or Table is None:
-        print(json.dumps(agents, indent=2))
+        print(json.dumps({"agents": agents, "inventory": inventory or {}}, indent=2))
         return
     table = Table(title="Nova OS - Agent Discovery Scan")
     table.add_column("#", style="cyan")
@@ -437,6 +439,15 @@ def _print_discovery_table(agents: list[dict[str, Any]]) -> None:
         detection = "+".join(agent.get("detection_methods") or [agent.get("detection_method") or "?"])
         table.add_row(str(index), agent.get("name", "Unknown"), status, detection, f"{round((agent.get('confidence') or 0) * 100)}%")
     console.print(table)
+    if inventory:
+        summary = inventory.get("summary", {})
+        signals = inventory.get("signals", {})
+        console.print(
+            f"[bold blue]Host inventory[/bold blue] "
+            f"repos={summary.get('repositories', 0)} "
+            f"terminals={summary.get('terminals', 0)} "
+            f"codex_home={'yes' if signals.get('has_codex_home') else 'no'}"
+        )
 
 
 async def _agent_metrics(kernel: Any, agent_id: str) -> dict[str, Any]:
@@ -563,10 +574,11 @@ async def run_async(args: argparse.Namespace) -> None:
 
     if args.command == "discover":
         agents = [to_payload(agent) for agent in await kernel.discovery.scan(force=True)]
+        payload = {"agents": agents, "inventory": kernel.discovery.last_inventory}
         if args.json:
-            print(json.dumps(agents, indent=2))
+            print(json.dumps(payload, indent=2))
         else:
-            _print_discovery_table(agents)
+            _print_discovery_table(agents, kernel.discovery.last_inventory)
         return
 
     if args.command == "connect":
@@ -582,6 +594,14 @@ async def run_async(args: argparse.Namespace) -> None:
             agent_key=args.agent_key,
             workspace_id=args.workspace or default_workspace.id,
             config=config,
+            permissions={
+                key: value
+                for key, value in {
+                    "can_do": list(args.can_do or []),
+                    "cannot_do": list(args.cannot_do or []),
+                }.items()
+                if value
+            },
         )
         print(json.dumps(to_payload(result), indent=2))
         return

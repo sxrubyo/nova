@@ -37,6 +37,7 @@ class DiscoveryEngine:
         self.watch_interval_seconds = watch_interval_seconds
         self.last_scan_at: datetime | None = None
         self.last_scan_duration_ms: float | None = None
+        self.last_inventory: dict[str, Any] = {}
         self._scan_lock = asyncio.Lock()
         self._cached_agents: dict[str, DiscoveredAgent] = {}
         self._connections: dict[str, dict[str, Any]] = {}
@@ -55,6 +56,7 @@ class DiscoveryEngine:
                 return self.list_cached_agents()
             started = time.monotonic()
             agents = await self.scanner.full_scan()
+            self.last_inventory = self.scanner.host_inventory()
             self._cached_agents = {agent.agent_key: agent for agent in agents}
             self.last_scan_at = datetime.now(timezone.utc)
             self.last_scan_duration_ms = (time.monotonic() - started) * 1000
@@ -62,6 +64,8 @@ class DiscoveryEngine:
                 "scan_completed",
                 {
                     "agents_found": len(agents),
+                    "repositories_found": self.last_inventory.get("summary", {}).get("repositories", 0),
+                    "terminals_found": self.last_inventory.get("summary", {}).get("terminals", 0),
                     "duration_ms": round(self.last_scan_duration_ms, 2),
                     "last_scan_at": self.last_scan_at.isoformat(),
                 },
@@ -85,6 +89,9 @@ class DiscoveryEngine:
         agent_key: str,
         workspace_id: str,
         config: dict[str, Any] | None = None,
+        permissions: dict[str, list[str]] | None = None,
+        risk_thresholds: dict[str, int] | None = None,
+        quota: dict[str, int] | None = None,
     ) -> ConnectionResult:
         agent = await self.get_agent(agent_key)
         if agent is None:
@@ -95,6 +102,34 @@ class DiscoveryEngine:
         if not result.success:
             return result
 
+        existing_record = next(
+            (item for item in await self.kernel.agent_registry.list(workspace_id) if item.name == agent.name),
+            None,
+        )
+        existing_metadata = dict(getattr(existing_record, "metadata", {}) or {})
+        existing_permissions = dict(existing_metadata.get("permissions") or {})
+        requested_permissions = permissions or {}
+        merged_risk_thresholds = {**dict(existing_metadata.get("risk_thresholds") or {}), **dict(risk_thresholds or {})}
+        merged_quota = {**dict(existing_metadata.get("quota") or {}), **dict(quota or {})}
+        can_do_permissions = list(
+            dict.fromkeys(
+                [
+                    *self._default_permissions(agent),
+                    *list(existing_permissions.get("can_do") or []),
+                    *list(requested_permissions.get("can_do") or []),
+                ]
+            )
+        )
+        cannot_do_permissions = list(
+            dict.fromkeys(
+                [
+                    *list(existing_permissions.get("cannot_do") or []),
+                    *list(requested_permissions.get("cannot_do") or []),
+                    *list(agent.risk_profile.get("risk_factors") or []),
+                ]
+            )
+        )
+
         record = await self.kernel.agent_registry.ensure(
             workspace_id=workspace_id,
             name=agent.name,
@@ -102,7 +137,7 @@ class DiscoveryEngine:
             provider=self._provider(agent),
             description=f"Discovered via {', '.join(agent.detection_methods)}",
             capabilities=self._capability_list(agent),
-            permissions=self._default_permissions(agent),
+            permissions=can_do_permissions,
             metadata={
                 **dict(agent.metadata or {}),
                 "discovery": {
@@ -122,9 +157,11 @@ class DiscoveryEngine:
                     "connected_at": datetime.now(timezone.utc).isoformat(),
                 },
                 "permissions": {
-                    "can_do": self._default_permissions(agent),
-                    "cannot_do": agent.risk_profile.get("risk_factors", []),
+                    "can_do": can_do_permissions,
+                    "cannot_do": cannot_do_permissions,
                 },
+                "risk_thresholds": merged_risk_thresholds,
+                "quota": merged_quota,
             },
         )
         self._connections[agent.agent_key] = {
@@ -141,6 +178,12 @@ class DiscoveryEngine:
         )
         result.agent_id = record.id
         result.agent_key = agent.agent_key
+        result.metadata = {
+            **dict(result.metadata or {}),
+            "permissions": {"can_do": can_do_permissions, "cannot_do": cannot_do_permissions},
+            "risk_thresholds": merged_risk_thresholds,
+            "quota": merged_quota,
+        }
         return result
 
     async def disconnect(self, agent_key: str) -> bool:

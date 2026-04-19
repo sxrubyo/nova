@@ -9,6 +9,9 @@ from pydantic import BaseModel, Field
 
 class DiscoveryConnectRequest(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
+    permissions: dict[str, list[str]] = Field(default_factory=dict)
+    risk_thresholds: dict[str, int] = Field(default_factory=dict)
+    quota: dict[str, int] = Field(default_factory=dict)
 
 
 class DiscoveryTaskRequest(BaseModel):
