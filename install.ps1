@@ -85,14 +85,19 @@ Move-Item -Force $Expanded $RepoDir
 Write-Ok "Repository staged in $RepoDir"
 
 Write-Step "Bootstrapping isolated runtime"
-Invoke-Python -PythonCommand $Python -Arguments @(
-    (Join-Path $RepoDir "nova\bootstrap.py"),
-    "install",
-    "--repo", $RepoDir,
-    "--bin-dir", $BinDir,
-    "--home-dir", $env:USERPROFILE,
-    "--python-bin", $PythonExecutable
-)
+Push-Location $RepoDir
+try {
+    Invoke-Python -PythonCommand $Python -Arguments @(
+        "-m", "nova.bootstrap",
+        "install",
+        "--repo", $RepoDir,
+        "--bin-dir", $BinDir,
+        "--home-dir", $env:USERPROFILE,
+        "--python-bin", $PythonExecutable
+    )
+} finally {
+    Pop-Location
+}
 if (-not (Test-Path $WrapperCmd)) {
     Fail "Expected wrapper not found at $WrapperCmd"
 }
