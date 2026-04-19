@@ -6,6 +6,7 @@ REPO_URL="https://github.com/sxrubyo/nova-os.git"
 DEFAULT_CLONE_DIR="$HOME/nova-os"
 NOVA_DIR="$HOME/.nova"
 LOCAL_BIN_DIR="$HOME/.local/bin"
+BOOTSTRAP_PATH=""
 
 is_termux() {
   [ -n "${TERMUX_VERSION:-}" ] || [ -d "/data/data/com.termux" ]
@@ -69,9 +70,9 @@ install_deps() {
   log "Linux detectado"
   if command -v apt-get >/dev/null 2>&1; then
     sudo_cmd apt-get update -qq
-    sudo_cmd apt-get install -y -qq python3 python3-pip git curl sqlite3
+    sudo_cmd apt-get install -y -qq python3 python3-pip python3-venv git curl sqlite3
   elif command -v dnf >/dev/null 2>&1; then
-    sudo_cmd dnf install -y python3 python3-pip git curl sqlite
+    sudo_cmd dnf install -y python3 python3-pip python3-virtualenv git curl sqlite
   elif command -v pacman >/dev/null 2>&1; then
     sudo_cmd pacman -Sy --noconfirm python python-pip git curl sqlite
   else
@@ -98,51 +99,31 @@ setup_repo() {
   REPO_DIR="$DEFAULT_CLONE_DIR"
 }
 
-install_python_deps() {
-  PYTHON_BIN="$(detect_python)" || die "Python no está disponible"
-  "$PYTHON_BIN" -m pip install --upgrade pip >/dev/null 2>&1 || true
-  CORE_PKGS="fastapi uvicorn aiosqlite httpx rich click python-dotenv pydantic tomli"
-
-  if [ -f "$REPO_DIR/requirements.txt" ]; then
-    "$PYTHON_BIN" -m pip install -r "$REPO_DIR/requirements.txt" >/dev/null 2>&1 || {
-      warn "requirements.txt completo falló; instalo el núcleo portable"
-      "$PYTHON_BIN" -m pip install $CORE_PKGS >/dev/null 2>&1 || die "No se pudieron instalar las dependencias Python"
-    }
-  else
-    "$PYTHON_BIN" -m pip install $CORE_PKGS >/dev/null 2>&1 || die "No se pudieron instalar las dependencias Python"
-  fi
+resolve_bootstrap() {
+  BOOTSTRAP_PATH="$REPO_DIR/nova/bootstrap.py"
+  [ -f "$BOOTSTRAP_PATH" ] || die "No se encontró $BOOTSTRAP_PATH"
 }
 
-install_cli_wrapper() {
+install_runtime() {
   PYTHON_BIN="$(detect_python)" || die "Python no está disponible"
-  mkdir -p "$LOCAL_BIN_DIR"
-  cat > "$LOCAL_BIN_DIR/nova" <<EOF
-#!/usr/bin/env sh
-exec "$PYTHON_BIN" "$REPO_DIR/nova.py" "\$@"
-EOF
-  chmod +x "$LOCAL_BIN_DIR/nova"
+  "$PYTHON_BIN" "$BOOTSTRAP_PATH" install \
+    --repo "$REPO_DIR" \
+    --bin-dir "$LOCAL_BIN_DIR" \
+    --home-dir "$HOME" \
+    --python-bin "$PYTHON_BIN" >/dev/null 2>&1 || die "No se pudo bootstrapear el runtime aislado"
   export PATH="$LOCAL_BIN_DIR:$PATH"
-  log "Wrapper CLI instalado en $LOCAL_BIN_DIR/nova"
-}
-
-init_db() {
-  PYTHON_BIN="$(detect_python)" || die "Python no está disponible"
-  mkdir -p "$NOVA_DIR"
-  (
-    cd "$REPO_DIR"
-    "$PYTHON_BIN" -c "import asyncio; from nova.db import init_db; asyncio.run(init_db())"
-  ) >/dev/null 2>&1 || warn "Inicialización portable de DB omitida"
+  log "CLI y runtime aislado instalados"
 }
 
 start_nova() {
-  PYTHON_BIN="$(detect_python)" || die "Python no está disponible"
   mkdir -p "$NOVA_DIR"
   LOG_FILE="$NOVA_DIR/nova.log"
   PID_FILE="$NOVA_DIR/nova.pid"
+  NOVA_CMD="$LOCAL_BIN_DIR/nova"
 
   if is_termux; then
     log "Iniciando Nova en modo headless Termux"
-    nohup "$PYTHON_BIN" "$REPO_DIR/nova.py" serve --host 0.0.0.0 --port 8000 --api-only >"$LOG_FILE" 2>&1 &
+    nohup "$NOVA_CMD" serve --host 0.0.0.0 --port 8000 --api-only >"$LOG_FILE" 2>&1 &
     echo "$!" > "$PID_FILE"
     log "Nova disponible en http://127.0.0.1:8000"
     return
@@ -150,7 +131,7 @@ start_nova() {
 
   if command -v pm2 >/dev/null 2>&1; then
     pm2 delete nova-os >/dev/null 2>&1 || true
-    pm2 start "$REPO_DIR/nova.py" --name nova-os --interpreter "$PYTHON_BIN" -- serve --host 0.0.0.0 --port 8000 --api-only >/dev/null 2>&1 || die "pm2 no pudo iniciar Nova"
+    pm2 start "$NOVA_CMD" --name nova-os --interpreter sh -- serve --host 0.0.0.0 --port 8000 --api-only >/dev/null 2>&1 || die "pm2 no pudo iniciar Nova"
     log "Nova iniciada con PM2"
     return
   fi
@@ -166,7 +147,7 @@ After=network.target
 Type=simple
 User=$(id -un)
 WorkingDirectory=$REPO_DIR
-ExecStart=$PYTHON_BIN $REPO_DIR/nova.py serve --host 0.0.0.0 --port 8000 --api-only
+ExecStart=$NOVA_CMD serve --host 0.0.0.0 --port 8000 --api-only
 Restart=on-failure
 
 [Install]
@@ -178,7 +159,7 @@ EOF"
     return
   fi
 
-  nohup "$PYTHON_BIN" "$REPO_DIR/nova.py" serve --host 0.0.0.0 --port 8000 --api-only >"$LOG_FILE" 2>&1 &
+  nohup "$NOVA_CMD" serve --host 0.0.0.0 --port 8000 --api-only >"$LOG_FILE" 2>&1 &
   echo "$!" > "$PID_FILE"
   log "Nova iniciada con nohup"
 }
@@ -186,9 +167,8 @@ EOF"
 main() {
   install_deps
   setup_repo
-  install_python_deps
-  install_cli_wrapper
-  init_db
+  resolve_bootstrap
+  install_runtime
   start_nova
   log "Instalación completada"
   printf '\nComandos útiles:\n'

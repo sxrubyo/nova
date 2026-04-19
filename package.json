@@ -1,0 +1,25 @@
+{
+  "name": "nova-os",
+  "version": "4.0.0",
+  "description": "Portable Nova OS CLI bootstrap for Linux, Ubuntu-in-Termux, and Termux hosts.",
+  "bin": {
+    "nova": "bin/nova.js"
+  },
+  "files": [
+    "bin/nova.js",
+    "nova/**/*.py",
+    "nova.py",
+    "requirements.txt",
+    "nova_core_requirements.txt",
+    "pyproject.toml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "smoke": "node bin/nova.js --help"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}

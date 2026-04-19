@@ -65,6 +65,23 @@ CLI:
 python nova.py --help
 ```
 
+## CLI profesional (`npm` + runtime aislado)
+
+Si quieres exponer `nova` como comando global sin depender de `pip` del sistema:
+
+```bash
+npm install -g nova-os
+nova --help
+```
+
+Ese binario no instala dependencias Python en el sistema. En el primer uso crea un runtime aislado en `~/.nova/runtime`, instala ahí los requisitos de Nova y luego ejecuta [nova.py](/home/ubuntu/nova-os/nova.py).
+
+También funciona sin instalación global:
+
+```bash
+npx nova-os --help
+```
+
 ## 📱 Termux / Android Installation
 
 Nova OS corre nativamente en Android vía Termux sin root.
@@ -84,6 +101,7 @@ curl -sSL https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh | sh
 En Termux, Nova:
 
 - usa SQLite en `~/.nova/nova.db`
+- crea un runtime Python aislado en `~/.nova/runtime`
 - evita Docker, nginx y PostgreSQL
 - arranca en segundo plano con `nohup`
 - guarda logs y PID en `~/.nova/`
