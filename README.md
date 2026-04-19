@@ -110,7 +110,9 @@ pkg install python git openssl
 ### Instalación
 
 ```sh
-curl -sSL https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh | sh
+TMPDIR="$(mktemp -d)" && \
+curl -L https://github.com/sxrubyo/nova-os/archive/refs/heads/main.tar.gz | tar -xz -C "$TMPDIR" && \
+sh "$TMPDIR/nova-os-main/install.sh"
 ```
 
 En Termux, Nova:

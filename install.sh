@@ -32,10 +32,10 @@ die() {
 sudo_cmd() {
   if [ "$(id -u)" -eq 0 ]; then
     "$@"
-  elif command -v sudo >/dev/null 2>&1; then
-    sudo "$@"
+  elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+    sudo -n "$@"
   else
-    "$@"
+    return 1
   fi
 }
 
@@ -68,6 +68,10 @@ install_deps() {
   fi
 
   log "Linux detectado"
+  if [ "$(id -u)" -ne 0 ] && ! { command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; }; then
+    warn "Sin sudo no interactivo; continúo con dependencias existentes"
+    return
+  fi
   if command -v apt-get >/dev/null 2>&1; then
     sudo_cmd apt-get update -qq
     sudo_cmd apt-get install -y -qq python3 python3-pip python3-venv git curl sqlite3
@@ -110,26 +114,15 @@ install_runtime() {
     --repo "$REPO_DIR" \
     --home-dir "$HOME" \
     --python-bin "$PYTHON_BIN" >/dev/null 2>&1 || die "No se pudo bootstrapear el runtime aislado"
+  NOVA_CMD="$("$PYTHON_BIN" - <<PY
+import sys
+sys.path.insert(0, "$REPO_DIR")
+from nova.bootstrap import select_bin_dir
+print(select_bin_dir(home_dir="$HOME"))
+PY
+)/nova"
+  [ -x "$NOVA_CMD" ] || die "No se pudo resolver el wrapper nova instalado"
   log "CLI y runtime aislado instalados"
-}
-
-resolve_nova_cmd() {
-  if command -v nova >/dev/null 2>&1; then
-    NOVA_CMD="$(command -v nova)"
-    return
-  fi
-
-  if is_termux && [ -n "${PREFIX:-}" ] && [ -x "${PREFIX}/bin/nova" ]; then
-    NOVA_CMD="${PREFIX}/bin/nova"
-    return
-  fi
-
-  if [ -x "$HOME/.local/bin/nova" ]; then
-    NOVA_CMD="$HOME/.local/bin/nova"
-    return
-  fi
-
-  die "No se encontró el binario nova después del bootstrap"
 }
 
 start_nova() {
@@ -185,7 +178,6 @@ main() {
   setup_repo
   resolve_bootstrap
   install_runtime
-  resolve_nova_cmd
   start_nova
   log "Instalación completada"
   printf '\nComandos útiles:\n'
