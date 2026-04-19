@@ -72,7 +72,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
     """Reject unauthenticated access to protected routes."""
 
     async def dispatch(self, request: Request, call_next):
-        if request.url.path in PUBLIC_ENDPOINTS or request.url.path.startswith("/api/docs") or request.url.path.startswith("/api/redoc"):
+        path = request.url.path
+        if not path.startswith("/api/"):
+            return await call_next(request)
+        if path in PUBLIC_ENDPOINTS or path.startswith("/api/docs") or path.startswith("/api/redoc"):
             return await call_next(request)
         if request.headers.get("x-api-key") or request.headers.get("authorization"):
             return await call_next(request)

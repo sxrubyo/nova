@@ -41,6 +41,10 @@ def _default_data_dir() -> Path:
     return Path(PLATFORM.nova_dir) / "data"
 
 
+def _default_frontend_dist_dir() -> Path:
+    return Path(__file__).resolve().parents[1] / "frontend" / "dist"
+
+
 class NovaConfig(BaseSettings):
     """Environment-driven configuration for the Nova kernel."""
 
@@ -66,6 +70,8 @@ class NovaConfig(BaseSettings):
     )
     workspace_root: Path = Field(default_factory=_default_workspace_root, alias="NOVA_WORKSPACE_ROOT")
     data_dir: Path = Field(default_factory=_default_data_dir, alias="NOVA_DATA_DIR")
+    frontend_dist_dir: Path = Field(default_factory=_default_frontend_dist_dir, alias="NOVA_FRONTEND_DIST")
+    frontend_enabled: bool = Field(default=True, alias="NOVA_FRONTEND_ENABLED")
 
     jwt_secret: str = Field(
         default="change-me",

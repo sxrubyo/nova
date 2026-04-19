@@ -62,7 +62,7 @@ services:
         condition: service_healthy
     volumes:
       - ./:/app
-    command: python3 nova.py serve --host 0.0.0.0 --port 8000 --api-only
+    command: python3 nova.py serve --host 0.0.0.0 --port 8000
 
   # ── Frontend — build reproducible del dashboard moderno ───────
   frontend:

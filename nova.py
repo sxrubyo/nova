@@ -481,7 +481,7 @@ async def _serve_api(kernel: Any, *, host: str | None = None, port: int | None =
     if not api_only:
         kernel._bridge = NovaBridge(kernel, kernel.config)
         await kernel._bridge.start()
-    app = create_app(kernel)
+    app = create_app(kernel, serve_frontend=not api_only)
     kernel._api_server = uvicorn.Server(
         uvicorn.Config(
             app,

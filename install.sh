@@ -139,7 +139,7 @@ start_nova() {
 
   if is_termux; then
     log "Iniciando Nova en modo headless Termux"
-    nohup "$NOVA_CMD" serve --host 0.0.0.0 --port 8000 --api-only >"$LOG_FILE" 2>&1 &
+    nohup "$NOVA_CMD" serve --host 0.0.0.0 --port 8000 >"$LOG_FILE" 2>&1 &
     echo "$!" > "$PID_FILE"
     log "Nova disponible en http://127.0.0.1:8000"
     return
@@ -147,7 +147,7 @@ start_nova() {
 
   if command -v pm2 >/dev/null 2>&1; then
     pm2 delete nova-os >/dev/null 2>&1 || true
-    pm2 start "$NOVA_CMD" --name nova-os --interpreter sh -- serve --host 0.0.0.0 --port 8000 --api-only >/dev/null 2>&1 || die "pm2 no pudo iniciar Nova"
+    pm2 start "$NOVA_CMD" --name nova-os --interpreter sh -- serve --host 0.0.0.0 --port 8000 >/dev/null 2>&1 || die "pm2 no pudo iniciar Nova"
     log "Nova iniciada con PM2"
     return
   fi
@@ -163,7 +163,7 @@ After=network.target
 Type=simple
 User=$(id -un)
 WorkingDirectory=$REPO_DIR
-ExecStart=$NOVA_CMD serve --host 0.0.0.0 --port 8000 --api-only
+ExecStart=$NOVA_CMD serve --host 0.0.0.0 --port 8000
 Restart=on-failure
 
 [Install]
@@ -175,7 +175,7 @@ EOF"
     return
   fi
 
-  nohup "$NOVA_CMD" serve --host 0.0.0.0 --port 8000 --api-only >"$LOG_FILE" 2>&1 &
+  nohup "$NOVA_CMD" serve --host 0.0.0.0 --port 8000 >"$LOG_FILE" 2>&1 &
   echo "$!" > "$PID_FILE"
   log "Nova iniciada con nohup"
 }

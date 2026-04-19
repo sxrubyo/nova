@@ -16,6 +16,7 @@ def test_install_script_delegates_python_setup_to_bootstrap_module() -> None:
     assert "python3 -m pip install -r" not in install_script
     assert 'command -v nova' in install_script
     assert 'LOCAL_BIN_DIR/nova' not in install_script
+    assert '--api-only' not in install_script
 
 
 def test_npm_package_exposes_nova_bin() -> None:

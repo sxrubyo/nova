@@ -111,7 +111,7 @@ class NovaKernel:
 
         self._bridge = NovaBridge(self, self.config)
         await self._bridge.start()
-        app = create_app(self)
+        app = create_app(self, serve_frontend=True)
         self.logger.info("kernel_started", version=self.config.version, api_port=self.config.api_port, bridge_port=self.config.bridge_port)
         print(banner())
         self._api_server = uvicorn.Server(

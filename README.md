@@ -48,8 +48,10 @@ Backend:
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python3 nova.py serve --host 0.0.0.0 --port 8000 --api-only
+python3 nova.py serve --host 0.0.0.0 --port 8000
 ```
+
+Si existe `frontend/dist`, ese mismo proceso sirve el dashboard en `http://localhost:8000` y mantiene la API en `/api/*`.
 
 Frontend:
 
@@ -87,6 +89,12 @@ También funciona sin instalación global:
 
 ```bash
 npx nova-os --help
+```
+
+Una vez instalado, el entrypoint local queda en:
+
+```text
+http://localhost:8000
 ```
 
 ## 📱 Termux / Android Installation

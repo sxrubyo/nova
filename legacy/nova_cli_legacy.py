@@ -1137,6 +1137,12 @@ def _is_tty():
         return False
 
 
+def _selector_render_line_count(rendered: str) -> int:
+    """Count rendered terminal lines without relying on save/restore cursor support."""
+    normalized = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", rendered)
+    return normalized.count("\n")
+
+
 def _select(options, title="", default=0, descriptions=None, show_index=False, 
             allow_filter=False, page_size=10):
     """
@@ -1174,6 +1180,7 @@ def _select(options, title="", default=0, descriptions=None, show_index=False,
     current = default
     filter_text = ""
     scroll_offset = 0
+    rendered_lines = 0
     
     def get_filtered_indices():
         """Get indices of options matching filter."""
@@ -1185,6 +1192,7 @@ def _select(options, title="", default=0, descriptions=None, show_index=False,
     def draw(first=False):
         """Render the selector. Uses cursor save/restore - no line counting."""
         nonlocal scroll_offset
+        nonlocal rendered_lines
         filtered = get_filtered_indices()
 
         # Adjust scroll
@@ -1197,12 +1205,8 @@ def _select(options, title="", default=0, descriptions=None, show_index=False,
 
         out = []
 
-        if not first:
-            # Restore saved cursor position, then erase everything below
-            out.append("\033[u\033[J")
-        else:
-            # Save cursor position before first draw
-            out.append("\033[s")
+        if not first and rendered_lines > 0:
+            out.append(f"\r\033[{rendered_lines}A\033[J")
 
         # Title
         if title:
@@ -1244,7 +1248,9 @@ def _select(options, title="", default=0, descriptions=None, show_index=False,
 
         out.append("\n")
 
-        sys.stdout.write("".join(out))
+        rendered = "".join(out)
+        rendered_lines = _selector_render_line_count(rendered)
+        sys.stdout.write(rendered)
         sys.stdout.flush()
 
     
