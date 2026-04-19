@@ -42,9 +42,11 @@ function workspaceToUser(workspace, fallback = {}) {
   }
 }
 
-async function hydrateCredentialUser(fallback = {}) {
+async function hydrateCredentialUser(fallback = {}, apiKey = '') {
   try {
-    const workspace = await api.get('/auth/me')
+    const workspace = apiKey
+      ? await api.get('/workspaces/me', { headers: { 'x-api-key': apiKey } })
+      : await api.get('/auth/me')
     return workspaceToUser(workspace, fallback)
   } catch {
     return {
@@ -114,7 +116,8 @@ function Login() {
           email: formData.email,
           password: formData.password,
         })
-        setApiKey('')
+        const workspaceApiKey = session.api_key || ''
+        setApiKey(workspaceApiKey)
         setUser(await hydrateCredentialUser({
           name: user?.name && !GENERIC_NAMES.has(user.name)
             ? user.name
@@ -122,7 +125,7 @@ function Login() {
           email: session.email || formData.email,
           plan: session.plan,
           workspaceName: session.name,
-        }))
+        }, workspaceApiKey))
         setIsAuthenticated(true)
         navigate('/dashboard')
       } else {
@@ -132,14 +135,15 @@ function Login() {
           email: formData.email,
           password: formData.password,
         })
-        setApiKey('')
+        const workspaceApiKey = session.api_key || ''
+        setApiKey(workspaceApiKey)
         setIsAuthenticated(true)
         setUser(await hydrateCredentialUser({
           name: session.owner_name || formData.name || session.name || 'User',
           email: session.email || formData.email,
           plan: session.plan,
           workspaceName: session.name,
-        }))
+        }, workspaceApiKey))
         navigate('/dashboard')
       }
     } catch (err) {

@@ -38,6 +38,8 @@ cp .env.example .env
 docker-compose up -d --build
 ```
 
+Ese stack ahora usa el runtime modular real (`python3 nova.py serve`) detrás de PostgreSQL y construye el frontend desde `frontend/`, en vez de depender del backend legacy.
+
 ### Opción 2: desarrollo por separado
 
 Backend:
@@ -46,7 +48,7 @@ Backend:
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn nova.api.server:app --reload --host 0.0.0.0 --port 8000
+python3 nova.py serve --host 0.0.0.0 --port 8000 --api-only
 ```
 
 Frontend:

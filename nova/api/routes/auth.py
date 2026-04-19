@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 
-from nova.api.dependencies import get_current_workspace, get_kernel_dependency
+from nova.api.dependencies import get_current_workspace, get_kernel_dependency, to_payload
 from nova.api.schemas.auth_schemas import AuthResponse, LoginRequest, MeResponse, RegisterRequest
 from nova.kernel import NovaKernel
 from nova.types import WorkspacePlan
-from nova.workspace.permissions import create_access_token, verify_password
+from nova.workspace.permissions import create_access_token, decode_access_token, verify_password
 
 router = APIRouter()
 
@@ -60,6 +60,49 @@ async def me(current_workspace: dict = Depends(get_current_workspace)) -> MeResp
         email=current_workspace["email"],
         role=current_workspace["role"],
     )
+
+
+@router.get("/api/auth/session")
+async def session_status(
+    kernel: NovaKernel = Depends(get_kernel_dependency),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None, alias="x-api-key"),
+) -> dict:
+    workspace_payload = None
+
+    if x_api_key:
+        workspace = await kernel.workspace_manager.get_by_api_key(x_api_key)
+        if workspace is not None:
+            workspace_payload = {
+                "id": workspace.id,
+                "name": workspace.name,
+                "email": workspace.owner_email,
+                "owner_name": workspace.owner_name,
+                "plan": workspace.plan,
+                "api_key": workspace.api_key,
+                "role": workspace.role,
+            }
+    elif authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1]
+        claims = decode_access_token(kernel.config, token)
+        workspace = await kernel.workspace_manager.get_workspace(claims["workspace_id"])
+        if workspace is not None:
+            workspace_payload = {
+                **to_payload(workspace),
+                "email": claims.get("email", ""),
+                "role": claims.get("role", "admin"),
+            }
+
+    return {"authenticated": workspace_payload is not None, "workspace": workspace_payload}
+
+
+@router.get("/api/setup/status")
+async def setup_status(kernel: NovaKernel = Depends(get_kernel_dependency)) -> dict:
+    workspaces = await kernel.workspace_manager.list_workspaces()
+    return {
+        "needs_setup": len(workspaces) == 0,
+        "recommended_login": "credentials",
+    }
 
 
 @router.post("/api/auth/logout")

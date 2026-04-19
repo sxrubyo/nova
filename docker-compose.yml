@@ -2,7 +2,7 @@ version: '3.9'
 
 services:
 
-  # ── PostgreSQL — El Ledger vive aquí ──────────────────────────
+  # ── PostgreSQL — opcional pero usado por el stack completo ───
   db:
     image: postgres:16-alpine
     container_name: nova_db
@@ -22,13 +22,17 @@ services:
       timeout: 5s
       retries: 10
 
-  # ── Backend API — FastAPI Python ──────────────────────────────
+  # ── Backend API — runtime modular de Nova ─────────────────────
   api:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: nova_api
     restart: unless-stopped
     environment:
+      NOVA_DB_URL: ${NOVA_DB_URL:-postgresql+asyncpg://nova:nova_secret_2026@db:5432/nova}
       DATABASE_URL: ${DATABASE_URL:-postgresql://nova:nova_secret_2026@db:5432/nova}
+      NOVA_JWT_SECRET: ${NOVA_JWT_SECRET:-nova_signing_key_local_dev_only}
       SECRET_KEY: ${SECRET_KEY:-nova_signing_key_local_dev_only}
       WORKSPACE_ADMIN_TOKEN: ${WORKSPACE_ADMIN_TOKEN:-nova_admin_token_local_dev_only}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3005}
@@ -49,25 +53,24 @@ services:
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       COHERE_API_KEY: ${COHERE_API_KEY:-}
+      NOVA_API_PORT: 8000
+      NOVA_LOG_FORMAT: console
     ports:
       - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
     volumes:
-      - ./backend:/app
-      - ./nova:/app/nova
-      - ./nova.py:/app/nova.py
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+      - ./:/app
+    command: python3 nova.py serve --host 0.0.0.0 --port 8000 --api-only
 
-  # ── Frontend — Dashboard Nova ─────────────────────────────────
+  # ── Frontend — build reproducible del dashboard moderno ───────
   frontend:
-    image: nginx:alpine
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
     container_name: nova_frontend
     restart: unless-stopped
-    volumes:
-      - ./frontend/dist:/usr/share/nginx/html
-      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
     ports:
       - "3005:80"
     depends_on:

@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 
 try:
     from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -59,11 +59,19 @@ class NovaConfig(BaseSettings):
     log_level: str = Field(default="INFO", alias="NOVA_LOG_LEVEL")
     log_format: str = Field(default="json", alias="NOVA_LOG_FORMAT")
 
-    db_url: str = Field(default_factory=_default_db_url, alias="NOVA_DB_URL")
+    db_url: str = Field(
+        default_factory=_default_db_url,
+        alias="NOVA_DB_URL",
+        validation_alias=AliasChoices("NOVA_DB_URL", "DATABASE_URL"),
+    )
     workspace_root: Path = Field(default_factory=_default_workspace_root, alias="NOVA_WORKSPACE_ROOT")
     data_dir: Path = Field(default_factory=_default_data_dir, alias="NOVA_DATA_DIR")
 
-    jwt_secret: str = Field(default="change-me", alias="NOVA_JWT_SECRET")
+    jwt_secret: str = Field(
+        default="change-me",
+        alias="NOVA_JWT_SECRET",
+        validation_alias=AliasChoices("NOVA_JWT_SECRET", "SECRET_KEY"),
+    )
     jwt_algorithm: str = Field(default="HS256", alias="NOVA_JWT_ALGORITHM")
     jwt_expiry_hours: int = Field(default=24, alias="NOVA_JWT_EXPIRY_HOURS")
     api_key_prefix: str = Field(default="nova_", alias="NOVA_API_KEY_PREFIX")
@@ -114,11 +122,25 @@ class NovaConfig(BaseSettings):
         values: dict[str, Any] = {}
         dotenv_values = cls._read_dotenv(Path(".env"))
         for field_name, field_info in cls.model_fields.items():
-            alias = field_info.alias or field_name
-            if alias in os.environ:
-                values[field_name] = os.environ[alias]
-            elif alias in dotenv_values:
-                values[field_name] = dotenv_values[alias]
+            aliases: list[str] = []
+            if field_info.alias:
+                aliases.append(field_info.alias)
+            validation_alias = getattr(field_info, "validation_alias", None)
+            if validation_alias is not None:
+                choices = getattr(validation_alias, "choices", None)
+                if choices:
+                    aliases.extend(str(choice) for choice in choices)
+                else:
+                    aliases.append(str(validation_alias))
+            aliases.append(field_name)
+
+            for alias in aliases:
+                if alias in os.environ:
+                    values[field_name] = os.environ[alias]
+                    break
+                if alias in dotenv_values:
+                    values[field_name] = dotenv_values[alias]
+                    break
         return values
 
     @staticmethod

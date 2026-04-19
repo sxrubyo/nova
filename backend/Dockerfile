@@ -1,7 +1,8 @@
 FROM python:3.12-slim
 WORKDIR /app
-COPY requirements.txt .
+COPY requirements.txt nova_core_requirements.txt pyproject.toml ./
 RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
+COPY nova ./nova
+COPY nova.py ./nova.py
 EXPOSE 8000
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["python3", "nova.py", "serve", "--host", "0.0.0.0", "--port", "8000", "--api-only"]
