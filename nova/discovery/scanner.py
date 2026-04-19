@@ -73,19 +73,41 @@ class SystemScanner:
 
         repositories = self._scan_repositories(roots=roots)
         terminals = self._scan_terminal_processes(repositories=repositories)
+        self._annotate_repository_activity(repositories, terminals)
+        host = self._host_profile()
+        tooling = self._scan_tooling()
+        applications = [item for item in tooling if item.get("installed") and item.get("category") in {"assistant", "editor", "automation"}]
+        recommended_installs = self._build_install_recommendations(
+            repositories=repositories,
+            terminals=terminals,
+            tooling=tooling,
+            host=host,
+        )
         codex_home = Path.home() / ".codex"
+        active_repo_paths = sorted({terminal["repo_path"] for terminal in terminals if terminal.get("repo_path")})
+        ecosystem_counts = self._ecosystem_counts(repositories)
         return {
             "summary": {
                 "repositories": len(repositories),
                 "terminals": len(terminals),
+                "active_repositories": len(active_repo_paths),
+                "toolchains": len([item for item in tooling if item.get("installed")]),
+                "applications": len(applications),
+                "recommended_installs": len(recommended_installs),
+                "ecosystems": ecosystem_counts,
             },
             "repositories": repositories,
             "terminals": terminals,
+            "tooling": tooling,
+            "applications": applications,
+            "recommended_installs": recommended_installs,
+            "host": host,
             "signals": {
                 "has_codex_home": codex_home.exists(),
                 "codex_home": str(codex_home),
                 "cwd": str(Path.cwd()),
                 "platform": PLATFORM.type,
+                "active_repo_paths": active_repo_paths,
             },
         }
 
@@ -456,6 +478,300 @@ class SystemScanner:
         if (directory / "docker-compose.yml").exists():
             ecosystems.append("docker")
         return ecosystems
+
+    def _annotate_repository_activity(self, repositories: list[dict[str, Any]], terminals: list[dict[str, Any]]) -> None:
+        terminal_counts: dict[str, int] = {}
+        for terminal in terminals:
+            repo_path = terminal.get("repo_path")
+            if not repo_path:
+                continue
+            terminal_counts[repo_path] = terminal_counts.get(repo_path, 0) + 1
+
+        for repository in repositories:
+            active_terminals = terminal_counts.get(repository["path"], 0)
+            repository["active_terminals"] = active_terminals
+            repository["is_active"] = active_terminals > 0
+
+        repositories.sort(
+            key=lambda item: (
+                0 if item.get("is_active") else 1,
+                0 if item.get("has_codex") else 1,
+                item.get("name", ""),
+            )
+        )
+
+    def _ecosystem_counts(self, repositories: list[dict[str, Any]]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for repository in repositories:
+            for ecosystem in repository.get("ecosystems", []):
+                counts[ecosystem] = counts.get(ecosystem, 0) + 1
+        return dict(sorted(counts.items()))
+
+    def _host_profile(self) -> dict[str, Any]:
+        package_manager = self._detect_package_manager()
+        return {
+            "platform": PLATFORM.type,
+            "process_manager": PLATFORM.process_manager,
+            "db_engine": PLATFORM.db_engine,
+            "package_manager": package_manager,
+            "cwd": str(Path.cwd()),
+            "home": str(Path(PLATFORM.home)),
+        }
+
+    def _detect_package_manager(self) -> dict[str, Any]:
+        candidates = [
+            ("pkg", True),
+            ("brew", True),
+            ("apt-get", True),
+            ("dnf", True),
+            ("pacman", True),
+            ("winget", True),
+            ("choco", True),
+            ("scoop", True),
+        ]
+        for command, auto_install in candidates:
+            if shutil.which(command) is not None:
+                return {"name": command, "auto_install_supported": auto_install}
+        return {"name": None, "auto_install_supported": False}
+
+    def _scan_tooling(self) -> list[dict[str, Any]]:
+        tool_specs = [
+            {"key": "git", "label": "Git", "commands": ["git"], "category": "vcs"},
+            {"key": "python", "label": "Python", "commands": ["python3", "python", "py"], "category": "runtime"},
+            {"key": "pip", "label": "pip", "commands": ["pip3", "pip"], "category": "runtime"},
+            {"key": "uv", "label": "uv", "commands": ["uv"], "category": "runtime"},
+            {"key": "node", "label": "Node.js", "commands": ["node"], "category": "runtime"},
+            {"key": "npm", "label": "npm", "commands": ["npm"], "category": "runtime"},
+            {"key": "pnpm", "label": "pnpm", "commands": ["pnpm"], "category": "runtime"},
+            {"key": "bun", "label": "Bun", "commands": ["bun"], "category": "runtime"},
+            {"key": "docker", "label": "Docker", "commands": ["docker"], "category": "automation"},
+            {"key": "rg", "label": "ripgrep", "commands": ["rg"], "category": "automation"},
+            {"key": "gh", "label": "GitHub CLI", "commands": ["gh"], "category": "automation"},
+            {"key": "codex", "label": "Codex CLI", "commands": ["codex"], "category": "assistant"},
+            {"key": "claude", "label": "Claude CLI", "commands": ["claude"], "category": "assistant"},
+            {"key": "n8n", "label": "n8n", "commands": ["n8n"], "category": "automation"},
+            {"key": "ollama", "label": "Ollama", "commands": ["ollama"], "category": "automation"},
+            {"key": "code", "label": "VS Code", "commands": ["code"], "category": "editor"},
+            {"key": "cursor", "label": "Cursor", "commands": ["cursor"], "category": "editor"},
+            {"key": "zed", "label": "Zed", "commands": ["zed"], "category": "editor"},
+            {"key": "tmux", "label": "tmux", "commands": ["tmux"], "category": "terminal"},
+            {"key": "screen", "label": "screen", "commands": ["screen"], "category": "terminal"},
+        ]
+
+        tooling: list[dict[str, Any]] = []
+        for spec in tool_specs:
+            resolved = self._resolve_tool_binary(spec["commands"])
+            tooling.append(
+                {
+                    "key": spec["key"],
+                    "label": spec["label"],
+                    "category": spec["category"],
+                    "installed": resolved is not None,
+                    "path": resolved,
+                    "version": self._tool_version(spec["key"], resolved) if resolved else None,
+                }
+            )
+        return tooling
+
+    def _resolve_tool_binary(self, commands: list[str]) -> str | None:
+        for command in commands:
+            resolved = shutil.which(command)
+            if resolved:
+                return resolved
+        return None
+
+    def _tool_version(self, key: str, resolved: str) -> str | None:
+        command = Path(resolved).name
+        version_command = [command, "--version"]
+        if key == "python" and command.lower() == "py":
+            version_command = [command, "-3", "--version"]
+        elif key == "tmux":
+            version_command = [command, "-V"]
+        elif key == "screen":
+            version_command = [command, "-v"]
+        output = self._sync_command_output(version_command)
+        if not output:
+            return None
+        return output.splitlines()[0].strip()[:120]
+
+    def _sync_command_output(self, command: list[str], timeout: int = 4) -> str:
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        return (completed.stdout or completed.stderr or "").strip()
+
+    def _build_install_recommendations(
+        self,
+        *,
+        repositories: list[dict[str, Any]],
+        terminals: list[dict[str, Any]],
+        tooling: list[dict[str, Any]],
+        host: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        installed = {item["key"]: bool(item.get("installed")) for item in tooling}
+        package_manager = str((host.get("package_manager") or {}).get("name") or "")
+        ecosystem_counts = self._ecosystem_counts(repositories)
+        active_repositories = [repository for repository in repositories if repository.get("is_active")]
+        active_ecosystems = self._ecosystem_counts(active_repositories)
+        has_codex = any(repository.get("has_codex") for repository in repositories) or (Path.home() / ".codex").exists()
+
+        recommendations: list[dict[str, Any]] = []
+
+        def add(tool_key: str, *, reason: str, packages: list[str], auto_installable: bool, severity: str = "recommended") -> None:
+            install_command = self._build_install_command(package_manager, packages)
+            recommendations.append(
+                {
+                    "tool": tool_key,
+                    "severity": severity,
+                    "reason": reason,
+                    "packages": packages,
+                    "auto_installable": auto_installable and bool(install_command),
+                    "install_command": install_command,
+                }
+            )
+
+        if repositories and not installed.get("git", False):
+            add(
+                "git",
+                reason=f"{len(repositories)} repository roots detected and Git is missing",
+                packages=self._package_names("git", package_manager),
+                auto_installable=True,
+                severity="essential",
+            )
+
+        if ecosystem_counts.get("python", 0) and not installed.get("python", False):
+            repo_count = active_ecosystems.get("python", 0) or ecosystem_counts.get("python", 0)
+            add(
+                "python",
+                reason=f"{repo_count} Python repository contexts detected and Python is missing",
+                packages=self._package_names("python", package_manager),
+                auto_installable=True,
+                severity="essential",
+            )
+
+        if ecosystem_counts.get("node", 0) and (not installed.get("node", False) or not installed.get("npm", False)):
+            repo_count = active_ecosystems.get("node", 0) or ecosystem_counts.get("node", 0)
+            add(
+                "node",
+                reason=f"{repo_count} Node-based repositories detected and Node/npm are incomplete",
+                packages=self._package_names("node", package_manager),
+                auto_installable=True,
+            )
+
+        if ecosystem_counts.get("docker", 0) and not installed.get("docker", False):
+            repo_count = active_ecosystems.get("docker", 0) or ecosystem_counts.get("docker", 0)
+            add(
+                "docker",
+                reason=f"{repo_count} repositories define Docker workflows but Docker is missing",
+                packages=self._package_names("docker", package_manager),
+                auto_installable=False,
+            )
+
+        if has_codex and not installed.get("rg", False):
+            add(
+                "rg",
+                reason="Codex context detected and ripgrep is missing; Nova and Codex both scan faster with rg",
+                packages=self._package_names("rg", package_manager),
+                auto_installable=True,
+            )
+
+        if terminals and PLATFORM.type in {"linux", "macos", "termux"} and not installed.get("tmux", False):
+            add(
+                "tmux",
+                reason=f"{len(terminals)} terminal sessions detected; tmux improves resilient long-running agent sessions",
+                packages=self._package_names("tmux", package_manager),
+                auto_installable=True,
+                severity="optional",
+            )
+
+        return [item for item in recommendations if item["packages"]]
+
+    def _package_names(self, tool: str, package_manager: str) -> list[str]:
+        packages = {
+            "git": {
+                "apt-get": ["git"],
+                "dnf": ["git"],
+                "pacman": ["git"],
+                "brew": ["git"],
+                "pkg": ["git"],
+                "winget": ["Git.Git"],
+                "choco": ["git"],
+                "scoop": ["git"],
+            },
+            "python": {
+                "apt-get": ["python3", "python3-pip", "python3-venv"],
+                "dnf": ["python3", "python3-pip", "python3-virtualenv"],
+                "pacman": ["python", "python-pip"],
+                "brew": ["python"],
+                "pkg": ["python"],
+                "winget": ["Python.Python.3.11"],
+                "choco": ["python"],
+                "scoop": ["python"],
+            },
+            "node": {
+                "apt-get": ["nodejs", "npm"],
+                "dnf": ["nodejs", "npm"],
+                "pacman": ["nodejs", "npm"],
+                "brew": ["node"],
+                "pkg": ["nodejs"],
+                "winget": ["OpenJS.NodeJS.LTS"],
+                "choco": ["nodejs-lts"],
+                "scoop": ["nodejs-lts"],
+            },
+            "docker": {
+                "apt-get": ["docker.io"],
+                "dnf": ["docker"],
+                "pacman": ["docker"],
+                "brew": ["docker"],
+                "winget": ["Docker.DockerDesktop"],
+                "choco": ["docker-desktop"],
+                "scoop": ["docker"],
+            },
+            "rg": {
+                "apt-get": ["ripgrep"],
+                "dnf": ["ripgrep"],
+                "pacman": ["ripgrep"],
+                "brew": ["ripgrep"],
+                "pkg": ["ripgrep"],
+                "winget": ["BurntSushi.ripgrep.MSVC"],
+                "choco": ["ripgrep"],
+                "scoop": ["ripgrep"],
+            },
+            "tmux": {
+                "apt-get": ["tmux"],
+                "dnf": ["tmux"],
+                "pacman": ["tmux"],
+                "brew": ["tmux"],
+                "pkg": ["tmux"],
+                "winget": ["Termius.Termius"],
+                "choco": ["tmux"],
+                "scoop": ["tmux"],
+            },
+        }
+        return list(packages.get(tool, {}).get(package_manager, []))
+
+    def _build_install_command(self, package_manager: str, packages: list[str]) -> str | None:
+        if not package_manager or not packages:
+            return None
+        joined = " ".join(packages)
+        commands = {
+            "apt-get": f"sudo apt-get install -y {joined}",
+            "dnf": f"sudo dnf install -y {joined}",
+            "pacman": f"sudo pacman -S --noconfirm {joined}",
+            "brew": f"brew install {joined}",
+            "pkg": f"pkg install -y {joined}",
+            "winget": " ; ".join(f"winget install --id {package} -e" for package in packages),
+            "choco": f"choco install -y {joined}",
+            "scoop": f"scoop install {joined}",
+        }
+        return commands.get(package_manager)
 
     def _scan_terminal_processes(self, *, repositories: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
         if psutil is None:

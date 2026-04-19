@@ -23,6 +23,7 @@ curl -fsSL https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh | s
 The installer:
 
 - detects the host platform
+- profiles local toolchains and active developer context
 - creates an isolated Python runtime in `~/.nova/runtime`
 - installs the `nova` wrapper into a writable user bin directory
 - starts Nova on `http://localhost:8000`
@@ -183,7 +184,8 @@ nova serve --host 0.0.0.0 --port 8000
 
 ## Discovery and governance
 
-- `nova discover --json` returns both discovered agents and a host inventory summary with repositories, terminals, and local Codex context.
+- `nova discover --json` returns both discovered agents and a host inventory summary with repositories, active terminals, installed toolchains, and local Codex context.
+- Nova computes `recommended_installs` from what it actually sees on the host instead of trying to install every possible developer dependency up front.
 - `nova connect <agent_key> --cannot-do "rm -rf"` attaches governance rules directly when onboarding a discovered agent.
 - Discovery task execution is routed through Nova's evaluation pipeline before the connector runs, so a matching `cannot_do` rule blocks the task before the agent executes it.
 

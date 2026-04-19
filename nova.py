@@ -28,9 +28,11 @@ from nova.types import EvaluationRequest
 
 try:
     from rich.console import Console
+    from rich.panel import Panel
     from rich.table import Table
 except ImportError:  # pragma: no cover - optional host fallback
     Console = None
+    Panel = None
     Table = None
 
 
@@ -428,6 +430,14 @@ def _print_discovery_table(agents: list[dict[str, Any]], inventory: dict[str, An
     if console is None or Table is None:
         print(json.dumps({"agents": agents, "inventory": inventory or {}}, indent=2))
         return
+    if Panel is not None:
+        console.print(
+            Panel.fit(
+                "[bold bright_blue]NOVA OS[/bold bright_blue]\n"
+                "[white]Host discovery • governed runtime • operator visibility[/white]",
+                border_style="bright_blue",
+            )
+        )
     table = Table(title="Nova OS - Agent Discovery Scan")
     table.add_column("#", style="cyan")
     table.add_column("Agent", style="bold")
@@ -441,13 +451,36 @@ def _print_discovery_table(agents: list[dict[str, Any]], inventory: dict[str, An
     console.print(table)
     if inventory:
         summary = inventory.get("summary", {})
+        host = inventory.get("host", {})
         signals = inventory.get("signals", {})
         console.print(
             f"[bold blue]Host inventory[/bold blue] "
             f"repos={summary.get('repositories', 0)} "
             f"terminals={summary.get('terminals', 0)} "
-            f"codex_home={'yes' if signals.get('has_codex_home') else 'no'}"
+            f"active={summary.get('active_repositories', 0)} "
+            f"codex_home={'yes' if signals.get('has_codex_home') else 'no'} "
+            f"platform={host.get('platform') or signals.get('platform') or 'unknown'} "
+            f"pkgmgr={((host.get('package_manager') or {}).get('name')) or 'n/a'}"
         )
+        tooling = [item for item in inventory.get("tooling", []) if item.get("installed")]
+        if tooling:
+            tool_table = Table(title="Installed toolchains")
+            tool_table.add_column("Tool", style="bold")
+            tool_table.add_column("Category")
+            tool_table.add_column("Version")
+            for item in tooling[:12]:
+                tool_table.add_row(item.get("label", item.get("key", "?")), item.get("category", "?"), item.get("version") or "detected")
+            console.print(tool_table)
+
+        recommendations = inventory.get("recommended_installs", [])
+        if recommendations:
+            install_table = Table(title="Recommended installs")
+            install_table.add_column("Tool", style="bold yellow")
+            install_table.add_column("Reason")
+            install_table.add_column("Install")
+            for item in recommendations[:8]:
+                install_table.add_row(item.get("tool", "?"), item.get("reason", ""), item.get("install_command") or "manual")
+            console.print(install_table)
 
 
 async def _agent_metrics(kernel: Any, agent_id: str) -> dict[str, Any]:

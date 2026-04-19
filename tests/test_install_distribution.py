@@ -18,6 +18,7 @@ def test_install_script_delegates_python_setup_to_bootstrap_module() -> None:
     assert 'command -v nova' not in install_script
     assert 'sudo -n true' in install_script
     assert '--api-only' not in install_script
+    assert 'NOVA_BOOTSTRAP_EMBEDDED=1' in install_script
 
 
 def test_windows_installer_uses_bootstrap_runtime() -> None:
@@ -27,6 +28,7 @@ def test_windows_installer_uses_bootstrap_runtime() -> None:
     assert "raw.githubusercontent.com/sxrubyo/nova-os/main/nova.py" not in install_script
     assert "Expand-Archive" in install_script
     assert '"install"' in install_script or "'install'" in install_script
+    assert '$env:NOVA_BOOTSTRAP_EMBEDDED = "1"' in install_script
 
 
 def test_npm_package_exposes_nova_bin() -> None:

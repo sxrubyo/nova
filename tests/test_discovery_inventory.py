@@ -30,13 +30,30 @@ def test_host_inventory_reports_repositories_and_codex_context(tmp_path: Path, m
             }
         ],
     )
+    monkeypatch.setattr(
+        scanner,
+        "_scan_tooling",
+        lambda: [
+            {"key": "git", "label": "Git", "category": "vcs", "installed": True, "version": "git version 2.43.0"},
+            {"key": "python", "label": "Python", "category": "runtime", "installed": True, "version": "Python 3.11.9"},
+            {"key": "node", "label": "Node.js", "category": "runtime", "installed": False, "version": None},
+            {"key": "npm", "label": "npm", "category": "runtime", "installed": False, "version": None},
+            {"key": "rg", "label": "ripgrep", "category": "automation", "installed": False, "version": None},
+            {"key": "codex", "label": "Codex CLI", "category": "assistant", "installed": True, "version": "codex 1.0"},
+        ],
+    )
+    monkeypatch.setattr(scanner, "_host_profile", lambda: {"platform": "linux", "package_manager": {"name": "apt-get", "auto_install_supported": True}})
 
     inventory = scanner.host_inventory(roots=[tmp_path])
 
     assert inventory["summary"]["repositories"] == 1
     assert inventory["summary"]["terminals"] == 1
+    assert inventory["summary"]["active_repositories"] == 1
     assert "has_codex_home" in inventory["signals"]
     assert inventory["repositories"][0]["path"] == str(repo_dir)
     assert inventory["repositories"][0]["has_codex"] is True
+    assert inventory["repositories"][0]["is_active"] is True
     assert set(inventory["repositories"][0]["ecosystems"]) == {"node", "python"}
     assert inventory["terminals"][0]["repo_path"] == str(repo_dir)
+    assert inventory["recommended_installs"][0]["tool"] == "node"
+    assert inventory["recommended_installs"][0]["install_command"].startswith("sudo apt-get install -y")

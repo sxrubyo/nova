@@ -9,10 +9,11 @@ $BinDir = Join-Path $NovaHome "bin"
 $WrapperCmd = Join-Path $BinDir "nova.cmd"
 
 function Write-Banner {
-    Write-Host "****************************************" -ForegroundColor Blue
-    Write-Host "*               NOVA OS                *" -ForegroundColor Blue
-    Write-Host "*  discovery, policy, runtime online   *" -ForegroundColor Blue
-    Write-Host "****************************************" -ForegroundColor Blue
+    Write-Host "╭──────────────────────────────────────────────────────────────╮" -ForegroundColor Blue
+    Write-Host "│  .      *        .       NOVA OS // launch vector          │" -ForegroundColor Blue
+    Write-Host "│     adaptive runtime bootstrap for governed operators      │" -ForegroundColor Blue
+    Write-Host "│  repos • terminals • toolchains • policy • live agents     │" -ForegroundColor Blue
+    Write-Host "╰──────────────────────────────────────────────────────────────╯" -ForegroundColor Blue
 }
 
 function Write-Step([string]$Message) {
@@ -95,6 +96,7 @@ Write-Ok "Repository staged in $RepoDir"
 Write-Step "Bootstrapping isolated runtime"
 Push-Location $RepoDir
 try {
+    $env:NOVA_BOOTSTRAP_EMBEDDED = "1"
     Invoke-Python -PythonCommand $Python -Arguments @(
         "-m", "nova.bootstrap",
         "install",
@@ -104,6 +106,7 @@ try {
         "--python-bin", $PythonExecutable
     )
 } finally {
+    Remove-Item Env:NOVA_BOOTSTRAP_EMBEDDED -ErrorAction SilentlyContinue
     Pop-Location
 }
 if (-not (Test-Path $WrapperCmd)) {

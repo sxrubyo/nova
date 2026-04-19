@@ -9,10 +9,11 @@ BOOTSTRAP_PATH=""
 NOVA_CMD=""
 
 print_banner() {
-  printf '\033[0;94m%s\033[0m\n' '****************************************'
-  printf '\033[0;94m%s\033[0m\n' '*               NOVA OS                *'
-  printf '\033[0;94m%s\033[0m\n' '*  discovery, policy, runtime online   *'
-  printf '\033[0;94m%s\033[0m\n' '****************************************'
+  printf '\033[0;94m%s\033[0m\n' '╭──────────────────────────────────────────────────────────────╮'
+  printf '\033[0;94m%s\033[0m\n' '│  .      *        .       NOVA OS // launch vector          │'
+  printf '\033[0;94m%s\033[0m\n' '│     adaptive runtime bootstrap for governed operators      │'
+  printf '\033[0;94m%s\033[0m\n' '│  repos • terminals • toolchains • policy • live agents     │'
+  printf '\033[0;94m%s\033[0m\n' '╰──────────────────────────────────────────────────────────────╯'
 }
 
 is_termux() {
@@ -60,7 +61,18 @@ install_deps() {
   if is_termux; then
     log "Termux detected"
     pkg update -y -q || true
-    pkg install -y python git openssl libsqlite curl >/dev/null 2>&1 || true
+    missing=""
+    command -v python >/dev/null 2>&1 || missing="$missing python"
+    command -v git >/dev/null 2>&1 || missing="$missing git"
+    command -v curl >/dev/null 2>&1 || missing="$missing curl"
+    command -v openssl >/dev/null 2>&1 || missing="$missing openssl"
+    command -v sqlite3 >/dev/null 2>&1 || missing="$missing libsqlite"
+    if [ -n "$missing" ]; then
+      # shellcheck disable=SC2086
+      pkg install -y $missing >/dev/null 2>&1 || true
+    else
+      log "Host essentials already present"
+    fi
     return
   fi
 
@@ -70,7 +82,16 @@ install_deps() {
       warn "Homebrew is not installed; skipping automatic dependency installation"
       return
     fi
-    brew install python git curl >/dev/null 2>&1 || true
+    missing=""
+    command -v python3 >/dev/null 2>&1 || missing="$missing python"
+    command -v git >/dev/null 2>&1 || missing="$missing git"
+    command -v curl >/dev/null 2>&1 || missing="$missing curl"
+    if [ -n "$missing" ]; then
+      # shellcheck disable=SC2086
+      brew install $missing >/dev/null 2>&1 || true
+    else
+      log "Host essentials already present"
+    fi
     return
   fi
 
@@ -80,12 +101,56 @@ install_deps() {
     return
   fi
   if command -v apt-get >/dev/null 2>&1; then
+    missing=""
+    command -v git >/dev/null 2>&1 || missing="$missing git"
+    command -v curl >/dev/null 2>&1 || missing="$missing curl"
+    command -v sqlite3 >/dev/null 2>&1 || missing="$missing sqlite3"
+    if ! command -v python3 >/dev/null 2>&1; then
+      missing="$missing python3 python3-pip python3-venv"
+    else
+      python3 -c "import venv" >/dev/null 2>&1 || missing="$missing python3-venv"
+      python3 -m pip --version >/dev/null 2>&1 || missing="$missing python3-pip"
+    fi
+    [ -n "$missing" ] || {
+      log "Host essentials already present"
+      return
+    }
     sudo_cmd apt-get update -qq
-    sudo_cmd apt-get install -y -qq python3 python3-pip python3-venv git curl sqlite3
+    # shellcheck disable=SC2086
+    sudo_cmd apt-get install -y -qq $missing
   elif command -v dnf >/dev/null 2>&1; then
-    sudo_cmd dnf install -y python3 python3-pip python3-virtualenv git curl sqlite
+    missing=""
+    command -v git >/dev/null 2>&1 || missing="$missing git"
+    command -v curl >/dev/null 2>&1 || missing="$missing curl"
+    command -v sqlite3 >/dev/null 2>&1 || missing="$missing sqlite"
+    if ! command -v python3 >/dev/null 2>&1; then
+      missing="$missing python3 python3-pip python3-virtualenv"
+    else
+      python3 -c "import venv" >/dev/null 2>&1 || missing="$missing python3-virtualenv"
+      python3 -m pip --version >/dev/null 2>&1 || missing="$missing python3-pip"
+    fi
+    [ -n "$missing" ] || {
+      log "Host essentials already present"
+      return
+    }
+    # shellcheck disable=SC2086
+    sudo_cmd dnf install -y $missing
   elif command -v pacman >/dev/null 2>&1; then
-    sudo_cmd pacman -Sy --noconfirm python python-pip git curl sqlite
+    missing=""
+    command -v git >/dev/null 2>&1 || missing="$missing git"
+    command -v curl >/dev/null 2>&1 || missing="$missing curl"
+    command -v sqlite3 >/dev/null 2>&1 || missing="$missing sqlite"
+    if ! command -v python >/dev/null 2>&1; then
+      missing="$missing python python-pip"
+    else
+      python -m pip --version >/dev/null 2>&1 || missing="$missing python-pip"
+    fi
+    [ -n "$missing" ] || {
+      log "Host essentials already present"
+      return
+    }
+    # shellcheck disable=SC2086
+    sudo_cmd pacman -Sy --noconfirm $missing
   else
     warn "No supported package manager detected; continuing with existing dependencies"
   fi
@@ -117,10 +182,11 @@ resolve_bootstrap() {
 
 install_runtime() {
   PYTHON_BIN="$(detect_python)" || die "Python is not available"
-  "$PYTHON_BIN" "$BOOTSTRAP_PATH" install \
+  log "Bootstrapping isolated runtime"
+  NOVA_BOOTSTRAP_EMBEDDED=1 "$PYTHON_BIN" "$BOOTSTRAP_PATH" install \
     --repo "$REPO_DIR" \
     --home-dir "$HOME" \
-    --python-bin "$PYTHON_BIN" >/dev/null 2>&1 || die "Failed to bootstrap the isolated runtime"
+    --python-bin "$PYTHON_BIN" || die "Failed to bootstrap the isolated runtime"
   NOVA_CMD="$("$PYTHON_BIN" - <<PY
 import sys
 sys.path.insert(0, "$REPO_DIR")

@@ -47,8 +47,19 @@ def test_bootstrap_banner_contains_nova_branding() -> None:
     banner = render_bootstrap_banner()
 
     assert "NOVA OS" in banner
-    assert "runtime online" in banner
-    assert "*" in banner
+    assert "launch vector" in banner
+    assert "terminals" in banner
+    assert "╭" in banner
+
+
+def test_bootstrap_compact_banner_is_single_line() -> None:
+    from nova.bootstrap import render_bootstrap_banner
+
+    banner = render_bootstrap_banner(compact=True)
+
+    assert "NOVA OS" in banner
+    assert "bootstrap lane engaged" in banner
+    assert "\n" not in banner
 
 
 def test_ensure_runtime_prefers_venv_over_system_pip(tmp_path: Path) -> None:

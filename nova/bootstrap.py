@@ -30,15 +30,19 @@ CORE_PACKAGES = [
 ]
 
 
-def render_bootstrap_banner() -> str:
+def render_bootstrap_banner(*, compact: bool = False) -> str:
     """Return the installer banner shown while Nova bootstraps."""
+
+    if compact:
+        return "NOVA OS // bootstrap lane engaged // isolated runtime + host profile"
 
     return "\n".join(
         [
-            "****************************************",
-            "*               NOVA OS                *",
-            "*  discovery, policy, runtime online   *",
-            "****************************************",
+            "╭──────────────────────────────────────────────────────────────╮",
+            "│  .      *        .       NOVA OS // launch vector          │",
+            "│     adaptive runtime bootstrap for governed operators      │",
+            "│  repos • terminals • toolchains • policy • live agents     │",
+            "╰──────────────────────────────────────────────────────────────╯",
         ]
     )
 
@@ -58,11 +62,16 @@ def _emit_banner() -> None:
     if _BANNER_EMITTED:
         return
     _BANNER_EMITTED = True
-    print(_styled(render_bootstrap_banner(), color_code="94"), file=sys.stderr)
+    compact = os.environ.get("NOVA_BOOTSTRAP_EMBEDDED", "").strip() == "1"
+    print(_styled(render_bootstrap_banner(compact=compact), color_code="94"), file=sys.stderr)
 
 
 def _status(message: str) -> None:
     print(_styled(f"[nova] {message}", color_code="96"), file=sys.stderr)
+
+
+def _pip_flags() -> list[str]:
+    return ["--disable-pip-version-check", "--progress-bar", "off"]
 
 
 def select_bin_dir(
@@ -241,19 +250,19 @@ def ensure_runtime(
         runner([host_python, "-m", "venv", str(root)])
 
     _status("Nova bootstrap: installing Python dependencies")
-    runner([str(runtime_python), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"])
+    runner([str(runtime_python), "-m", "pip", "install", *(_pip_flags()), "--upgrade", "pip", "setuptools", "wheel"])
 
     requirements_file = repo_path / "requirements.txt"
     fallback_file = repo_path / "nova_core_requirements.txt"
     try:
         if requirements_file.exists():
-            runner([str(runtime_python), "-m", "pip", "install", "-r", str(requirements_file)])
+            runner([str(runtime_python), "-m", "pip", "install", *(_pip_flags()), "-r", str(requirements_file)])
         elif fallback_file.exists():
-            runner([str(runtime_python), "-m", "pip", "install", "-r", str(fallback_file)])
+            runner([str(runtime_python), "-m", "pip", "install", *(_pip_flags()), "-r", str(fallback_file)])
         else:
-            runner([str(runtime_python), "-m", "pip", "install", *CORE_PACKAGES])
+            runner([str(runtime_python), "-m", "pip", "install", *(_pip_flags()), *CORE_PACKAGES])
     except subprocess.CalledProcessError:
-        runner([str(runtime_python), "-m", "pip", "install", *CORE_PACKAGES])
+        runner([str(runtime_python), "-m", "pip", "install", *(_pip_flags()), *CORE_PACKAGES])
 
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(json.dumps(current_state, sort_keys=True), encoding="utf-8")
