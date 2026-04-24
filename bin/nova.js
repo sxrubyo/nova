@@ -26,7 +26,26 @@ function resolvePython() {
   process.exit(1);
 }
 
+function resolvePythonExecutable(pythonCommand) {
+  const probe = spawnSync(
+    pythonCommand[0],
+    [...pythonCommand.slice(1), '-c', 'import sys; print(sys.executable)'],
+    {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      encoding: 'utf8',
+    },
+  );
+  if (probe.status === 0) {
+    const executable = String(probe.stdout || '').trim();
+    if (executable) {
+      return executable;
+    }
+  }
+  return null;
+}
+
 const python = resolvePython();
+const pythonExecutable = resolvePythonExecutable(python);
 const result = spawnSync(
   python[0],
   [
@@ -35,6 +54,7 @@ const result = spawnSync(
     'exec',
     '--repo',
     repoDir,
+    ...(pythonExecutable ? ['--python-bin', pythonExecutable] : []),
     '--',
     ...process.argv.slice(2),
   ],

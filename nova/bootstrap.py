@@ -203,7 +203,12 @@ def detect_python() -> str:
 
 
 def _run_command(command: list[str], *, cwd: Path | None = None) -> None:
-    subprocess.run(command, cwd=str(cwd) if cwd else None, check=True, text=True)
+    try:
+        subprocess.run(command, cwd=str(cwd) if cwd else None, check=True, text=True)
+    except FileNotFoundError:
+        if cwd is None:
+            raise
+        subprocess.run(command, check=True, text=True)
 
 
 def _requirements_signature(repo_path: Path) -> str:

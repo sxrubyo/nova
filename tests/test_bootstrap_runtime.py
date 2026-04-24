@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import subprocess
+from unittest import mock
 
 
 def test_bootstrap_runtime_paths_live_under_nova_home(tmp_path: Path) -> None:
@@ -201,3 +202,23 @@ def test_ensure_shell_path_persists_wrapper_dir_once(tmp_path: Path) -> None:
     assert 'export PATH="' in bash_content
     assert profile_content.count(str(bin_dir)) == 1
     assert bash_content.count(str(bin_dir)) == 1
+
+
+def test_run_command_retries_without_cwd_when_process_launch_fails() -> None:
+    from nova.bootstrap import _run_command
+
+    calls: list[tuple[list[str], str | None]] = []
+
+    def fake_run(command: list[str], cwd: str | None = None, check: bool = True, text: bool = True):
+        calls.append((command, cwd))
+        if cwd is not None:
+            raise FileNotFoundError("cwd not reachable")
+        return None
+
+    with mock.patch("subprocess.run", side_effect=fake_run):
+        _run_command(["python3", "-V"], cwd=Path("/tmp/missing-cwd"))
+
+    assert calls == [
+        (["python3", "-V"], "/tmp/missing-cwd"),
+        (["python3", "-V"], None),
+    ]
