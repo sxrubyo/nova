@@ -29,6 +29,18 @@ CORE_PACKAGES = [
     "cryptography",
 ]
 
+LIGHTWEIGHT_BOOTSTRAP_COMMANDS = {
+    "",
+    "help",
+    "version",
+    "skill",
+    "auth",
+    "command",
+    "commands",
+    "launchpad",
+    "lp",
+}
+
 
 def nova_home(home_dir: str | Path | None = None) -> Path:
     """Return Nova's canonical home directory."""
@@ -155,6 +167,15 @@ def runtime_python_path(root: str | Path) -> Path:
     if os.name == "nt":
         return root_path / "Scripts" / "python.exe"
     return root_path / "bin" / "python"
+
+
+def command_can_skip_runtime(argv: Sequence[str]) -> bool:
+    if not argv:
+        return True
+    first = str(argv[0] or "").strip().lower()
+    if first in {"-h", "--help"}:
+        return True
+    return first in LIGHTWEIGHT_BOOTSTRAP_COMMANDS
 
 
 def build_wrapper_script(
@@ -348,8 +369,12 @@ def init_runtime_database(repo_dir: str | Path, *, home_dir: str | Path | None =
 def exec_nova(repo_dir: str | Path, argv: Sequence[str], *, home_dir: str | Path | None = None, python_bin: str | None = None) -> int:
     """Execute Nova through the isolated runtime."""
 
-    runtime_python = ensure_runtime(repo_dir, home_dir=home_dir, python_bin=python_bin)
-    command = [str(runtime_python), str(Path(repo_dir).resolve() / "nova.py"), *argv]
+    host_python = python_bin or detect_python()
+    if command_can_skip_runtime(argv):
+        command = [host_python, str(Path(repo_dir).resolve() / "nova.py"), *argv]
+    else:
+        runtime_python = ensure_runtime(repo_dir, home_dir=home_dir, python_bin=python_bin)
+        command = [str(runtime_python), str(Path(repo_dir).resolve() / "nova.py"), *argv]
     completed = subprocess.run(command, check=False)
     return int(completed.returncode)
 

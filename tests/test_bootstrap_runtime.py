@@ -222,3 +222,36 @@ def test_run_command_retries_without_cwd_when_process_launch_fails() -> None:
         (["python3", "-V"], "/tmp/missing-cwd"),
         (["python3", "-V"], None),
     ]
+
+
+def test_command_can_skip_runtime_for_help_and_empty_invocations() -> None:
+    from nova.bootstrap import command_can_skip_runtime
+
+    assert command_can_skip_runtime([])
+    assert command_can_skip_runtime(["Help"])
+    assert command_can_skip_runtime(["--help"])
+    assert command_can_skip_runtime(["skill", "install", "--agent", "codex"])
+    assert not command_can_skip_runtime(["start"])
+
+
+def test_exec_nova_uses_host_python_for_lightweight_commands(tmp_path: Path) -> None:
+    from nova.bootstrap import exec_nova
+
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "nova.py").write_text("print('ok')\n", encoding="utf-8")
+
+    calls: list[list[str]] = []
+
+    def fake_run(command, check=False):
+        calls.append(command)
+        class Result:
+            returncode = 0
+        return Result()
+
+    with mock.patch("subprocess.run", side_effect=fake_run), mock.patch("nova.bootstrap.ensure_runtime") as ensure_runtime:
+        rc = exec_nova(repo_dir, ["Help"], python_bin="/usr/bin/python3")
+
+    assert rc == 0
+    assert calls == [["/usr/bin/python3", str(repo_dir / "nova.py"), "Help"]]
+    ensure_runtime.assert_not_called()
