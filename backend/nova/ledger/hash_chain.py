@@ -9,7 +9,7 @@ from nova.ledger.action_record import LedgerEntry
 from nova.storage.database import session_scope
 from nova.storage.models import LedgerRecordModel
 from nova.storage.repositories.ledger_repo import LedgerRepository
-from nova.types import LedgerRecord
+from nova.nova_types import LedgerRecord
 from nova.utils.crypto import generate_id, sha256_hex, stable_json
 from nova.utils.text import flatten_payload, truncate
 

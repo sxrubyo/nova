@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from nova.types import AgentRecord, IntentAnalysis
+from nova.nova_types import AgentRecord, IntentAnalysis
 from nova.utils.text import detect_action_type, extract_target
 
 

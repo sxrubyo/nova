@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from nova.types import WorkspacePlan
+from nova.nova_types import WorkspacePlan
 
 
 class PlanManager:

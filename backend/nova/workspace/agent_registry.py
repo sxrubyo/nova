@@ -6,7 +6,7 @@ from nova.storage.database import session_scope
 from nova.storage.models import AgentModel
 from nova.storage.repositories.agent_repo import AgentRepository
 from nova.storage.repositories.workspace_repo import WorkspaceRepository
-from nova.types import AgentRecord, AgentStatus, WorkspaceRecord, WorkspaceRiskProfile, WorkspaceRules, WorkspaceThresholds, WorkspacePlan
+from nova.nova_types import AgentRecord, AgentStatus, WorkspaceRecord, WorkspaceRiskProfile, WorkspaceRules, WorkspaceThresholds, WorkspacePlan
 from nova.utils.crypto import generate_id
 
 

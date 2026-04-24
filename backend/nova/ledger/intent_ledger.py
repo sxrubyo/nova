@@ -9,7 +9,7 @@ from nova.ledger.action_record import LedgerEntry
 from nova.ledger.hash_chain import HashChain
 from nova.storage.database import session_scope
 from nova.storage.repositories.ledger_repo import LedgerRepository
-from nova.types import LedgerRecord
+from nova.nova_types import LedgerRecord
 
 
 class IntentLedger:

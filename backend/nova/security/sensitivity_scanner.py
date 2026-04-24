@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from nova.types import SensitivityFinding, SensitivityResult
+from nova.nova_types import SensitivityFinding, SensitivityResult
 from nova.utils.text import flatten_payload
 
 API_KEY_PATTERNS = [

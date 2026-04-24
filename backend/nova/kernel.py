@@ -29,7 +29,7 @@ from nova.security.loop_detector import LoopDetector
 from nova.security.rule_validator import RuleValidator
 from nova.security.sensitivity_scanner import SensitivityScanner
 from nova.storage.database import dispose_engine, init_database
-from nova.types import EvaluationRequest, EvaluationResult, SystemStatus
+from nova.nova_types import EvaluationRequest, EvaluationResult, SystemStatus
 from nova.workspace.agent_registry import AgentRegistry
 from nova.workspace.quota_manager import QuotaManager
 from nova.workspace.workspace_manager import WorkspaceManager

@@ -71,6 +71,8 @@ def test_full_scan_runs_independent_steps_concurrently() -> None:
         _scan_dotenv_files = _sleeping_scan
         _scan_processes = _sleeping_scan
         _scan_ports = _sleeping_scan
+        _scan_docker = _sleeping_scan
+        _scan_systemd = _sleeping_scan
 
     scanner = TimedScanner()
     start = time.perf_counter()

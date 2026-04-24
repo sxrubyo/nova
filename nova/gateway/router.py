@@ -20,7 +20,7 @@ from nova.gateway.providers.openrouter_provider import OpenRouterProvider
 from nova.gateway.providers.xai_provider import XAIProvider
 from nova.observability.alerts import AlertManager
 from nova.observability.logger import get_logger
-from nova.types import IntentAnalysis, LLMRequest, LLMResponse, ProviderState
+from nova.nova_types import IntentAnalysis, LLMRequest, LLMResponse, ProviderState
 
 
 class GatewayRouter:

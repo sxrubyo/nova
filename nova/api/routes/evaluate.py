@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from nova.api.dependencies import get_current_workspace, get_kernel_dependency, to_payload
 from nova.api.schemas.evaluation_schemas import EvaluateRequestSchema
 from nova.kernel import NovaKernel
-from nova.types import EvaluationRequest
+from nova.nova_types import EvaluationRequest
 
 router = APIRouter()
 

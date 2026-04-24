@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from nova.types import Decision, DecisionAction, RiskScore
+from nova.nova_types import Decision, DecisionAction, RiskScore
 
 
 class ImportanceScorer:

@@ -21,7 +21,7 @@ from nova.security.sensitivity_scanner import SensitivityScanner
 from nova.storage.database import session_scope
 from nova.storage.models import EvaluationModel
 from nova.storage.repositories.evaluation_repo import EvaluationRepository
-from nova.types import Decision, DecisionAction, EvaluationContext, EvaluationRequest, EvaluationResult, IntentAnalysis, RiskFactor, RiskLevel, RiskScore, RuleValidationResult, SensitivityResult, WorkspaceRules, WorkspaceThresholds
+from nova.nova_types import Decision, DecisionAction, EvaluationContext, EvaluationRequest, EvaluationResult, IntentAnalysis, RiskFactor, RiskLevel, RiskScore, RuleValidationResult, SensitivityResult, WorkspaceRules, WorkspaceThresholds
 from nova.utils.crypto import generate_id
 
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from nova.types import ProviderState
+from nova.nova_types import ProviderState
 
 
 class CostOptimizer:

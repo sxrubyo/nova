@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from nova.core.risk_engine import RiskEngine
-from nova.types import BurstCheckResult, LoopCheckResult, RuleValidationResult, SensitivityResult, WorkspaceRiskProfile
+from nova.nova_types import BurstCheckResult, LoopCheckResult, RuleValidationResult, SensitivityResult, WorkspaceRiskProfile
 
 
 @pytest.mark.asyncio

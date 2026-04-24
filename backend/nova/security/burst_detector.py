@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from collections import defaultdict, deque
 
-from nova.types import BurstCheckResult
+from nova.nova_types import BurstCheckResult
 
 
 class BurstDetector:

@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from nova.config import NovaConfig
 from nova.gateway.router import GatewayRouter
-from nova.types import ExecutionResult, IntentAnalysis, LLMRequest
+from nova.nova_types import ExecutionResult, IntentAnalysis, LLMRequest
 from nova.utils.validators import ensure_subpath
 
 

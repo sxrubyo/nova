@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 
-from nova.types import LoopCheckResult
+from nova.nova_types import LoopCheckResult
 from nova.utils.text import flatten_payload, jaccard_similarity
 
 

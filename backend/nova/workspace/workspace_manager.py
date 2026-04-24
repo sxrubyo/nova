@@ -8,7 +8,7 @@ from nova.config import NovaConfig
 from nova.storage.database import session_scope
 from nova.storage.models import WorkspaceModel
 from nova.storage.repositories.workspace_repo import WorkspaceRepository
-from nova.types import WorkspacePlan, WorkspaceRecord, WorkspaceRiskProfile, WorkspaceRules, WorkspaceThresholds
+from nova.nova_types import WorkspacePlan, WorkspaceRecord, WorkspaceRiskProfile, WorkspaceRules, WorkspaceThresholds
 from nova.utils.crypto import generate_api_key, generate_id
 from nova.workspace.permissions import hash_password
 

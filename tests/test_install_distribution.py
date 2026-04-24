@@ -56,6 +56,13 @@ def test_npm_package_exposes_nova_bin() -> None:
     assert "frontend/dist/**/*" in package_json["files"]
 
 
+def test_runtime_type_module_does_not_shadow_python_stdlib() -> None:
+    assert (REPO_ROOT / "nova" / "nova_types.py").exists()
+    assert not (REPO_ROOT / "nova" / "types.py").exists()
+    assert (REPO_ROOT / "backend" / "nova" / "nova_types.py").exists()
+    assert not (REPO_ROOT / "backend" / "nova" / "types.py").exists()
+
+
 def test_npmignore_excludes_python_cache_artifacts() -> None:
     npmignore = (REPO_ROOT / ".npmignore").read_text(encoding="utf-8")
 

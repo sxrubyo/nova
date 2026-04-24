@@ -34,7 +34,7 @@ CLI_COMMAND_ALIASES = {
     "lp": "help",
 }
 LIGHTWEIGHT_COMMANDS = {"help", "version", "skill", "auth"}
-MODERN_RUNTIME_COMMANDS = {"start", "serve", "discover", "evaluate", "agents", "gateway", "auth"}
+MODERN_RUNTIME_COMMANDS = {"start", "serve", "discover", "evaluate", "agents", "gateway", "auth", "skill"}
 LEGACY_ALIAS_MAP = {
     "command": "help",
     "commands": "help",
@@ -781,7 +781,7 @@ async def run_async(args: argparse.Namespace) -> None:
         return
 
     if args.command == "chat":
-        from nova.types import EvaluationRequest
+        from nova.nova_types import EvaluationRequest
 
         workspace_id = args.workspace or default_workspace.id
         agent_id = await _resolve_agent_id(kernel, workspace_id, args.agent)
@@ -798,7 +798,7 @@ async def run_async(args: argparse.Namespace) -> None:
         return
 
     if args.command in {"evaluate", "validate"}:
-        from nova.types import EvaluationRequest
+        from nova.nova_types import EvaluationRequest
 
         workspace_id = args.workspace or default_workspace.id
         agent_id = await _resolve_agent_id(kernel, workspace_id, getattr(args, "agent", None))

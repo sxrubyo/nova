@@ -15,7 +15,7 @@ from nova.discovery.fingerprints import AGENT_FINGERPRINTS
 from nova.discovery.scanner import SystemScanner
 from nova.discovery.watcher import AgentWatcher
 from nova.realtime.event_bus import RuntimeEventBus
-from nova.types import DecisionAction, EvaluationRequest
+from nova.nova_types import DecisionAction, EvaluationRequest
 
 
 class DiscoveryEngine:

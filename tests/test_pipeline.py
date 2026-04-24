@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from nova.types import EvaluationRequest
+from nova.nova_types import EvaluationRequest
 from tests.conftest import update_workspace
 
 

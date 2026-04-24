@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from nova.types import Decision, DecisionAction, EvaluationContext, RiskScore, WorkspaceThresholds
+from nova.nova_types import Decision, DecisionAction, EvaluationContext, RiskScore, WorkspaceThresholds
 
 
 class DecisionEngine:

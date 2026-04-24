@@ -9,7 +9,7 @@ from nova.api.schemas.auth_schemas import RegisterRequest
 from nova.kernel import NovaKernel
 from nova.storage.database import session_scope
 from nova.storage.repositories.evaluation_repo import EvaluationRepository
-from nova.types import WorkspacePlan
+from nova.nova_types import WorkspacePlan
 
 router = APIRouter()
 

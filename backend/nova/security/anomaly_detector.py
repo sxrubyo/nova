@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from nova.config import NovaConfig
 from nova.observability.alerts import AlertManager
 from nova.observability.logger import get_logger
-from nova.types import AgentRecord, DecisionAction, WorkspaceRiskProfile
+from nova.nova_types import AgentRecord, DecisionAction, WorkspaceRiskProfile
 
 
 @dataclass(slots=True)

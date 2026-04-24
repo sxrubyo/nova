@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from nova.types import AgentRecord, IntentAnalysis, RuleValidationResult, WorkspaceRules
+from nova.nova_types import AgentRecord, IntentAnalysis, RuleValidationResult, WorkspaceRules
 
 
 class RuleValidator:

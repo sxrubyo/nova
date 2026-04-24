@@ -18,7 +18,7 @@ from nova.constants import NOVA_VERSION
 from nova.kernel import get_kernel
 from nova.storage.database import session_scope
 from nova.storage.repositories.evaluation_repo import EvaluationRepository
-from nova.types import EvaluationRequest
+from nova.nova_types import EvaluationRequest
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -14,7 +14,7 @@ from nova.memory.episodic_memory import EpisodicMemory
 from nova.memory.working_memory import WorkingMemory
 from nova.storage.database import session_scope
 from nova.storage.models import MemoryModel
-from nova.types import MemoryItem, MemoryType
+from nova.nova_types import MemoryItem, MemoryType
 from nova.utils.crypto import generate_id
 
 

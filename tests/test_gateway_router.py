@@ -7,7 +7,7 @@ import pytest
 from nova.config import NovaConfig
 from nova.gateway.router import GatewayRouter
 from nova.observability.alerts import AlertManager
-from nova.types import LLMRequest, LLMResponse, ProviderState
+from nova.nova_types import LLMRequest, LLMResponse, ProviderState
 
 
 class FakeProvider:

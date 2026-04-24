@@ -9,7 +9,7 @@ import httpx
 
 from nova.constants import DEFAULT_PROVIDER_MODELS
 from nova.gateway.provider_base import BaseProvider
-from nova.types import LLMResponse, ProviderState
+from nova.nova_types import LLMResponse, ProviderState
 from nova.utils.retry import retry_async
 
 

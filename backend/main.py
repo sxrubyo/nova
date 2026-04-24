@@ -3765,7 +3765,7 @@ async def api_runtime_evaluate(
     payload: RuntimeEvaluateBridgeRequest,
     ws: Dict = Depends(get_workspace),
 ):
-    from nova.types import EvaluationRequest
+    from nova.nova_types import EvaluationRequest
 
     _, kernel, runtime_workspace = await _get_runtime_workspace_context(ws)
     result = await kernel.evaluate(

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from nova.core.intent_analyzer import IntentAnalyzer
-from nova.types import AgentRecord, AgentStatus
+from nova.nova_types import AgentRecord, AgentStatus
 
 
 @pytest.mark.asyncio

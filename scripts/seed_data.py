@@ -12,7 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from nova.kernel import NovaKernel, get_kernel
-from nova.types import EvaluationRequest
+from nova.nova_types import EvaluationRequest
 
 WORKSPACES = [
     ("production", "Production Workspace"),

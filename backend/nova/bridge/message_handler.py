@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from nova.api.dependencies import to_payload
 from nova.bridge.agent_session import AgentSession
 from nova.bridge.protocol import BridgeMessage
-from nova.types import EvaluationRequest
+from nova.nova_types import EvaluationRequest
 
 
 class MessageHandler:

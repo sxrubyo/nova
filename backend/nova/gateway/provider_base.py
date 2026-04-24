@@ -8,7 +8,7 @@ from typing import Any
 
 import httpx
 
-from nova.types import LLMResponse, ProviderHealth, ProviderState
+from nova.nova_types import LLMResponse, ProviderHealth, ProviderState
 from nova.utils.retry import retry_async
 
 

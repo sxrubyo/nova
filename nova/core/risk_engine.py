@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from statistics import mean
 
-from nova.types import BurstCheckResult, LoopCheckResult, RiskFactor, RiskLevel, RiskScore, RuleValidationResult, SensitivityResult, WorkspaceRiskProfile
+from nova.nova_types import BurstCheckResult, LoopCheckResult, RiskFactor, RiskLevel, RiskScore, RuleValidationResult, SensitivityResult, WorkspaceRiskProfile
 
 
 class RiskEngine:

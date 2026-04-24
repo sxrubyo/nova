@@ -13,7 +13,7 @@ from nova.kernel import NovaKernel, get_kernel
 from nova.storage.database import session_scope
 from nova.storage.models import WorkspaceModel
 from nova.storage.repositories.workspace_repo import WorkspaceRepository
-from nova.types import AgentRecord, EvaluationRequest, EvaluationResult, ProviderState, WorkspacePlan, WorkspaceRecord
+from nova.nova_types import AgentRecord, EvaluationRequest, EvaluationResult, ProviderState, WorkspacePlan, WorkspaceRecord
 from nova.utils.crypto import generate_api_key
 from nova.workspace.permissions import hash_password
 
