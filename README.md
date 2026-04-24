@@ -1,257 +1,217 @@
-# Nova OS
+<div align="center">
 
-Nova OS is a unified runtime for governed AI agents and automations. It bundles a Python API, a local web dashboard, and a CLI into one installable system that can run on Linux, macOS, Termux, or Ubuntu inside Termux.
-
-The supported execution path in this repository is `nova.py` + `nova/`. Legacy directories remain for compatibility while the public surface is being cleaned up.
-
-## What ships today
-
-- A FastAPI backend for evaluation, workspaces, ledger, discovery, and agent operations.
-- A React dashboard served by the same local runtime when `frontend/dist` is available.
-- A `nova` CLI for bootstrap, validation, status, auth, and operational workflows.
-- A portable storage path with SQLite fallback and PostgreSQL support when explicitly configured.
-- Optional Docker Compose and n8n integration for local or self-hosted environments.
-
-## Install
-
-### Recommended: one-line installer
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh | sh
+```
+ ███╗   ██╗ ██████╗ ██╗   ██╗ █████╗      ██████╗ ███████╗
+ ████╗  ██║██╔═══██╗██║   ██║██╔══██╗    ██╔═══██╗██╔════╝
+ ██╔██╗ ██║██║   ██║██║   ██║███████║    ██║   ██║███████╗
+ ██║╚██╗██║██║   ██║╚██╗ ██╔╝██╔══██║    ██║   ██║╚════██║
+ ██║ ╚████║╚██████╔╝ ╚████╔╝ ██║  ██║    ╚██████╔╝███████║
+ ╚═╝  ╚═══╝ ╚═════╝   ╚═══╝  ╚═╝  ╚═╝     ╚═════╝ ╚══════╝
 ```
 
-The installer:
+**Governance runtime for AI agents.**
 
-- detects the host platform
-- profiles local toolchains and active developer context
-- stages the canonical repo in `~/.nova/repo`
-- creates an isolated Python runtime in `~/.nova/runtime`
-- installs the canonical `nova` wrapper in `~/.nova/bin`
-- starts Nova on `http://localhost:8000`
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20Termux-lightgrey)](https://github.com/sxrubyo/nova-os)
+[![npm](https://img.shields.io/badge/npm-nova--os-red)](https://www.npmjs.com/package/nova-os)
+[![Status](https://img.shields.io/badge/status-active-brightgreen)](https://github.com/sxrubyo/nova-os)
 
-### Global CLI via npm
+</div>
 
-Nova is packaged for npm-style global installation, but the public registry release is not the primary distribution channel yet. The reliable path today is the GitHub tarball:
+---
 
-```bash
-npm install -g https://codeload.github.com/sxrubyo/nova-os/tar.gz/refs/heads/main
-nova commands
+## What is Nova OS?
+
+Nova OS sits between your AI agents and the real world.
+
+Every action an agent wants to execute — send an email, write to a database, call an API, run a command — passes through Nova first. Nova evaluates it, logs it, and either approves or blocks it before anything reaches production.
+
+```
+agent wants to act  →  Nova evaluates  →  APPROVED / BLOCKED / ESCALATED  →  world
 ```
 
-This still installs a global `nova` command. On first run it bootstraps the isolated Python runtime and then executes the real CLI.
+Not another agent. Not another chatbot. **Infrastructure.**
 
-### Windows / PowerShell
+---
 
+## The problem
+
+AI agents execute actions without control. They hallucinate endpoints, send duplicate emails, write to wrong databases, run destructive commands — and nothing stops them.
+
+When something goes wrong: no trace. No brake. No rollback.
+
+Nova fixes that.
+
+---
+
+## What Nova does
+
+```
+✔  Validates   every agent action against your rules before execution
+✔  Blocks      duplicates, risky operations, and policy violations
+✔  Logs        every decision to an immutable ledger
+✔  Escalates   ambiguous actions for human review
+✔  Wraps       any agent as a transparent proxy — zero agent modification
+```
+
+---
+
+## Quick Install
+
+**Linux / macOS:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh | bash
+```
+
+**Windows (PowerShell):**
 ```powershell
 irm https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.ps1 | iex
 ```
 
-The PowerShell installer downloads the repository archive, bootstraps the same isolated runtime used on Unix hosts, creates `nova.cmd`, and adds the Nova bin directory to the user PATH.
+**npm:**
+```bash
+npm install -g nova-os
+nova
+```
 
-### Docker Compose
+**Termux (Android, no root):**
+```bash
+pkg install python git openssl
+curl -fsSL https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh | bash
+```
 
+**Docker:**
 ```bash
 cp .env.example .env
 docker-compose up -d --build
 ```
 
-Use this path when you want PostgreSQL and a containerized local stack. The compose setup runs the same modular runtime, not a separate product fork.
+Then open: `http://localhost:8000`
 
-## Run locally from source
+---
 
-### Backend + dashboard
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python3 nova.py serve --host 0.0.0.0 --port 8000
-```
-
-If `frontend/dist` exists, the same process serves:
-
-- dashboard: `http://localhost:8000/`
-- API: `http://localhost:8000/api/*`
-
-### Frontend development
+## Quickstart
 
 ```bash
-cd frontend
-npm install
-npm run dev
+# discover agents running on your machine
+nova discover --json
+
+# attach governance rules to an agent
+nova connect codex-cli --cannot-do "rm -rf"
+
+# validate an action before it executes
+nova validate --agent codex-cli \
+  --action terminal.command \
+  --payload '{"command":"rm -rf /tmp/demo"}'
+
+# watch the ledger live
+nova watch
 ```
 
-### CLI
+---
 
-```bash
-python3 nova.py --help
-```
+## Core Commands
 
-## Agent skill bridge
+| Command | What it does |
+|---|---|
+| `nova` | Interactive launcher |
+| `nova serve` | Start API + dashboard on `localhost:8000` |
+| `nova discover` | Detect agents and host context |
+| `nova connect <agent>` | Attach governance rules to an agent |
+| `nova validate` | Evaluate an action through the pipeline |
+| `nova status` | Runtime health check |
+| `nova watch` | Live ledger stream |
+| `nova commands` | Full command reference |
 
-Nova can install its own governance skill bridge into local agent surfaces.
+---
 
-### Install for Codex
+## Agent Skill Bridge
+
+Nova injects its governance layer directly into your coding agents:
 
 ```bash
 nova skill install --agent codex
-```
-
-This writes a native skill bundle to `~/.agents/skills/nova-governance/`.
-
-### Install for Gemini CLI
-
-```bash
 nova skill install --agent gemini
-```
-
-This writes `~/.gemini/skills/nova-governance.md` and adds a bridge block to `~/.gemini/GEMINI.md`.
-
-### Install for OpenCode
-
-```bash
 nova skill install --agent opencode
 ```
 
-This writes `~/.config/opencode/skills/nova-governance.md` and adds a bridge block to `~/.config/opencode/AGENTS.md`.
+Supported: **Codex · Gemini CLI · OpenCode · Claude Code**
 
-### Core governance flow
+---
 
-```bash
-nova discover --json
-nova connect codex-cli --cannot-do "rm -rf"
-nova validate --agent codex-cli --action terminal.command --payload '{"command":"rm -rf /tmp/demo"}'
+## Governance Flow
+
+```
+1. DISCOVER    →  detect agents and host inventory
+2. CONNECT     →  attach rules: cannot_do, must_confirm, rate_limits
+3. INTERCEPT   →  every action passes through Nova before execution
+4. EVALUATE    →  deterministic rules + optional LLM validation
+5. DECIDE      →  APPROVED / BLOCKED / ESCALATED / DUPLICATE
+6. LEDGER      →  immutable record of every decision
 ```
 
-### OpenCode first use
-
-```bash
-opencode providers login
-opencode .
-```
-
-## Termux / Android
-
-Nova OS supports Termux without root.
-
-### Prerequisites
-
-```sh
-pkg install python git openssl
-```
-
-### Install
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh | sh
-```
-
-On Termux, Nova:
-
-- uses SQLite at `~/.nova/nova.db`
-- creates an isolated runtime at `~/.nova/runtime`
-- skips Docker, nginx, and PostgreSQL
-- runs in the background with `nohup`
-- stores logs and PID files in `~/.nova/`
-
-### Optional Termux:API integration
-
-```sh
-pkg install termux-api
-```
-
-This enables local notifications, vibration, battery inspection, and wake-lock helpers.
-
-### Stop Nova
-
-```sh
-kill "$(cat ~/.nova/nova.pid)"
-```
-
-### Logs
-
-```sh
-tail -f ~/.nova/nova.log
-```
+---
 
 ## Architecture
 
-Nova OS is organized as one runtime, not separate products:
-
-```text
-nova.py                 CLI entrypoint and local server launcher
-nova/                   core package: API, kernel, storage, ledger, discovery
-frontend/               React dashboard
-backend/                compatibility layer and older deployment assets
-n8n-nodes-nova/         n8n node integration
-docs/                   deployment, architecture, API, contribution docs
-tests/                  platform, API, discovery, and runtime tests
+```
+nova.py                 CLI entrypoint + local server launcher
+nova/                   core: API, kernel, ledger, discovery, storage
+frontend/               React dashboard (served by the same process)
+n8n-nodes-nova/         n8n integration
+docs/                   deployment, API reference, architecture
+tests/                  platform, API, discovery, runtime tests
 ```
 
-Core design points:
+**Core design decisions:**
 
-- `nova/platform.py` detects the host and degrades features cleanly.
-- `nova/bootstrap.py` installs an isolated runtime instead of polluting system Python.
-- `nova/db.py` provides a SQLite fallback for hosts without PostgreSQL.
-- `nova/api/server.py` serves both API and dashboard from the same process when the frontend bundle exists.
+- **Fail-open** — Nova never blocks your work if it goes down
+- **LLM-optional** — core validation runs without any AI dependency
+- **Hot-reload rules** — update governance policies without restart
+- **Immutable ledger** — every decision is permanent and traceable
+- **Transparent proxy** — wraps agents from outside, zero agent modification required
+
+---
+
+## Platform Support
+
+| Platform | Status |
+|---|---|
+| Linux | ✅ Full support |
+| macOS | ✅ Full support |
+| Windows | ✅ PowerShell installer |
+| Termux (Android) | ✅ No root required |
+| Docker | ✅ Compose stack included |
+
+---
 
 ## Configuration
-
-Copy `.env.example` only when you need persistent local configuration:
 
 ```bash
 cp .env.example .env
 ```
 
-At minimum, production-like environments should define:
-
-- `SECRET_KEY`
-- `WORKSPACE_ADMIN_TOKEN`
-- database settings if you want PostgreSQL
-- only the provider keys you actually use
-
-Never commit real `.env` files, tokens, local databases, or operational backups.
-
-## Common commands
-
-```bash
-nova
-nova commands
-nova help
-nova init
-nova discover --json
-nova connect codex_cli-<id> --cannot-do "rm -rf"
-nova validate --action "Send email to customer@example.com"
-nova status
-nova watch
-nova serve --host 0.0.0.0 --port 8000
+Minimum for production:
+```env
+SECRET_KEY=your-secret-key
+WORKSPACE_ADMIN_TOKEN=your-token
 ```
 
-## Discovery and governance
+PostgreSQL optional. SQLite by default. Never commit `.env` files.
 
-- `nova discover --json` returns both discovered agents and a host inventory summary with repositories, active terminals, installed toolchains, and local Codex context.
-- Nova computes `recommended_installs` from what it actually sees on the host instead of trying to install every possible developer dependency up front.
-- `nova connect <agent_key> --cannot-do "rm -rf"` attaches governance rules directly when onboarding a discovered agent.
-- Discovery task execution is routed through Nova's evaluation pipeline before the connector runs, so a matching `cannot_do` rule blocks the task before the agent executes it.
+---
 
-## Documentation
+## Contributing
 
-- [Architecture](ARCHITECTURE.md)
-- [Security](SECURITY.md)
-- [Contributing](CONTRIBUTING.md)
-- [Deployment notes](docs/deployment.md)
-- [API reference](docs/api-reference.md)
+Nova OS is early and open. Issues, PRs and feedback welcome.
 
-## Project status
+If you are building something on top of it — reach out.
 
-Nova OS is active and installable today. The remaining cleanup is repository hygiene:
+---
 
-- reducing legacy duplication
-- tightening public documentation
-- keeping the supported runtime path explicit
+<div align="center">
 
-The goal is straightforward: one repo, one runtime, one local URL, and one public installation story.
+Built by [sxrubyo](https://github.com/sxrubyo) · Black & Boss · MIT License
 
-## License
-
-Released under the terms in [LICENSE](LICENSE).
+</div>
