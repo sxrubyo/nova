@@ -35,6 +35,8 @@ from pathlib import Path
 
 UBUNTU_HOME = Path.home().parent / "ubuntu"
 NOVA_CORE_LOG_FILE = Path(tempfile.gettempdir()) / "nova_core.log"
+NOVA_RUNTIME_LOG_FILE = Path(tempfile.gettempdir()) / "nova_runtime.log"
+MODERN_RUNTIME_DEFAULT_URL = "http://127.0.0.1:9800"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PLATFORM COMPATIBILITY - Works on ANY terminal
@@ -302,7 +304,7 @@ _AGENT_WAKE_MESSAGES = [
     "Systems coming online...",
 ]
 
-NOVA_VERSION = "4.0.6"
+NOVA_VERSION = "4.0.7"
 NOVA_BUILD = "2026.03.supernova"
 NOVA_CODENAME = "Supernova"
 
@@ -658,7 +660,7 @@ def print_logo(tagline=True, compact=False, animated=False, minimal=False):
         return
 
     if compact:
-        banner = f"✦ nova · v{NOVA_VERSION} · Nova Governance"
+        banner = f"✦ nova · v{NOVA_VERSION} · Nova Operator"
         print("  " + q(C.GLD_BRIGHT, banner, bold=True))
         print()
         sys.stdout.write(C.R)
@@ -674,7 +676,7 @@ def print_logo(tagline=True, compact=False, animated=False, minimal=False):
         else:
             print("  " + q(C.G2, tl))
         print("  " + q(C.GLD_BRIGHT, "✦") + " " +
-              q(C.G3, f"Constellation · Enterprise Edition"))
+              q(C.G3, f"Constellation · Operator Edition"))
         print("  " + q(C.G3, "─" * 62))
 
     print()
@@ -6966,9 +6968,23 @@ def _check_nova_core_url_cache() -> _DoctorResult:
                f"unknown server type at {cached}")
 
 
-def _check_agent_env(agent_type: str, project_root: Path) -> list:
+def _check_agent_env(agent_type: str, project_root: Path, *, live: bool = False) -> list:
     """Check an agent project has the required Nova env vars."""
     results = []
+
+    def write_env_key(path: Path, key: str, value: str) -> None:
+        lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+        replaced = False
+        new_lines = []
+        for line in lines:
+            if line.lstrip().startswith(f"{key}="):
+                new_lines.append(f"{key}={value}")
+                replaced = True
+            else:
+                new_lines.append(line)
+        if not replaced:
+            new_lines.append(f"{key}={value}")
+        path.write_text("\n".join(new_lines).rstrip() + "\n", encoding="utf-8")
 
     # CLI agents (claude_code, codex_cli, gemini_cli, copilot_cli) don't need
     # a project .env — they read from shell environment or home config
@@ -6995,21 +7011,34 @@ def _check_agent_env(agent_type: str, project_root: Path) -> list:
 
     env_file = project_root / ".env"
     if not env_file.exists():
-        results.append(_dr(f"{agent_type}:.env", _DoctorResult.FAIL,
+        results.append(_dr(f"{agent_type}:.env", _DoctorResult.WARN if live else _DoctorResult.FAIL,
                            "no .env file found",
                            fix_cmd=f"touch {env_file}"))
         return results
 
     env_vars = _read_dotenv(env_file)
     required = ["NOVA_CORE_URL", "NOVA_CORE_ENABLED", "NOVA_AGENT_SCOPE"]
+    modern_alive, _payload, runtime_url = _probe_modern_runtime_status(timeout=0.5)
 
     for key in required:
         if key in env_vars and env_vars[key]:
-            results.append(_dr(f"{agent_type}:{key}", _DoctorResult.PASS,
-                               env_vars[key][:40]))
+            current_value = env_vars[key].strip()
+            if key == "NOVA_CORE_URL" and modern_alive and current_value.rstrip("/") != runtime_url.rstrip("/"):
+                try:
+                    write_env_key(env_file, key, runtime_url)
+                    results.append(_dr(f"{agent_type}:{key}", _DoctorResult.FIXED,
+                                       f"was {current_value[:40]}",
+                                       f"updated to {runtime_url}"))
+                except Exception:
+                    results.append(_dr(f"{agent_type}:{key}", _DoctorResult.WARN,
+                                       current_value[:40],
+                                       fix_cmd=f"echo 'NOVA_CORE_URL={runtime_url}' >> {env_file}"))
+            else:
+                results.append(_dr(f"{agent_type}:{key}", _DoctorResult.PASS,
+                                   current_value[:40]))
         else:
             # Auto-fix: inject missing vars
-            nova_url = load_nova_core_url()
+            nova_url = runtime_url if modern_alive else load_nova_core_url()
             fixes_to_inject = {
                 "NOVA_CORE_URL":     nova_url,
                 "NOVA_CORE_ENABLED": "true",
@@ -7229,52 +7258,335 @@ def _check_disk_space() -> _DoctorResult:
 
 def _check_nova_api_vs_core_confusion() -> list:
     """
-    Detect the nova-api vs nova-core URL confusion that breaks nova logs/stream.
-    This is the #1 most common failure mode.
+    Detect legacy routing drift versus the Nova v4 runtime.
     """
     results = []
     cached_url = ""
     if NOVA_CORE_URL_FILE.exists():
         cached_url = NOVA_CORE_URL_FILE.read_text().strip()
 
-    # Check what's cached
     if cached_url:
-        alive, stype = _probe_any_nova(cached_url, timeout=0.8)
-        if alive and stype == "api":
-            # Auto-fix: clear the wrong cache
-            NOVA_CORE_URL_FILE.unlink()
-            results.append(_dr("URL cache:wrong_server", _DoctorResult.FIXED,
-                               f"was caching nova-api ({cached_url})",
-                               "cleared — will now scan for nova_core"))
-        elif not alive:
-            NOVA_CORE_URL_FILE.unlink()
-            results.append(_dr("URL cache:stale", _DoctorResult.FIXED,
-                               f"{cached_url} unreachable",
-                               "cleared stale cache"))
+        if any(f":{port}" in cached_url for port in (9002, 9003)):
+            NOVA_CORE_URL_FILE.unlink(missing_ok=True)
+            results.append(
+                _dr(
+                    "legacy:url-cache",
+                    _DoctorResult.FIXED,
+                    f"cached legacy runtime ({cached_url})",
+                    "cleared legacy cache",
+                )
+            )
+        else:
+            alive, _payload, resolved_url = _probe_modern_runtime_status(cached_url, timeout=0.8)
+            if not alive:
+                NOVA_CORE_URL_FILE.unlink(missing_ok=True)
+                results.append(
+                    _dr(
+                        "legacy:url-cache",
+                        _DoctorResult.FIXED,
+                        f"{resolved_url} unreachable",
+                        "cleared stale cache",
+                    )
+                )
 
-    # Describe what each server is
-    api_alive, api_type = _probe_any_nova("http://localhost:9002", timeout=0.5)
-    core_alive, core_type = _probe_any_nova("http://localhost:9003", timeout=0.5)
-
-    if api_alive:
-        label = "nova-api (main.py)" if api_type == "api" else "unknown"
-        results.append(_dr("port:9002", _DoctorResult.PASS,
-                           f"{label} — /tokens /validate /stats"))
+    modern_alive, payload, runtime_url = _probe_modern_runtime_status(timeout=0.8)
+    if modern_alive:
+        results.append(
+            _dr(
+                "runtime:9800",
+                _DoctorResult.PASS,
+                f"{payload.get('status', 'operational')} · {runtime_url}/api/status",
+            )
+        )
     else:
-        results.append(_dr("port:9002", _DoctorResult.WARN, "not running (nova-api)"))
+        results.append(
+            _dr(
+                "runtime:9800",
+                _DoctorResult.WARN,
+                f"modern runtime not responding at {runtime_url}/api/status",
+                fix_cmd="nova start --no-open-browser",
+            )
+        )
 
-    if core_alive and core_type == "core":
-        results.append(_dr("port:9003", _DoctorResult.PASS,
-                           "nova_core.py — /ledger /rules /stream"))
-    elif core_alive and core_type == "api":
-        results.append(_dr("port:9003", _DoctorResult.FAIL,
-                           "nova-api is on :9003 (wrong! nova_core should be here)",
-                           fix_cmd="pm2 start nova_core.py --name nova-core --interpreter python3"))
-    else:
-        results.append(_dr("port:9003", _DoctorResult.FAIL,
-                           "nova_core.py NOT running — nova logs/stream/rules broken",
-                           fix_cmd="pm2 start nova_core.py --name nova-core --interpreter python3"))
+    for port in (9002, 9003):
+        legacy_alive, legacy_type = _probe_any_nova(f"http://localhost:{port}", timeout=0.5)
+        if not legacy_alive:
+            continue
+        label = "legacy core" if legacy_type == "core" else "legacy api" if legacy_type == "api" else "legacy runtime"
+        results.append(
+            _dr(
+                f"legacy:{port}",
+                _DoctorResult.WARN,
+                f"{label} still responding on :{port}",
+                fix_cmd="nova start --no-open-browser",
+            )
+        )
 
+    return results
+
+
+def _modern_runtime_urls() -> list[str]:
+    """Return candidate Nova v4 runtime URLs in priority order."""
+
+    candidates: list[str] = []
+    env_host = os.environ.get("NOVA_HOST", "").strip()
+    env_api_port = os.environ.get("NOVA_API_PORT", "").strip()
+    if env_api_port:
+        candidates.extend([f"http://127.0.0.1:{env_api_port}", f"http://localhost:{env_api_port}"])
+        if env_host and env_host not in ("0.0.0.0", "::"):
+            candidates.append(f"http://{env_host}:{env_api_port}")
+
+    for key in ("NOVA_API_URL", "NOVA_SERVER_URL"):
+        value = os.environ.get(key, "").strip().rstrip("/")
+        if value:
+            candidates.append(value)
+
+    try:
+        cfg = load_config_secure()
+        configured_url = str((cfg or {}).get("api_url") or "").strip().rstrip("/")
+        if configured_url and not any(f":{port}" in configured_url for port in (9002, 9003)):
+            candidates.append(configured_url)
+    except Exception as _exc:
+        debug(f"silenced exception: {_exc}")
+
+    candidates.extend([MODERN_RUNTIME_DEFAULT_URL, "http://localhost:9800"])
+
+    seen = set()
+    ordered: list[str] = []
+    for candidate in candidates:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        ordered.append(candidate)
+    return ordered
+
+
+def _probe_modern_runtime_status(url: str = "", timeout: float = 0.8) -> tuple:
+    """Probe the Nova v4 runtime and return (is_alive, payload, resolved_url)."""
+
+    urls = [url.rstrip("/")] if url else _modern_runtime_urls()
+    last_url = MODERN_RUNTIME_DEFAULT_URL
+    for candidate in urls:
+        last_url = candidate.rstrip("/")
+        try:
+            req = urllib.request.Request(
+                last_url + "/api/status",
+                headers={"User-Agent": "nova-cli", "Accept": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                payload = json.loads(resp.read().decode())
+                if not isinstance(payload, dict):
+                    continue
+                status = str(payload.get("status") or "").lower()
+                if payload.get("version") or status in ("operational", "degraded", "starting"):
+                    return True, payload, last_url
+        except Exception:
+            continue
+    return False, {}, last_url
+
+
+def _find_nova_runtime_entrypoint() -> str:
+    """Locate the Nova v4 `nova.py` entrypoint on disk."""
+
+    current_repo = Path(__file__).resolve().parents[1] / "nova.py"
+    if current_repo.exists():
+        return str(current_repo)
+
+    if shutil.which("pm2"):
+        try:
+            r = subprocess.run(["pm2", "jlist"], capture_output=True, text=True, timeout=5)
+            procs = json.loads(r.stdout or "[]")
+            for proc in procs:
+                script = (proc.get("pm2_env", {}).get("pm_exec_path", "") or proc.get("pm2_env", {}).get("script", ""))
+                if script.endswith("nova.py") and Path(script).exists():
+                    return script
+        except Exception as _exc:
+            debug(f"silenced exception: {_exc}")
+
+    candidates = [
+        Path.cwd() / "nova.py",
+        Path.home() / ".nova" / "repo" / "nova.py",
+        Path.home() / "nova-os" / "nova.py",
+        UBUNTU_HOME / "nova-os" / "nova.py",
+        Path("/opt/nova") / "nova.py",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+
+    try:
+        r = subprocess.run(
+            ["find", "/home", "-name", "nova.py", "-maxdepth", "5"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        for path_text in r.stdout.splitlines():
+            candidate = Path(path_text.strip())
+            if candidate.exists() and ("/nova-os/" in str(candidate) or "/.nova/repo/" in str(candidate)):
+                return str(candidate)
+    except Exception as _exc:
+        debug(f"silenced exception: {_exc}")
+
+    return ""
+
+
+def _runtime_fix_cmd(entrypoint: str = "") -> str:
+    if entrypoint:
+        return f"pm2 start {entrypoint} --name nova-runtime --interpreter python3 -- start --no-open-browser"
+    return "nova start --no-open-browser"
+
+
+def _start_modern_runtime_background(nova_entrypoint: str = None) -> bool:
+    """Start the Nova v4 runtime in the background."""
+
+    entrypoint = nova_entrypoint or _find_nova_runtime_entrypoint()
+    if not entrypoint or not Path(entrypoint).exists():
+        return False
+
+    interpreter = sys.executable or shutil.which("python3") or shutil.which("python")
+    if not interpreter:
+        return False
+
+    if shutil.which("pm2"):
+        try:
+            check = subprocess.run(["pm2", "jlist"], capture_output=True, text=True, timeout=5)
+            procs = json.loads(check.stdout or "[]")
+            if any(proc.get("name") == "nova-runtime" for proc in procs):
+                subprocess.run(["pm2", "restart", "nova-runtime", "--update-env"], capture_output=True, timeout=10)
+                return True
+            started = subprocess.run(
+                [
+                    "pm2",
+                    "start",
+                    entrypoint,
+                    "--name",
+                    "nova-runtime",
+                    "--interpreter",
+                    interpreter,
+                    "--",
+                    "start",
+                    "--no-open-browser",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=12,
+            )
+            if started.returncode == 0:
+                return True
+        except Exception as _exc:
+            debug(f"silenced exception: {_exc}")
+
+    try:
+        with NOVA_RUNTIME_LOG_FILE.open("a") as log_file:
+            subprocess.Popen(
+                [interpreter, entrypoint, "start", "--no-open-browser"],
+                cwd=str(Path(entrypoint).parent),
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                start_new_session=not IS_WINDOWS,
+            )
+        time.sleep(2)
+        return True
+    except Exception as _exc:
+        debug(f"silenced exception: {_exc}")
+    return False
+
+
+def _check_pm2_nova_runtime_registered() -> _DoctorResult:
+    """Check whether the modern Nova runtime is registered in pm2."""
+
+    entrypoint = _find_nova_runtime_entrypoint()
+    fix_cmd = _runtime_fix_cmd(entrypoint)
+
+    if not shutil.which("pm2"):
+        return _dr("pm2:nova-runtime", _DoctorResult.WARN, "pm2 not installed")
+
+    try:
+        r = subprocess.run(["pm2", "jlist"], capture_output=True, text=True, timeout=5)
+        procs = json.loads(r.stdout or "[]")
+        for proc in procs:
+            if proc.get("name") == "nova-runtime":
+                status = proc.get("pm2_env", {}).get("status", "?")
+                restart = proc.get("pm2_env", {}).get("restart_time", 0)
+                mem_mb = round((proc.get("monit", {}).get("memory", 0)) / 1024 / 1024, 1)
+                cpu = proc.get("monit", {}).get("cpu", 0)
+                detail = f"{status}  restarts={restart}  {mem_mb}mb  cpu={cpu}%"
+                if status == "online":
+                    return _dr("pm2:nova-runtime", _DoctorResult.PASS, detail)
+                return _dr("pm2:nova-runtime", _DoctorResult.FAIL, detail, fix_cmd="pm2 restart nova-runtime --update-env")
+    except Exception as e:
+        return _dr("pm2:nova-runtime", _DoctorResult.WARN, str(e)[:50])
+
+    runtime_alive, _payload, runtime_url = _probe_modern_runtime_status(timeout=0.5)
+    if runtime_alive:
+        return _dr("pm2:nova-runtime", _DoctorResult.WARN, f"running outside pm2 at {runtime_url}", fix_cmd=fix_cmd)
+    if entrypoint:
+        return _dr("pm2:nova-runtime", _DoctorResult.WARN, "not registered", fix_cmd=fix_cmd)
+    return _dr("pm2:nova-runtime", _DoctorResult.WARN, "not registered — nova.py location unknown", fix_cmd="find /home -name nova.py -maxdepth 5")
+
+
+def _check_modern_runtime_running() -> _DoctorResult:
+    """Check whether the Nova v4 runtime is responding."""
+
+    runtime_alive, payload, runtime_url = _probe_modern_runtime_status(timeout=0.8)
+    if runtime_alive:
+        active_agents = payload.get("active_agents")
+        detail = f"{payload.get('status', 'operational')} · {runtime_url}/api/status"
+        if active_agents is not None:
+            detail += f" · agents={active_agents}"
+        return _dr("nova_runtime:api", _DoctorResult.PASS, detail)
+
+    legacy_hits = []
+    for port in (9002, 9003):
+        alive, server_type = _probe_any_nova(f"http://localhost:{port}", timeout=0.5)
+        if alive:
+            legacy_hits.append(f":{port} ({server_type or 'legacy'})")
+    if legacy_hits:
+        return _dr("nova_runtime:api", _DoctorResult.WARN,
+                   f"legacy runtime detected on {', '.join(legacy_hits)}",
+                   fix_cmd="nova start --no-open-browser")
+    return _dr("nova_runtime:api", _DoctorResult.FAIL,
+               f"not responding at {runtime_url}/api/status",
+               fix_cmd="nova start --no-open-browser")
+
+
+def _auto_fix_modern_runtime(auto: bool) -> list:
+    """Auto-start the Nova v4 runtime when requested."""
+
+    results = []
+    runtime_alive, _payload, runtime_url = _probe_modern_runtime_status(timeout=0.5)
+    if runtime_alive:
+        return results
+
+    entrypoint = _find_nova_runtime_entrypoint()
+    if not entrypoint:
+        results.append(_dr("auto-fix:nova-runtime", _DoctorResult.FAIL,
+                           "nova.py not found — cannot auto-start",
+                           fix_cmd="find /home -name nova.py -maxdepth 5"))
+        return results
+
+    if not auto:
+        return results
+
+    started = _start_modern_runtime_background(entrypoint)
+    if started:
+        for _ in range(24):
+            time.sleep(0.5)
+            ready, payload, resolved_url = _probe_modern_runtime_status(timeout=0.6)
+            if ready:
+                results.append(_dr("auto-fix:nova-runtime", _DoctorResult.FIXED,
+                                   f"was offline ({runtime_url})",
+                                   f"started Nova runtime at {resolved_url} · status={payload.get('status', 'operational')}"))
+                return results
+        results.append(_dr("auto-fix:nova-runtime", _DoctorResult.WARN,
+                           "started but not yet responding",
+                           fix_cmd="nova start --no-open-browser"))
+        return results
+
+    results.append(_dr("auto-fix:nova-runtime", _DoctorResult.FAIL,
+                       "could not start automatically",
+                       fix_cmd=_runtime_fix_cmd(entrypoint)))
     return results
 
 
@@ -7442,20 +7754,20 @@ def cmd_doctor(args):
     Nova self-healing doctor — diagnoses AND auto-fixes every component.
 
     Sections:
-      0  Critical: nova-api vs nova_core URL confusion (root cause of most failures)
+      0  Runtime routing (modern v4 vs legacy v3 drift)
       1  Configuration files (JSON integrity + field normalization)
       2  pm2 processes (running, restart count, CPU, memory)
-      3  nova_core.py specifically (port, /ledger, /rules endpoints)
+      3  Nova runtime (modern API + launch path)
       4  Agent projects (env vars, system prompt injection, rules)
       5  Python file integrity (syntax check all nova files)
       6  System health (disk, permissions)
 
     Auto-fixes (--auto or -y to skip confirmations):
-      ↻  Wrong nova_core URL cached → cleared immediately
+      ↻  Wrong legacy URL cached → cleared immediately
       ↻  Stale URL cache → cleared
       ↻  Missing .env NOVA_* vars → injected
       ↻  pm2 process failing → prompted to restart
-      ↻  nova_core.py not running → starts it (--auto mode)
+      ↻  Nova runtime not running → starts it (--auto mode)
       ↻  Corrupt JSON files → backed up + recreated
       ↻  Wrong directory permissions → chmod 700
     """
@@ -7488,8 +7800,8 @@ def cmd_doctor(args):
 
     ensure_dirs()
 
-    # ── SECTION 0: The #1 failure cause — wrong server URL ────────────────────
-    sec("0. Nova-API vs Nova-Core (Most Common Failure)", 
+    # ── SECTION 0: Runtime routing ────────────────────────────────────────────
+    sec("0. Runtime Routing (Most Common Failure)", 
         _check_nova_api_vs_core_confusion())
 
     # ── SECTION 1: Config JSON files ──────────────────────────────────────────
@@ -7530,24 +7842,15 @@ def cmd_doctor(args):
         except Exception:
             procs, pm2_names = [], []
 
-        # Always check these critical ones
-        for name in ["nova-api", "nova-core"]:
-            result = _check_pm2_process(name)
-            if result.status == _DoctorResult.FAIL and auto:
-                if name == "nova-core":
-                    # Will handle in section 3
-                    pass
-                else:
-                    fixed = _auto_fix_pm2_restart(name, result)
-                    result = fixed
-            elif result.status == _DoctorResult.FAIL and not auto:
-                pass  # show with fix_cmd
-            pm2_checks.append(result)
+        runtime_pm2_result = _check_pm2_nova_runtime_registered()
+        if runtime_pm2_result.status == _DoctorResult.FAIL and auto:
+            runtime_pm2_result = _auto_fix_pm2_restart("nova-runtime", runtime_pm2_result)
+        pm2_checks.append(runtime_pm2_result)
 
         # Show all other processes with CPU/mem warnings
         for p in procs:
             n = p.get("name", "")
-            if n not in ("nova-api", "nova-core"):
+            if n not in ("nova-runtime", "nova-core", "nova-api"):
                 pm2_checks.append(_check_pm2_process(n))
 
         pm2_checks.extend(_check_omni_cpu())
@@ -7558,30 +7861,25 @@ def cmd_doctor(args):
                                fix_cmd="npm install -g pm2"))
     sec("2. pm2 Processes", pm2_checks)
 
-    # ── SECTION 3: nova_core.py specifically ─────────────────────────────────
+    # ── SECTION 3: Nova runtime ──────────────────────────────────────────────
     core_checks = [
-        _check_pm2_nova_core_registered(),
-        _check_nova_core_running(),
+        _check_pm2_nova_runtime_registered(),
+        _check_modern_runtime_running(),
     ]
     # Auto-start if not running and --auto flag set
     if auto:
-        core_checks.extend(_auto_fix_nova_core(auto=True))
+        core_checks.extend(_auto_fix_modern_runtime(auto=True))
 
-    # Check nova_core.py file exists — exhaustive search
-    core_found_path = _find_nova_core_py()
-    if core_found_path:
-        core_checks.append(_dr("nova_core.py:location",
-                                _DoctorResult.PASS, core_found_path))
-        # Update the fix_cmd for pm2:nova-core if we now know the path
-        for r in core_checks:
-            if r.name in ("pm2:nova-core", "nova_core:9003") and r.fix_cmd:
-                r.fix_cmd = f"pm2 start {core_found_path} --name nova-core --interpreter python3"
+    runtime_entrypoint = _find_nova_runtime_entrypoint()
+    if runtime_entrypoint:
+        core_checks.append(_dr("nova.py:location",
+                                _DoctorResult.PASS, runtime_entrypoint))
     else:
-        core_checks.append(_dr("nova_core.py:location",
+        core_checks.append(_dr("nova.py:location",
                                 _DoctorResult.FAIL,
                                 "not found in common paths",
-                                fix_cmd="find /home -name nova_core.py -maxdepth 4"))
-    sec("3. Nova Core", core_checks)
+                                fix_cmd="find /home -name nova.py -maxdepth 5"))
+    sec("3. Nova Runtime", core_checks)
 
     # ── SECTION 4: Agent projects ─────────────────────────────────────────────
     agent_checks = []
@@ -7596,15 +7894,17 @@ def cmd_doctor(args):
             # Try to use the agent's own home dir
             for home_dir in _AGENT_REGISTRY.get(atype, {}).get("home_dirs", []):
                 hp = Path(home_dir)
-                if hp.is_dir() and (hp / ".env").exists():
-                    aroot = hp
+                if not hp.is_dir():
+                    continue
+                aroot = hp
+                if (hp / ".env").exists():
                     break
 
             agent_checks.append(
                 _dr(f"{ag['display']} found", _DoctorResult.PASS,
                     f"{ag['confidence']}% confidence  {'● live' if ag.get('port_live') else ''}"))
 
-            env_results = _check_agent_env(atype, aroot)
+            env_results = _check_agent_env(atype, aroot, live=bool(ag.get("port_live")))
             agent_checks.extend(env_results)
             agent_checks.append(_check_system_prompt(atype, aroot))
             agent_checks.append(_check_nova_rules_exist(atype, aroot))
@@ -7617,7 +7917,7 @@ def cmd_doctor(args):
     # ── SECTION 5: Python file integrity ─────────────────────────────────────
     syntax_checks = []
     script_dir = Path(sys.argv[0]).parent if sys.argv[0] else Path.cwd()
-    for fname in ["nova.py", "nova_core.py", "integrations.py", "skill_executor.py"]:
+    for fname in ["nova.py", "integrations.py", "skill_executor.py", "legacy/nova_cli_legacy.py"]:
         for search in [script_dir, Path.cwd(), Path.home(), UBUNTU_HOME]:
             p = search / fname
             if p.exists():
@@ -7692,9 +7992,9 @@ def cmd_doctor(args):
     else:
         warn(f"{n_fail} critical issue(s). Most common fix:")
         print()
-        print("    " + q(C.B7, "pm2 start nova_core.py --name nova-core --interpreter python3"))
-        print("    " + q(C.G3, "# then:"))
-        print("    " + q(C.B7, "rm ~/.nova/nova_core_url  # clear wrong cache"))
+        print("    " + q(C.B7, "nova start --no-open-browser"))
+        print("    " + q(C.G3, "# optional background mode:"))
+        print("    " + q(C.B7, "pm2 start /path/to/nova.py --name nova-runtime --interpreter python3 -- start --no-open-browser"))
     print()
     hint("Auto-fix mode:  nova doctor --auto")
     hint("Re-run:         nova doctor")
@@ -14143,20 +14443,17 @@ def _start_nova_core_background(nova_core_path: str = None) -> bool:
 
 def cmd_boot(args):
     """
-    One command to start Nova Core and govern all your AI agents.
+    Start the Nova v4 runtime and show the operator handoff.
 
     What it does:
-      1. Starts nova_core.py if not running (pm2 / nohup / subprocess)
-      2. Waits for it to be ready (up to 10s)
+      1. Starts the Nova runtime if not running
+      2. Waits for /api/status to be ready
       3. Discovers all agents in your environment
-      4. Connects them all to Nova Core
-      5. Pushes .nova/rules/ into Nova Core
-      6. Injects identity into each agent via /boot endpoint
-      7. Prints a live status board
+      4. Prints the next operator actions
 
     Usage:
       nova boot                    # start everything
-      nova boot --path ./nova_core.py   # specify nova_core path
+      nova boot --path ./nova.py        # specify Nova entrypoint
     """
     print_logo(compact=True)
     print()
@@ -14164,43 +14461,43 @@ def cmd_boot(args):
     print("  " + q(C.G3, "  Starting governance layer for all AI agents..."))
     print()
 
-    cfg      = load_config()
-    nc       = _get_nova_core()
-    core_path = getattr(args, "path", "") or ""
+    runtime_path = getattr(args, "path", "") or ""
 
-    # ── Step 1: Ensure Nova Core is running ───────────────────────────────────
-    with Spinner("Checking Nova Core...") as sp:
-        alive = nc.is_alive()
+    # ── Step 1: Ensure Nova runtime is running ────────────────────────────────
+    with Spinner("Checking Nova runtime...") as sp:
+        alive, payload, runtime_url = _probe_modern_runtime_status(timeout=0.8)
         sp.finish()
 
     if alive:
-        ok("Nova Core already running")
+        ok(f"Nova runtime already running at {runtime_url}")
     else:
-        info("Starting Nova Core...")
-        started = _start_nova_core_background(core_path or None)
+        info("Starting Nova runtime...")
+        entrypoint = runtime_path or _find_nova_runtime_entrypoint()
+        started = _start_modern_runtime_background(entrypoint or None)
         if not started:
-            fail("Could not find or start nova_core.py.")
+            fail("Could not find or start nova.py.")
             print()
-            hint("Place nova_core.py in the current directory or home folder,")
+            hint("Place nova.py in the current directory or Nova repo folder,")
             hint("then run:  nova boot  again.")
             print()
-            hint("Or start manually:  python3 nova_core.py &")
+            hint("Or start manually:  nova start --no-open-browser")
             return
 
-        # Wait up to 10s for it to be ready
+        # Wait up to 12s for it to be ready
         print()
-        with Spinner("Waiting for Nova Core to be ready...") as sp:
-            for _ in range(20):
+        with Spinner("Waiting for Nova runtime to be ready...") as sp:
+            for _ in range(24):
                 time.sleep(0.5)
-                if nc.is_alive():
+                alive, payload, runtime_url = _probe_modern_runtime_status(timeout=0.6)
+                if alive:
                     break
             sp.finish()
 
-        if nc.is_alive():
-            ok("Nova Core started")
+        if alive:
+            ok(f"Nova runtime started at {runtime_url}")
         else:
-            warn("Nova Core started but not yet responding.")
-            hint(f"Check logs:  cat {NOVA_CORE_LOG_FILE}")
+            warn("Nova runtime started but not yet responding.")
+            hint(f"Check logs:  cat {NOVA_RUNTIME_LOG_FILE}")
             hint("Try again in a few seconds:  nova boot")
             return
 
@@ -14227,88 +14524,19 @@ def cmd_boot(args):
                   "  " + q(c, f"{ag['confidence']}%") + live)
         print()
 
-    # ── Step 3: Connect all agents to Nova Core ───────────────────────────────
+    # ── Summary ───────────────────────────────────────────────────────────────
     hr()
     print()
-    print("  " + q(C.W, "Connecting agents...", bold=True))
+    print("  " + q(C.GLD, "✦", bold=True) + "  " + q(C.W, "Nova runtime online.", bold=True))
     print()
-
-    agents_payload = []
-    for ag in discovered:
-        if ag.get("url") and ag.get("port_live"):
-            agents_payload.append({
-                "url":  ag["url"],
-                "name": ag["agent_type"],
-            })
-
-    if agents_payload:
-        result = nc._req("POST", "/connect/multi", {"agents": agents_payload})
-        for r in result.get("agents", []):
-            symbol = q(C.GRN, "✓") if r.get("reachable") else q(C.YLW, "~")
-            print("    " + symbol + "  " + q(C.W, r["name"]) +
-                  "  " + q(C.G3, r["url"]))
-
-    # ── Step 4: Load .nova/rules/ into Nova Core ──────────────────────────────
-    rules_loaded_total = 0
-    for ag in discovered:
-        rules_dir = (project_root / ".nova" / "agents" /
-                     ag["agent_type"] / "rules")
-        if rules_dir.exists() and list(rules_dir.glob("*.json")):
-            r = nc._req("POST", "/rules/load-folder", {
-                "path":  str(rules_dir),
-                "scope": f"agent:{ag['agent_type']}",
-            })
-            n = r.get("loaded", 0)
-            if n:
-                ok(f"Loaded {n} rules for {ag['display']}")
-                rules_loaded_total += n
-
-    # Also load global rules from ~/.nova/rules/
-    global_rules = NOVA_DIR / "rules"
-    if global_rules.exists():
-        r = nc._req("POST", "/rules/load-folder", {
-            "path":  str(global_rules),
-            "scope": "global",
-        })
-        n = r.get("loaded", 0)
-        if n:
-            ok(f"Loaded {n} global rules")
-            rules_loaded_total += n
-
-    # ── Step 5: Call /boot for each live agent  ───────────────────────────────
+    kv("Dashboard", f"{runtime_url}/", C.B7)
+    kv("API status", f"{runtime_url}/api/status", C.GRN)
+    kv("Agents detected", str(len(discovered)), C.W)
     print()
-    print("  " + q(C.W, "Injecting identity into agents...", bold=True))
+    hint("Discover now:  nova discover")
+    hint("Govern one:    nova connect <agent_key>")
+    hint("Open UI:       nova")
     print()
-    for ag in discovered:
-        if ag.get("port_live"):
-            r = nc._req("GET", f"/boot/{ag['agent_type']}")
-            rc    = r.get("rule_count", 0)
-            boots = r.get("restart_count", 1)
-            print("    " + q(C.GRN, "✓") + "  " +
-                  q(C.W, ag["display"]) +
-                  q(C.G3, f"  restart #{boots}  {rc} rules active"))
-
-    # ── Summary ───────────────────────────────────────────────────────────────
-    print()
-    hr_bold()
-    print()
-    print("  " + q(C.GLD, "✦", bold=True) + "  " +
-          q(C.W, "Nova is governing your agents.", bold=True))
-    print()
-    health = nc.health()
-    total_rules = health.get("rules", {}).get("total", "?")
-    kv("Nova Core",   nc.url, C.B7)
-    kv("Total rules", str(total_rules), C.GRN)
-    kv("Agents live", str(len(agents_payload)), C.W)
-    print()
-    hint("Watch live:  nova watch")
-    hint("See rules:   nova rules")
-    hint("Ledger:      nova ledger")
-    print()
-
-    # Save nova core URL to config
-    cfg["nova_core_url"] = nc.url
-    save_config(cfg)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

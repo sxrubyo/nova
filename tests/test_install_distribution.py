@@ -87,3 +87,18 @@ def test_npm_publish_workflow_exists() -> None:
     assert "npm publish" in workflow
     assert "NODE_AUTH_TOKEN" in workflow
     assert "release" in workflow or "workflow_dispatch" in workflow
+
+
+def test_public_repo_keeps_only_seed_rule_templates() -> None:
+    rule_names = sorted(path.name for path in (REPO_ROOT / "nova_rules").glob("*.yaml"))
+
+    assert any(name.startswith("seed_") for name in rule_names)
+    assert not any(name.startswith("admin_") for name in rule_names)
+    assert not any(name.startswith("guard_") for name in rule_names)
+
+
+def test_gitignore_excludes_generated_nova_rules() -> None:
+    gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
+
+    assert "nova_rules/admin_*.yaml" in gitignore
+    assert "nova_rules/guard_*.yaml" in gitignore

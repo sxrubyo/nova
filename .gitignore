@@ -43,5 +43,9 @@ dist/
 build/
 coverage/
 *.egg-info/
+nova_rules/admin_*.yaml
+nova_rules/guard_*.yaml
+nova_rules/user_*.yaml
 
 .DS_Store
+.claude/

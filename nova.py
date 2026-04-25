@@ -357,7 +357,7 @@ async def _run_auth_command(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="nova", description="Nova OS v4.0.6 control plane CLI")
+    parser = argparse.ArgumentParser(prog="nova", description=f"Nova OS v{_nova_version()} control plane CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     start = subparsers.add_parser("start")
@@ -719,7 +719,9 @@ async def run_async(args: argparse.Namespace, raw_args: list[str] | None = None)
         return
 
     if args.command == "version":
-        print(f"Nova OS v{_nova_version()} (Enterprise) - Python {platform.python_version()}")
+        from nova.constants import NOVA_BUILD
+
+        print(f"Nova OS v{_nova_version()} ({NOVA_BUILD.title()}) - Python {platform.python_version()}")
         return
 
     if args.command == "skill":
