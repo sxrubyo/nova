@@ -57,6 +57,21 @@ def test_filter_confirmed_agents_requires_multiple_signals_for_ambiguous_runtime
     assert n8n_metadata["logo_path"] == "/agent-logos/n8n.svg"
 
 
+def test_filter_confirmed_agents_detects_supported_cli_agents_without_inventing_missing_ones() -> None:
+    scanner = SystemScanner()
+
+    opencode_confirmed = discovered_agent("opencode_cli", detection_methods=["binary", "npm_package"])
+    gemini_confirmed = discovered_agent("gemini_cli", detection_methods=["config_file", "binary"])
+    claude_config_only = discovered_agent("claude_code", detection_methods=["config_file", "dotenv_file"])
+
+    confirmed = scanner._filter_confirmed_agents([opencode_confirmed, gemini_confirmed, claude_config_only])
+    confirmed_keys = {agent.fingerprint_key for agent in confirmed}
+
+    assert "opencode_cli" in confirmed_keys
+    assert "gemini_cli" in confirmed_keys
+    assert "claude_code" not in confirmed_keys
+
+
 def test_full_scan_runs_independent_steps_concurrently() -> None:
     class TimedScanner(SystemScanner):
         async def _sleeping_scan(self) -> list[DiscoveredAgent]:

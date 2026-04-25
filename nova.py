@@ -357,7 +357,7 @@ async def _run_auth_command(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="nova", description="Nova OS v4.0.5 control plane CLI")
+    parser = argparse.ArgumentParser(prog="nova", description="Nova OS v4.0.6 control plane CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     start = subparsers.add_parser("start")
@@ -541,6 +541,25 @@ def _console() -> Console | None:
     return Console() if Console is not None else None
 
 
+def _discovery_tooling_rows(tooling: list[dict[str, Any]], limit: int = 16) -> list[dict[str, Any]]:
+    installed = [item for item in tooling if item.get("installed")]
+    category_order = {
+        "assistant": 0,
+        "automation": 1,
+        "runtime": 2,
+        "editor": 3,
+        "terminal": 4,
+        "vcs": 5,
+    }
+    return sorted(
+        installed,
+        key=lambda item: (
+            category_order.get(str(item.get("category") or ""), 99),
+            str(item.get("label") or item.get("key") or "").lower(),
+        ),
+    )[:limit]
+
+
 def _print_discovery_table(agents: list[dict[str, Any]], inventory: dict[str, Any] | None = None) -> None:
     console = _console()
     if console is None or Table is None:
@@ -578,13 +597,13 @@ def _print_discovery_table(agents: list[dict[str, Any]], inventory: dict[str, An
             f"platform={host.get('platform') or signals.get('platform') or 'unknown'} "
             f"pkgmgr={((host.get('package_manager') or {}).get('name')) or 'n/a'}"
         )
-        tooling = [item for item in inventory.get("tooling", []) if item.get("installed")]
+        tooling = _discovery_tooling_rows(inventory.get("tooling", []), limit=16)
         if tooling:
             tool_table = Table(title="Installed toolchains")
             tool_table.add_column("Tool", style="bold")
             tool_table.add_column("Category")
             tool_table.add_column("Version")
-            for item in tooling[:12]:
+            for item in tooling:
                 tool_table.add_row(item.get("label", item.get("key", "?")), item.get("category", "?"), item.get("version") or "detected")
             console.print(tool_table)
 

@@ -1,6 +1,6 @@
 {
   "name": "nova-os",
-  "version": "4.0.5",
+  "version": "4.0.6",
   "description": "Portable Nova OS CLI bootstrap for Linux, Ubuntu-in-Termux, and Termux hosts.",
   "repository": {
     "type": "git",

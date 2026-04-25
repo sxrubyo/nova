@@ -162,7 +162,7 @@ def test_startup_banner_surfaces_dashboard_and_docs() -> None:
         dashboard_url="http://127.0.0.1:9800/",
         docs_url="http://127.0.0.1:9800/api/docs",
         bridge_url="ws://127.0.0.1:9700",
-        version="4.0.5",
+        version="4.0.6",
     )
 
     assert "Dashboard:" in banner
@@ -176,7 +176,7 @@ def test_existing_runtime_banner_surfaces_attach_state() -> None:
         dashboard_url="http://127.0.0.1:9800/",
         docs_url="http://127.0.0.1:9800/api/docs",
         bridge_url="ws://127.0.0.1:9700",
-        version="4.0.5",
+        version="4.0.6",
         active_agents=3,
         uptime_seconds=95,
     )
@@ -184,3 +184,17 @@ def test_existing_runtime_banner_surfaces_attach_state() -> None:
     assert "NOVA OS ONLINE" in banner
     assert "Existing runtime already active" in banner
     assert "Agents:" in banner
+
+
+def test_discovery_tooling_rows_prioritize_assistant_clis() -> None:
+    rows = NOVA_CLI._discovery_tooling_rows(
+        [
+            {"key": "git", "label": "Git", "category": "vcs", "installed": True, "version": "2.43"},
+            {"key": "node", "label": "Node.js", "category": "runtime", "installed": True, "version": "22.0"},
+            {"key": "opencode", "label": "OpenCode", "category": "assistant", "installed": True, "version": "1.14.22"},
+            {"key": "codex", "label": "Codex CLI", "category": "assistant", "installed": True, "version": "0.125.0"},
+        ],
+        limit=4,
+    )
+
+    assert [item["key"] for item in rows] == ["codex", "opencode", "node", "git"]

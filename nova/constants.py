@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Final
 
 NOVA_NAME: Final[str] = "Nova OS"
-NOVA_VERSION: Final[str] = "4.0.5"
+NOVA_VERSION: Final[str] = "4.0.6"
 NOVA_BUILD: Final[str] = "enterprise"
 
 NOVA_ASCII_LOGO: Final[str] = r"""

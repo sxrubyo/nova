@@ -554,6 +554,8 @@ class SystemScanner:
             {"key": "gh", "label": "GitHub CLI", "commands": ["gh"], "category": "automation"},
             {"key": "codex", "label": "Codex CLI", "commands": ["codex"], "category": "assistant"},
             {"key": "claude", "label": "Claude CLI", "commands": ["claude"], "category": "assistant"},
+            {"key": "gemini", "label": "Gemini CLI", "commands": ["gemini"], "category": "assistant"},
+            {"key": "opencode", "label": "OpenCode", "commands": ["opencode"], "category": "assistant"},
             {"key": "n8n", "label": "n8n", "commands": ["n8n"], "category": "automation"},
             {"key": "ollama", "label": "Ollama", "commands": ["ollama"], "category": "automation"},
             {"key": "code", "label": "VS Code", "commands": ["code"], "category": "editor"},
@@ -871,6 +873,8 @@ class SystemScanner:
             matched_signals = len(agent.detection_methods)
             if matched_signals < required_matches:
                 continue
+            if self._requires_executable_signal(fingerprint) and not self._has_executable_signal(agent):
+                continue
             agent.metadata = {
                 **dict(agent.metadata or {}),
                 "logo_path": fingerprint.get("logo_path"),
@@ -884,6 +888,16 @@ class SystemScanner:
             }
             confirmed.append(agent)
         return confirmed
+
+    def _requires_executable_signal(self, fingerprint: dict[str, Any]) -> bool:
+        detection = fingerprint.get("detection", {})
+        if "requires_executable_signal" in detection:
+            return bool(detection.get("requires_executable_signal"))
+        return fingerprint.get("type") == "cli_agent"
+
+    def _has_executable_signal(self, agent: DiscoveredAgent) -> bool:
+        executable_methods = {"binary", "npm_package", "pip_package", "process", "systemd"}
+        return any(method in executable_methods for method in agent.detection_methods)
 
     def _supported_signal_count(self, fingerprint: dict[str, Any]) -> int:
         detection = fingerprint.get("detection", {})

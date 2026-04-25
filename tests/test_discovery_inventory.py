@@ -57,3 +57,34 @@ def test_host_inventory_reports_repositories_and_codex_context(tmp_path: Path, m
     assert inventory["terminals"][0]["repo_path"] == str(repo_dir)
     assert inventory["recommended_installs"][0]["tool"] == "node"
     assert inventory["recommended_installs"][0]["install_command"].startswith("sudo apt-get install -y")
+
+
+def test_scan_tooling_includes_supported_assistant_clis(monkeypatch) -> None:
+    scanner = SystemScanner()
+    binaries = {
+        "codex": "/usr/bin/codex",
+        "opencode": "/usr/bin/opencode",
+    }
+    versions = {
+        "codex": "codex-cli 0.125.0",
+        "opencode": "1.14.22",
+    }
+
+    monkeypatch.setattr(
+        scanner,
+        "_resolve_tool_binary",
+        lambda commands: binaries.get(commands[0]),
+    )
+    monkeypatch.setattr(
+        scanner,
+        "_tool_version",
+        lambda key, resolved: versions.get(key),
+    )
+
+    tooling = scanner._scan_tooling()
+    by_key = {item["key"]: item for item in tooling}
+
+    assert by_key["codex"]["installed"] is True
+    assert by_key["opencode"]["installed"] is True
+    assert by_key["gemini"]["installed"] is False
+    assert by_key["claude"]["installed"] is False
