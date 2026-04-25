@@ -9,12 +9,13 @@
  ╚═╝  ╚═══╝ ╚═════╝   ╚═══╝  ╚═╝  ╚═╝     ╚═════╝ ╚══════╝
 ```
 
-**Governance runtime for AI agents.**
+**The missing layer in your AI stack.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20Termux-lightgrey)](https://github.com/sxrubyo/nova-os)
 [![npm](https://img.shields.io/badge/npm-nova--os-red)](https://www.npmjs.com/package/nova-os)
+[![Version](https://img.shields.io/badge/version-4.0.5%20Supernova-gold)](https://github.com/sxrubyo/nova-os)
 [![Status](https://img.shields.io/badge/status-active-brightgreen)](https://github.com/sxrubyo/nova-os)
 
 </div>
@@ -23,12 +24,12 @@
 
 ## What is Nova OS?
 
-Nova OS sits between your AI agents and the real world.
+Nova sits between your AI agents and the real world.
 
-Every action an agent wants to execute — send an email, write to a database, call an API, run a command — passes through Nova first. Nova evaluates it, logs it, and either approves or blocks it before anything reaches production.
+Every action an agent wants to execute passes through Nova first. Nova evaluates it in under 5ms, logs it to an immutable ledger, and either approves, blocks, or escalates — before anything reaches production.
 
 ```
-agent wants to act  →  Nova evaluates  →  APPROVED / BLOCKED / ESCALATED  →  world
+agent wants to act  →  Nova evaluates (<5ms)  →  APPROVED / BLOCKED / ESCALATED  →  world
 ```
 
 Not another agent. Not another chatbot. **Infrastructure.**
@@ -45,19 +46,7 @@ Nova fixes that.
 
 ---
 
-## What Nova does
-
-```
-✔  Validates   every agent action against your rules before execution
-✔  Blocks      duplicates, risky operations, and policy violations
-✔  Logs        every decision to an immutable ledger
-✔  Escalates   ambiguous actions for human review
-✔  Wraps       any agent as a transparent proxy — zero agent modification
-```
-
----
-
-## Quick Install
+## Install
 
 **Linux / macOS:**
 ```bash
@@ -87,68 +76,147 @@ cp .env.example .env
 docker-compose up -d --build
 ```
 
-Then open: `http://localhost:8000`
-
 ---
 
-## Quickstart
+## Quickstart — 2 commands
 
 ```bash
-# discover agents running on your machine
-nova discover --json
+# one command. every agent on your machine gets governed.
+nova guard
 
-# attach governance rules to an agent
-nova connect codex-cli --cannot-do "rm -rf"
-
-# validate an action before it executes
-nova validate --agent codex-cli \
-  --action terminal.command \
-  --payload '{"command":"rm -rf /tmp/demo"}'
-
-# watch the ledger live
-nova watch
+# add a rule instantly in plain language
+nova rule "never delete files from /prod"
 ```
+
+That's it. Nova auto-discovers your agents, injects governance rules, and starts watching.
 
 ---
 
-## Core Commands
+## How it works
+
+```
+Score ≥ 70   →  ✓  APPROVED   — executes immediately
+Score 40-70  →  ⚠  ESCALATED  — pauses, waits for your decision
+Score < 40   →  ✗  BLOCKED    — stopped, logged, explained
+```
+
+Every decision is written to the Intent Ledger. Cryptographic. Auditable. Permanent.
+
+---
+
+## Core commands
 
 | Command | What it does |
 |---|---|
-| `nova` | Interactive launcher |
-| `nova serve` | Start API + dashboard on `localhost:8000` |
-| `nova discover` | Detect agents and host context |
-| `nova connect <agent>` | Attach governance rules to an agent |
-| `nova validate` | Evaluate an action through the pipeline |
-| `nova status` | Runtime health check |
-| `nova watch` | Live ledger stream |
+| `nova init` | 13-step guided setup — agents, rules, policy, model |
+| `nova guard` | Auto-discover and protect all agents in one command |
+| `nova boot` | Start Nova Core + connect all agents |
+| `nova run "<cmd>"` | Wrap any CLI command with risk classification |
+| `nova shield` | HTTP proxy — intercept and validate every request |
+| `nova protect` | Attach to a live HTTP agent (fire-and-forget) |
+| `nova rule "<text>"` | Add a governance rule in plain language — active instantly |
+| `nova validate` | Manually validate any action through the pipeline |
+| `nova validate batch` | Validate up to 20 actions in parallel |
+| `nova simulate` | Test policy without creating tokens or ledger entries |
+| `nova watch` | Live-stream every decision as it happens |
+| `nova ledger` | Browse the full immutable action history |
+| `nova verify` | Check cryptographic chain integrity |
+| `nova audit` | Generate a full audit report |
+| `nova stats` | Analytics dashboard — risk profiles, anomalies, heatmaps |
+| `nova memory` | Store and search agent context semantically |
+| `nova scout` | Security scan — detect misconfigurations |
+| `nova anomalies` | View detected behavioral anomalies |
+| `nova benchmark` | Measure validation latency and throughput |
+| `nova mcp export` | Export config as MCP-compatible manifest |
 | `nova commands` | Full command reference |
 
 ---
 
-## Agent Skill Bridge
+## nova init — 13-step guided setup
 
-Nova injects its governance layer directly into your coding agents:
-
-```bash
-nova skill install --agent codex
-nova skill install --agent gemini
-nova skill install --agent opencode
+```
+Step 1   Welcome and orientation
+Step 2   How Nova works — score system explained
+Step 3   Auto-discovery — finds your agents automatically
+Step 4   Pre-flight warnings — what Nova can and cannot do
+Step 5   First rule — plain language, active immediately
+Step 6   Identity — name and organization
+Step 7   API key — generate, import, or use saved
+Step 8   Server — local or custom URL
+Step 9   Connection — cryptographic handshake
+Step 10  Intelligence — choose your AI model
+Step 11  Governance policy — strict / balanced / permissive / custom
+Step 12  Escalation channel — CLI / email / webhook
+Step 13  Skills — connect Gmail, Slack, GitHub and more
 ```
 
-Supported: **Codex · Gemini CLI · OpenCode · Claude Code**
+Supported models: **Claude · GPT-4 · Gemini · Groq · Mistral · DeepSeek · Cohere · OpenRouter · Ollama (local)**
 
 ---
 
-## Governance Flow
+## nova guard — one command, all agents
+
+```bash
+nova guard
+```
+
+Nova scans your environment, detects every AI agent running, and puts all of them under governance. No config files. No manual setup per agent.
+
+```bash
+nova guard --path .env      # protect a specific path from ALL agents
+nova guard --path /prod     # nothing in /prod can be touched
+```
+
+---
+
+## nova run — wrap any command
+
+```bash
+nova run "pm2 restart melissa"
+nova run "rm -rf /tmp/old-logs"
+nova run "git push origin main --force"
+```
+
+Nova classifies the risk, shows you the verdict, and either executes or blocks. Every run is logged.
+
+---
+
+## nova shield — HTTP proxy
+
+```bash
+nova shield
+```
+
+Starts a proxy on `127.0.0.1:7755`. Every HTTP request from your agents passes through it. Nova validates the action before forwarding. Nothing reaches your services unexamined.
+
+---
+
+## Agent auto-discovery
+
+Nova detects agents running on your machine automatically:
 
 ```
-1. DISCOVER    →  detect agents and host inventory
+OpenClaw          100% confidence  ● live
+Melissa           100% confidence
+n8n               100% confidence  ● live
+Claude Code       100% confidence
+OpenAI Codex CLI  100% confidence
+Gemini CLI         50% confidence
+GitHub Copilot     45% confidence
+Custom OpenAI      35% confidence  ● live
+```
+
+---
+
+## Governance flow
+
+```
+1. DISCOVER    →  auto-detect agents on your machine
 2. CONNECT     →  attach rules: cannot_do, must_confirm, rate_limits
 3. INTERCEPT   →  every action passes through Nova before execution
-4. EVALUATE    →  deterministic rules + optional LLM validation
+4. EVALUATE    →  deterministic rules + optional LLM validation in <5ms
 5. DECIDE      →  APPROVED / BLOCKED / ESCALATED / DUPLICATE
-6. LEDGER      →  immutable record of every decision
+6. LEDGER      →  cryptographic, immutable, permanent record
 ```
 
 ---
@@ -156,25 +224,28 @@ Supported: **Codex · Gemini CLI · OpenCode · Claude Code**
 ## Architecture
 
 ```
-nova.py                 CLI entrypoint + local server launcher
-nova/                   core: API, kernel, ledger, discovery, storage
-frontend/               React dashboard (served by the same process)
-n8n-nodes-nova/         n8n integration
-docs/                   deployment, API reference, architecture
-tests/                  platform, API, discovery, runtime tests
+nova.py              CLI entrypoint + local server launcher
+nova/                core: API, kernel, ledger, discovery, storage
+frontend/            React dashboard at localhost:9800
+n8n-nodes-nova/      n8n native integration
+legacy/              compatibility layer — being cleaned up
+docs/                deployment, API reference, architecture
+tests/               platform, API, discovery, runtime tests
 ```
 
 **Core design decisions:**
 
 - **Fail-open** — Nova never blocks your work if it goes down
-- **LLM-optional** — core validation runs without any AI dependency
+- **LLM-optional** — 90% of validations run without any AI call
 - **Hot-reload rules** — update governance policies without restart
-- **Immutable ledger** — every decision is permanent and traceable
-- **Transparent proxy** — wraps agents from outside, zero agent modification required
+- **Immutable ledger** — cryptographic chain, nothing can be deleted
+- **Transparent proxy** — wraps agents from outside, zero modification to agent code
+- **Offline mode** — actions queue locally and sync when server returns
+- **Bilingual** — ES/EN native, no config required
 
 ---
 
-## Platform Support
+## Platform support
 
 | Platform | Status |
 |---|---|
