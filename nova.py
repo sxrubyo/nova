@@ -357,7 +357,7 @@ async def _run_auth_command(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="nova", description="Nova OS v4.0.4 control plane CLI")
+    parser = argparse.ArgumentParser(prog="nova", description="Nova OS v4.0.5 control plane CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     start = subparsers.add_parser("start")

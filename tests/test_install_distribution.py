@@ -51,6 +51,7 @@ def test_npm_package_exposes_nova_bin() -> None:
     assert package_json["name"] == "nova-os"
     assert package_json["bin"]["nova"] == "bin/nova.js"
     assert "bin/nova.js" in package_json["files"]
+    assert "legacy/**/*.py" in package_json["files"]
     assert "nova/**/*.py" in package_json["files"]
     assert "nova.py" in package_json["files"]
     assert "frontend/dist/**/*" in package_json["files"]

@@ -302,7 +302,7 @@ _AGENT_WAKE_MESSAGES = [
     "Systems coming online...",
 ]
 
-NOVA_VERSION = "4.0.4"
+NOVA_VERSION = "4.0.5"
 NOVA_BUILD = "2026.03.supernova"
 NOVA_CODENAME = "Supernova"
 
@@ -6744,11 +6744,11 @@ def cmd_scout(args):
     
     rules = [
         ("Network egress", re.compile(r"(https?://|ftp://|sftp://)", re.I), "HIGH"),
-        ("Webhook exfil", re.compile(r"(webhook|hookbin|requestbin|pastebin|transfer\\.sh|ngrok)", re.I), "HIGH"),
-        ("Command exec", re.compile(r"(subprocess|os\\.system|shell=True|Popen\\(|exec\\(|eval\\()", re.I), "HIGH"),
+        ("Webhook exfil", re.compile(r"(webhook|hookbin|requestbin|pastebin|transfer\.sh|ngrok)", re.I), "HIGH"),
+        ("Command exec", re.compile(r"(subprocess|os\.system|shell=True|Popen\(|exec\(|eval\()", re.I), "HIGH"),
         ("Credential patterns", re.compile(r"(api[_-]?key|secret|token|passwd|password)", re.I), "MED"),
         ("Encoding/pack", re.compile(r"(base64|b64encode|gzip|zlib)", re.I), "MED"),
-        ("File sweep", re.compile(r"(os\\.walk|glob\\(|/etc/passwd|/var/lib|/home/)", re.I), "MED"),
+        ("File sweep", re.compile(r"(os\.walk|glob\(|/etc/passwd|/var/lib|/home/)", re.I), "MED"),
     ]
     
     findings = []
