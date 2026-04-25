@@ -205,10 +205,17 @@ def build_wrapper_script_for_platform(
     if is_windows:
         return (
             "@echo off\r\n"
-            f'"{python_path}" "{repo_path / "nova.py"}" %*\r\n'
+            'if "%~1"=="" (\r\n'
+            f'  "{python_path}" "{repo_path / "nova.py"}" launchpad\r\n'
+            ") else (\r\n"
+            f'  "{python_path}" "{repo_path / "nova.py"}" %*\r\n'
+            ")\r\n"
         )
     return (
         "#!/usr/bin/env sh\n"
+        'if [ "$#" -eq 0 ]; then\n'
+        f'  exec "{python_path}" "{repo_path / "nova.py"}" launchpad\n'
+        "fi\n"
         f'exec "{python_path}" "{repo_path / "nova.py"}" "$@"\n'
     )
 
@@ -230,6 +237,39 @@ def _run_command(command: list[str], *, cwd: Path | None = None) -> None:
         if cwd is None:
             raise
         subprocess.run(command, check=True, text=True)
+
+
+def _probe_command(command: list[str]) -> bool:
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except OSError:
+        return False
+    return completed.returncode == 0
+
+
+def _ensure_runtime_pip(runtime_python: Path, runner: CommandRunner) -> bool:
+    if _probe_command([str(runtime_python), "-m", "pip", "--version"]):
+        return True
+    _warn("Nova bootstrap: runtime sin pip; reparando con ensurepip")
+    try:
+        runner([str(runtime_python), "-m", "ensurepip", "--upgrade"])
+    except subprocess.CalledProcessError:
+        return False
+    return _probe_command([str(runtime_python), "-m", "pip", "--version"])
+
+
+def _runtime_is_healthy(runtime_python: Path) -> bool:
+    checks = [
+        [str(runtime_python), "-m", "pip", "--version"],
+        [str(runtime_python), "-c", "import pydantic, fastapi, rich"],
+    ]
+    return all(_probe_command(command) for command in checks)
 
 
 def _requirements_signature(repo_path: Path) -> str:
@@ -288,15 +328,21 @@ def ensure_runtime(
         "requirements_signature": _requirements_signature(repo_path),
     }
 
-    if runtime_python.exists() and _load_runtime_state(state_path) == current_state:
+    runtime_state_matches = runtime_python.exists() and _load_runtime_state(state_path) == current_state
+    if runtime_state_matches and (command_runner is not None or _runtime_is_healthy(runtime_python)):
         _status("Nova bootstrap: using existing isolated runtime")
         return runtime_python
+    if runtime_state_matches:
+        _warn("Nova bootstrap: existing runtime is incomplete; repairing dependencies")
 
     runtime_created = False
     if not runtime_python.exists():
         _status("Nova bootstrap: creating isolated runtime")
         runner([host_python, "-m", "venv", str(root)])
         runtime_created = True
+
+    if command_runner is None and not _ensure_runtime_pip(runtime_python, runner):
+        raise RuntimeError("Nova bootstrap no pudo habilitar pip dentro del runtime aislado")
 
     _status("Nova bootstrap: installing Python dependencies")
     if runtime_created:

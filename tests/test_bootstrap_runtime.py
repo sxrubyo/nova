@@ -28,6 +28,8 @@ def test_wrapper_script_uses_runtime_python_and_repo_path(tmp_path: Path) -> Non
     assert str(runtime_python) in script
     assert str(repo_dir / "nova.py") in script
     assert '"$@"' in script
+    assert 'launchpad' in script
+    assert '[ "$#" -eq 0 ]' in script
 
 
 def test_windows_wrapper_script_uses_cmd_forwarding(tmp_path: Path) -> None:
@@ -42,6 +44,8 @@ def test_windows_wrapper_script_uses_cmd_forwarding(tmp_path: Path) -> None:
     assert str(runtime_python) in script
     assert str(repo_dir / "nova.py") in script
     assert "%*" in script
+    assert 'launchpad' in script
+    assert 'if "%~1"==""' in script
 
 
 def test_bootstrap_banner_contains_nova_branding() -> None:
@@ -174,6 +178,45 @@ def test_ensure_runtime_reuses_existing_runtime_without_network_tool_upgrade(tmp
 
     assert not any(command[:4] == [str(runtime_python), "-m", "pip", "install"] and "--upgrade" in command for command in calls)
     assert any(command[-2:] == ["-r", str(repo_dir / "requirements.txt")] for command in calls)
+
+
+def test_ensure_runtime_repairs_incomplete_runtime_even_when_state_matches(tmp_path: Path, monkeypatch) -> None:
+    from nova.bootstrap import ensure_runtime, runtime_python_path, runtime_root, runtime_state_path
+
+    calls: list[list[str]] = []
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "nova_core_requirements.txt").write_text("pydantic\n", encoding="utf-8")
+
+    runtime_python = runtime_python_path(runtime_root(tmp_path))
+    runtime_python.parent.mkdir(parents=True, exist_ok=True)
+    runtime_python.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    state_path = runtime_state_path(runtime_root(tmp_path))
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        '{"python_bin": "/usr/bin/python3", "repo_dir": "' + str(repo_dir) + '", "requirements_signature": "'
+        + __import__("hashlib").sha256((repo_dir / "nova_core_requirements.txt").read_bytes()).hexdigest()
+        + '"}',
+        encoding="utf-8",
+    )
+
+    probe_results = iter([False, True])
+
+    def fake_run(command: list[str], **_: object) -> None:
+        calls.append(command)
+
+    monkeypatch.setattr("nova.bootstrap._run_command", fake_run)
+    monkeypatch.setattr("nova.bootstrap._runtime_is_healthy", lambda _runtime_python: False)
+    monkeypatch.setattr("nova.bootstrap._probe_command", lambda _command: next(probe_results))
+
+    ensure_runtime(
+        repo_dir=repo_dir,
+        home_dir=tmp_path,
+        python_bin="/usr/bin/python3",
+    )
+
+    assert calls[0] == [str(runtime_python), "-m", "ensurepip", "--upgrade"]
+    assert any(command[:4] == [str(runtime_python), "-m", "pip", "install"] for command in calls)
 
 
 def test_select_bin_dir_defaults_to_canonical_nova_bin(tmp_path: Path) -> None:

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
+from unittest import mock
 from pathlib import Path
+
+import pytest
 
 from nova.utils.formatting import command_launchpad, existing_runtime_banner, startup_banner
 
@@ -117,6 +121,18 @@ def test_legacy_dispatch_identifies_legacy_and_modern_routes() -> None:
     assert NOVA_CLI._legacy_dispatch_argv(["discover"]) is None
 
 
+def test_attempt_bootstrap_reexec_recovers_missing_runtime_dependency(monkeypatch) -> None:
+    monkeypatch.delenv(NOVA_CLI.BOOTSTRAP_RECOVERY_FLAG, raising=False)
+
+    with mock.patch("nova.bootstrap.exec_nova", return_value=0) as exec_nova:
+        with pytest.raises(SystemExit) as exc_info:
+            NOVA_CLI._attempt_bootstrap_reexec(["start"], ModuleNotFoundError("missing", name="pydantic"))
+
+    assert exc_info.value.code == 0
+    exec_nova.assert_called_once_with(ROOT, ["start"], python_bin=sys.executable)
+    assert os.environ[NOVA_CLI.BOOTSTRAP_RECOVERY_FLAG] == "1"
+
+
 def test_commands_alias_prints_launchpad() -> None:
     result = subprocess.run(
         [sys.executable, "nova.py", "commands"],
@@ -146,7 +162,7 @@ def test_startup_banner_surfaces_dashboard_and_docs() -> None:
         dashboard_url="http://127.0.0.1:9800/",
         docs_url="http://127.0.0.1:9800/api/docs",
         bridge_url="ws://127.0.0.1:9700",
-        version="4.0.3",
+        version="4.0.4",
     )
 
     assert "Dashboard:" in banner
@@ -160,7 +176,7 @@ def test_existing_runtime_banner_surfaces_attach_state() -> None:
         dashboard_url="http://127.0.0.1:9800/",
         docs_url="http://127.0.0.1:9800/api/docs",
         bridge_url="ws://127.0.0.1:9700",
-        version="4.0.3",
+        version="4.0.4",
         active_agents=3,
         uptime_seconds=95,
     )

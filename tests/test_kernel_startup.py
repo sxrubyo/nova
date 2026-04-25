@@ -28,7 +28,7 @@ async def test_kernel_start_attaches_to_existing_runtime_before_binding(monkeypa
     async def fake_probe() -> dict[str, object]:
         return {
             "status": "operational",
-            "version": "4.0.3",
+            "version": "4.0.4",
             "active_agents": 2,
             "uptime_seconds": 42,
         }
@@ -62,7 +62,7 @@ async def test_kernel_start_converts_bridge_port_conflict_to_attach(monkeypatch,
             return None
         return {
             "status": "operational",
-            "version": "4.0.3",
+            "version": "4.0.4",
             "active_agents": 1,
             "uptime_seconds": 7,
         }

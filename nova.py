@@ -41,6 +41,18 @@ LEGACY_ALIAS_MAP = {
     "launchpad": "launchpad",
     "lp": "launchpad",
 }
+BOOTSTRAP_RECOVERY_MODULES = {
+    "pydantic",
+    "pydantic_settings",
+    "fastapi",
+    "sqlalchemy",
+    "aiosqlite",
+    "asyncpg",
+    "rich",
+    "httpx",
+    "click",
+}
+BOOTSTRAP_RECOVERY_FLAG = "NOVA_AUTO_BOOTSTRAP_REEXEC"
 
 
 def _nova_version() -> str:
@@ -107,6 +119,29 @@ def _run_legacy_cli(argv: list[str]) -> None:
         module.main()
     finally:
         sys.argv = original_argv
+
+
+def _attempt_bootstrap_reexec(raw_args: list[str], exc: ModuleNotFoundError) -> None:
+    missing_module = getattr(exc, "name", "") or ""
+    if missing_module not in BOOTSTRAP_RECOVERY_MODULES:
+        raise exc
+    if os.environ.get(BOOTSTRAP_RECOVERY_FLAG) == "1":
+        raise exc
+    print(
+        f"[nova] Missing runtime dependency '{missing_module}'. Repairing Nova runtime and retrying...",
+        file=sys.stderr,
+        flush=True,
+    )
+    from nova.bootstrap import exec_nova
+
+    os.environ[BOOTSTRAP_RECOVERY_FLAG] = "1"
+    raise SystemExit(
+        exec_nova(
+            Path(__file__).resolve().parent,
+            raw_args,
+            python_bin=sys.executable,
+        )
+    ) from exc
 
 
 def _resolve_api_url(api_url: str | None) -> str:
@@ -322,7 +357,7 @@ async def _run_auth_command(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="nova", description="Nova OS v4.0.0 control plane CLI")
+    parser = argparse.ArgumentParser(prog="nova", description="Nova OS v4.0.4 control plane CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     start = subparsers.add_parser("start")
@@ -653,7 +688,7 @@ async def _serve_api(
         await kernel.shutdown()
 
 
-async def run_async(args: argparse.Namespace) -> None:
+async def run_async(args: argparse.Namespace, raw_args: list[str] | None = None) -> None:
     if args.command == "help":
         from nova.utils.formatting import command_launchpad
 
@@ -675,10 +710,13 @@ async def run_async(args: argparse.Namespace) -> None:
         print(json.dumps(payload, indent=2))
         return
 
-    from nova.config import NovaConfig
-    from nova.kernel import get_kernel
-    from nova.utils.browser import local_dashboard_url
-    from nova.utils.formatting import launch_banner
+    try:
+        from nova.config import NovaConfig
+        from nova.kernel import get_kernel
+        from nova.utils.browser import local_dashboard_url
+        from nova.utils.formatting import launch_banner
+    except ModuleNotFoundError as exc:
+        _attempt_bootstrap_reexec(list(raw_args or []), exc)
 
     config = NovaConfig()
     if args.command == "start":
@@ -935,7 +973,7 @@ def main(argv: list[str] | None = None) -> None:
         _run_legacy_cli(legacy_args)
         return
     args = parse_cli_args(raw_args)
-    asyncio.run(run_async(args))
+    asyncio.run(run_async(args, raw_args=raw_args))
 
 
 if __name__ == "__main__":
