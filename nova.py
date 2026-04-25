@@ -90,15 +90,17 @@ def _legacy_cli_path() -> Path:
 
 def _legacy_dispatch_argv(raw_args: list[str]) -> list[str] | None:
     if not raw_args:
-        return []
+        return None
 
     first = raw_args[0]
     if first in ("-h", "--help"):
-        return ["help"]
+        return None
     if first.startswith("-"):
         return None
 
     normalized = first.lower()
+    if normalized == "help" or normalized in CLI_COMMAND_ALIASES:
+        return None
     if normalized in LEGACY_ALIAS_MAP:
         return [LEGACY_ALIAS_MAP[normalized], *raw_args[1:]]
     if normalized not in MODERN_RUNTIME_COMMANDS:

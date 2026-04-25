@@ -28,8 +28,8 @@ def test_wrapper_script_uses_runtime_python_and_repo_path(tmp_path: Path) -> Non
     assert str(runtime_python) in script
     assert str(repo_dir / "nova.py") in script
     assert '"$@"' in script
-    assert 'launchpad' in script
     assert '[ "$#" -eq 0 ]' in script
+    assert 'launchpad' not in script
 
 
 def test_windows_wrapper_script_uses_cmd_forwarding(tmp_path: Path) -> None:
@@ -44,8 +44,8 @@ def test_windows_wrapper_script_uses_cmd_forwarding(tmp_path: Path) -> None:
     assert str(runtime_python) in script
     assert str(repo_dir / "nova.py") in script
     assert "%*" in script
-    assert 'launchpad' in script
     assert 'if "%~1"==""' in script
+    assert 'launchpad' not in script
 
 
 def test_bootstrap_banner_contains_nova_branding() -> None:
@@ -267,10 +267,10 @@ def test_run_command_retries_without_cwd_when_process_launch_fails() -> None:
     ]
 
 
-def test_command_can_skip_runtime_for_help_and_empty_invocations() -> None:
+def test_command_can_skip_runtime_for_help_but_not_default_start_invocation() -> None:
     from nova.bootstrap import command_can_skip_runtime
 
-    assert command_can_skip_runtime([])
+    assert not command_can_skip_runtime([])
     assert command_can_skip_runtime(["Help"])
     assert command_can_skip_runtime(["--help"])
     assert command_can_skip_runtime(["skill", "install", "--agent", "codex"])

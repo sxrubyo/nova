@@ -171,7 +171,7 @@ def runtime_python_path(root: str | Path) -> Path:
 
 def command_can_skip_runtime(argv: Sequence[str]) -> bool:
     if not argv:
-        return True
+        return False
     first = str(argv[0] or "").strip().lower()
     if first in {"-h", "--help"}:
         return True
@@ -206,7 +206,7 @@ def build_wrapper_script_for_platform(
         return (
             "@echo off\r\n"
             'if "%~1"=="" (\r\n'
-            f'  "{python_path}" "{repo_path / "nova.py"}" launchpad\r\n'
+            f'  "{python_path}" "{repo_path / "nova.py"}"\r\n'
             ") else (\r\n"
             f'  "{python_path}" "{repo_path / "nova.py"}" %*\r\n'
             ")\r\n"
@@ -214,7 +214,7 @@ def build_wrapper_script_for_platform(
     return (
         "#!/usr/bin/env sh\n"
         'if [ "$#" -eq 0 ]; then\n'
-        f'  exec "{python_path}" "{repo_path / "nova.py"}" launchpad\n'
+        f'  exec "{python_path}" "{repo_path / "nova.py"}"\n'
         "fi\n"
         f'exec "{python_path}" "{repo_path / "nova.py"}" "$@"\n'
     )

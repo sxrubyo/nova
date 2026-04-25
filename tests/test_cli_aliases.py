@@ -29,8 +29,8 @@ def test_help_command_prints_launchpad() -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "GETTING STARTED" in result.stdout
-    assert "nova launchpad" in result.stdout
+    assert "NOVA COMMAND LAUNCHPAD" in result.stdout
+    assert "nova start" in result.stdout
 
 
 def test_start_subcommand_is_registered() -> None:
@@ -54,18 +54,22 @@ def test_empty_cli_defaults_to_start() -> None:
     assert args.no_open_browser is False
 
 
-def test_empty_cli_dispatches_to_legacy_surface() -> None:
-    result = subprocess.run(
-        [sys.executable, "nova.py"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+def test_empty_cli_routes_to_modern_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    observed: dict[str, object] = {}
 
-    assert result.returncode == 0, result.stderr
-    assert "GETTING STARTED" in result.stdout
-    assert "nova launchpad" in result.stdout
+    async def fake_run_async(args, raw_args=None):
+        observed["command"] = args.command
+        observed["raw_args"] = raw_args
+
+    def fail_legacy(argv: list[str]) -> None:
+        raise AssertionError(f"legacy CLI should not be used for empty argv: {argv}")
+
+    monkeypatch.setattr(NOVA_CLI, "run_async", fake_run_async)
+    monkeypatch.setattr(NOVA_CLI, "_run_legacy_cli", fail_legacy)
+
+    NOVA_CLI.main([])
+
+    assert observed == {"command": "start", "raw_args": []}
 
 
 def test_top_level_help_flag_routes_to_help_command() -> None:
@@ -80,7 +84,7 @@ def test_commands_alias_routes_to_help_command() -> None:
     assert args.command == "help"
 
 
-def test_commands_alias_dispatches_to_legacy_help() -> None:
+def test_commands_alias_dispatches_to_modern_launchpad() -> None:
     result = subprocess.run(
         [sys.executable, "nova.py", "commands"],
         cwd=ROOT,
@@ -90,8 +94,8 @@ def test_commands_alias_dispatches_to_legacy_help() -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "GETTING STARTED" in result.stdout
-    assert "nova boot" in result.stdout
+    assert "NOVA COMMAND LAUNCHPAD" in result.stdout
+    assert "nova start" in result.stdout
 
 
 def test_help_command_is_case_insensitive_for_primary_alias() -> None:
@@ -113,9 +117,10 @@ def test_platform_bootstrap_runs_for_runtime_commands() -> None:
 
 
 def test_legacy_dispatch_identifies_legacy_and_modern_routes() -> None:
-    assert NOVA_CLI._legacy_dispatch_argv([]) == []
-    assert NOVA_CLI._legacy_dispatch_argv(["commands"]) == ["help"]
-    assert NOVA_CLI._legacy_dispatch_argv(["launchpad"]) == ["launchpad"]
+    assert NOVA_CLI._legacy_dispatch_argv([]) is None
+    assert NOVA_CLI._legacy_dispatch_argv(["help"]) is None
+    assert NOVA_CLI._legacy_dispatch_argv(["commands"]) is None
+    assert NOVA_CLI._legacy_dispatch_argv(["launchpad"]) is None
     assert NOVA_CLI._legacy_dispatch_argv(["boot"]) == ["boot"]
     assert NOVA_CLI._legacy_dispatch_argv(["start"]) is None
     assert NOVA_CLI._legacy_dispatch_argv(["discover"]) is None
@@ -143,8 +148,8 @@ def test_commands_alias_prints_launchpad() -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "GETTING STARTED" in result.stdout
-    assert "nova launchpad" in result.stdout
+    assert "NOVA COMMAND LAUNCHPAD" in result.stdout
+    assert "nova skill install --agent codex" in result.stdout
 
 
 def test_command_launchpad_lists_primary_workflows() -> None:

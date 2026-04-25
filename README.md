@@ -15,7 +15,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20Termux-lightgrey)](https://github.com/sxrubyo/nova-os)
 [![npm](https://img.shields.io/badge/npm-nova--os-red)](https://www.npmjs.com/package/nova-os)
-[![Version](https://img.shields.io/badge/version-4.0.5%20Supernova-gold)](https://github.com/sxrubyo/nova-os)
+[![Version](https://img.shields.io/badge/version-4.0.8%20Supernova-gold)](https://github.com/sxrubyo/nova-os)
 [![Status](https://img.shields.io/badge/status-active-brightgreen)](https://github.com/sxrubyo/nova-os)
 
 </div>
