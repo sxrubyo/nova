@@ -162,7 +162,7 @@ def test_startup_banner_surfaces_dashboard_and_docs() -> None:
         dashboard_url="http://127.0.0.1:9800/",
         docs_url="http://127.0.0.1:9800/api/docs",
         bridge_url="ws://127.0.0.1:9700",
-        version="4.0.6",
+        version="4.0.7",
     )
 
     assert "Dashboard:" in banner
@@ -176,7 +176,7 @@ def test_existing_runtime_banner_surfaces_attach_state() -> None:
         dashboard_url="http://127.0.0.1:9800/",
         docs_url="http://127.0.0.1:9800/api/docs",
         bridge_url="ws://127.0.0.1:9700",
-        version="4.0.6",
+        version="4.0.7",
         active_agents=3,
         uptime_seconds=95,
     )

@@ -34,7 +34,7 @@ def startup_banner(
         *logo_lines,
         "",
         f"      {NOVA_NAME} v{version} ({resolved_build})",
-        "     AI Governance Control Plane",
+        "     Operator control plane for local AI agents",
         "",
         f"  Dashboard:   {dashboard_url}",
         f"  API Server:  {api_url}",
@@ -51,11 +51,11 @@ def launch_banner(*, dashboard_url: str, version: str) -> str:
     lines = [
         "",
         "                 NOVA OS BOOT",
-        f"           Preparing governed runtime v{version}",
+        f"            Preparing operator runtime v{version}",
         "",
         f"  Dashboard target: {dashboard_url}",
         "  Runtime:          API + bridge + dashboard",
-        "  Mode:             autonomous local control plane",
+        "  Mode:             local operator control plane",
         "  Next:             services will come online and open when ready",
     ]
     return _boxed(lines, width=78)
@@ -78,7 +78,7 @@ def existing_runtime_banner(
     lines = [
         "",
         "                NOVA OS ONLINE",
-        f"         Connected to governed runtime v{version}",
+        f"         Connected to operator runtime v{version}",
         "",
         f"  Dashboard:   {dashboard_url}",
         f"  API Server:  {api_url}",
