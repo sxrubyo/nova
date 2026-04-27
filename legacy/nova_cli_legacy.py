@@ -261,28 +261,11 @@ _STAR_LINE = 1
 
 # Enterprise taglines - rotating
 _TAGLINES = [
-    "Agents that answer for themselves.",
-    "The layer between intent and chaos.",
-    "Your agents, accountable.",
-    "What your agents do. Provably.",
-    "Where intent becomes law.",
-    "Intelligence with limits. Actions with proof.",
-    "Every action, signed. Every intent, provable.",
-    "The nervous system for autonomous agents.",
-    "Trust, but verify. Automatically.",
-    "Control without constraint.",
-    "The firewall for AI agents.",
-    "Governance at machine speed.",
-    "What stands between your agent and the world.",
-    "Actions speak. nova listens.",
-    "Because 'it seemed like a good idea' isn't an audit trail.",
-    "Sleep well. Your agents are supervised.",
-    "Enterprise-grade governance. Zero friction.",
-    "Built for scale. Designed for trust.",
     "The missing layer in your AI stack.",
-    "From intent to execution. Safely.",
-    "Autonomous, not unaccountable.",
-    "Your agents' conscience.",
+    "Intelligence with limits. Actions with proof.",
+    "Built for scale. Designed for trust.",
+    "What stands between your agent and the world.",
+    "Sleep well. Your agents are supervised.",
 ]
 
 # Agent personality messages for ghost writing
@@ -304,9 +287,24 @@ _AGENT_WAKE_MESSAGES = [
     "Systems coming online...",
 ]
 
-NOVA_VERSION = "4.0.7"
+NOVA_VERSION = "4.0.9"
 NOVA_BUILD = "2026.03.supernova"
 NOVA_CODENAME = "Supernova"
+
+
+def _next_rotating_tagline() -> str:
+    index_file = Path.home() / ".nova" / "tagline_index"
+    try:
+        index_file.parent.mkdir(parents=True, exist_ok=True)
+        current = int(index_file.read_text(encoding="utf-8").strip() or "0") if index_file.exists() else 0
+    except Exception:
+        current = 0
+    tagline = _TAGLINES[current % len(_TAGLINES)]
+    try:
+        index_file.write_text(str((current + 1) % len(_TAGLINES)), encoding="utf-8")
+    except Exception:
+        pass
+    return tagline
 
 # Command aliases for power users
 ALIASES = {
@@ -670,13 +668,13 @@ def print_logo(tagline=True, compact=False, animated=False, minimal=False):
     print_nova_starburst(animated=animated)
 
     if tagline:
-        tl = random.choice(_TAGLINES)
+        tl = _next_rotating_tagline()
         if animated:
             ghost_write(tl, color=C.G2, delay=0.01)
         else:
             print("  " + q(C.G2, tl))
         print("  " + q(C.GLD_BRIGHT, "✦") + " " +
-              q(C.G3, f"Constellation · Operator Edition"))
+              q(C.G3, f"Constellation · Enterprise Edition"))
         print("  " + q(C.G3, "─" * 62))
 
     print()
@@ -14784,7 +14782,7 @@ def cmd_guard(args):
         print("     " + q(C.GRN, f"⊕  {total_rules} rule(s) active across {len(agents)} agent(s)"))
     print("     " + q(C.G2, "⊕  No AI agent can touch your protected paths."))
     print()
-    hint("Add more rules:  nova rule "<description>"")
+    hint('Add more rules:  nova rule "<description>"')
     hint("See coverage:    nova guard --status")
     hint("Watch live:      nova watch")
     print()
@@ -15261,19 +15259,6 @@ def main():
     # Help flag or command
     if args.help or args.command in ("help", "--help", "-h", "?"):
         cmd_help(args)
-        return
-    
-    # First-run detection
-    if args.command not in ("init", "help", "completion", "doctor", "scout", "mcp", "--help", "-h") and \
-       not CONFIG_FILE.exists():
-        print()
-        print("  " + q(C.GLD, "✦", bold=True) + "  " + q(C.W, "nova", bold=True))
-        print()
-        print("  " + q(C.G1, "Welcome! nova isn't configured yet."))
-        print()
-        print("  " + q(C.B7, "nova init", bold=True) + "  " + 
-              q(C.G2, "- run the setup wizard"))
-        print()
         return
     
     # Command routing table

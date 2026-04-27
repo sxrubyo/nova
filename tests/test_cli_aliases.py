@@ -4,6 +4,7 @@ import importlib.util
 import os
 import subprocess
 import sys
+import tempfile
 from unittest import mock
 from pathlib import Path
 
@@ -29,8 +30,9 @@ def test_help_command_prints_launchpad() -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "NOVA COMMAND LAUNCHPAD" in result.stdout
-    assert "nova start" in result.stdout
+    assert "Enterprise-grade governance infrastructure for AI agents." in result.stdout
+    assert "GETTING STARTED" in result.stdout
+    assert "nova boot" in result.stdout
 
 
 def test_start_subcommand_is_registered() -> None:
@@ -94,8 +96,9 @@ def test_commands_alias_dispatches_to_modern_launchpad() -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "NOVA COMMAND LAUNCHPAD" in result.stdout
-    assert "nova start" in result.stdout
+    assert "Enterprise-grade governance infrastructure for AI agents." in result.stdout
+    assert "GOVERNANCE INTEGRATIONS" in result.stdout
+    assert "nova guard" in result.stdout
 
 
 def test_help_command_is_case_insensitive_for_primary_alias() -> None:
@@ -118,8 +121,8 @@ def test_platform_bootstrap_runs_for_runtime_commands() -> None:
 
 def test_legacy_dispatch_identifies_legacy_and_modern_routes() -> None:
     assert NOVA_CLI._legacy_dispatch_argv([]) is None
-    assert NOVA_CLI._legacy_dispatch_argv(["help"]) is None
-    assert NOVA_CLI._legacy_dispatch_argv(["commands"]) is None
+    assert NOVA_CLI._legacy_dispatch_argv(["help"]) == ["help"]
+    assert NOVA_CLI._legacy_dispatch_argv(["commands"]) == ["help"]
     assert NOVA_CLI._legacy_dispatch_argv(["launchpad"]) is None
     assert NOVA_CLI._legacy_dispatch_argv(["boot"]) == ["boot"]
     assert NOVA_CLI._legacy_dispatch_argv(["start"]) is None
@@ -148,8 +151,14 @@ def test_commands_alias_prints_launchpad() -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "NOVA COMMAND LAUNCHPAD" in result.stdout
-    assert "nova skill install --agent codex" in result.stdout
+    assert "Constellation · Enterprise Edition" in result.stdout
+    assert "nova skill" in result.stdout
+
+
+def test_launchpad_action_argv_stays_disabled_without_tty(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("NOVA_NO_INTERACTIVE", "1")
+
+    assert NOVA_CLI._launchpad_action_argv("help") is None
 
 
 def test_command_launchpad_lists_primary_workflows() -> None:
@@ -203,3 +212,49 @@ def test_discovery_tooling_rows_prioritize_assistant_clis() -> None:
     )
 
     assert [item["key"] for item in rows] == ["codex", "opencode", "node", "git"]
+
+
+def test_legacy_commands_do_not_get_blocked_by_missing_config() -> None:
+    with tempfile.TemporaryDirectory() as tmp_home:
+        config_result = subprocess.run(
+            [sys.executable, str(ROOT / "nova.py"), "config"],
+            cwd=ROOT,
+            env={**os.environ, "HOME": tmp_home},
+            input="10\n",
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert config_result.returncode == 0, config_result.stderr
+        assert "isn't configured yet" not in config_result.stdout
+        assert "API key is not configured" in config_result.stdout
+
+        boot_result = subprocess.run(
+            [sys.executable, str(ROOT / "nova.py"), "boot"],
+            cwd=ROOT,
+            env={**os.environ, "HOME": tmp_home},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert boot_result.returncode == 0, boot_result.stderr
+        assert "isn't configured yet" not in boot_result.stdout
+        assert "Nova Boot" in boot_result.stdout
+
+
+def test_guard_summary_no_longer_crashes_on_description_nameerror() -> None:
+    with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp_cwd:
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "nova.py"), "guard", "--path", ".env"],
+            cwd=tmp_cwd,
+            env={**os.environ, "HOME": tmp_home},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "name 'description' is not defined" not in result.stdout
+        assert "Nova Guard active" in result.stdout

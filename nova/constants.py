@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import Final
 
 NOVA_NAME: Final[str] = "Nova OS"
-NOVA_VERSION: Final[str] = "4.0.8"
+NOVA_VERSION: Final[str] = "4.0.9"
 NOVA_BUILD: Final[str] = "operator"
+NOVA_CODENAME: Final[str] = "Supernova"
 
 NOVA_ASCII_LOGO: Final[str] = r"""
                 ▄███████
@@ -17,6 +18,16 @@ NOVA_ASCII_LOGO: Final[str] = r"""
           ▄██████████████████▄
           ▀██████████████████▀
 """
+
+NOVA_STARBURST_LINES: Final[list[str]] = [
+    "                ·",
+    "          ╲     │     ╱",
+    "            ╲   │   ╱",
+    "  ·  ────────── ✦ ──────────  ·",
+    "            ╱   │   ╲",
+    "          ╱     │     ╲",
+    "                ·",
+]
 
 DEFAULT_PROVIDER_MODELS: Final[dict[str, list[str]]] = {
     "openai": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1", "o3-mini"],

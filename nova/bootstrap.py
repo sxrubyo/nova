@@ -37,8 +37,6 @@ LIGHTWEIGHT_BOOTSTRAP_COMMANDS = {
     "auth",
     "command",
     "commands",
-    "launchpad",
-    "lp",
 }
 
 

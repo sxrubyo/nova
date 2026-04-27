@@ -30,10 +30,10 @@ CLI_SESSION_PATH = Path.home() / ".nova" / "web_session.json"
 CLI_COMMAND_ALIASES = {
     "command": "help",
     "commands": "help",
-    "launchpad": "help",
-    "lp": "help",
+    "launchpad": "launchpad",
+    "lp": "launchpad",
 }
-LIGHTWEIGHT_COMMANDS = {"help", "version", "skill", "auth"}
+LIGHTWEIGHT_COMMANDS = {"help", "version", "skill", "auth", "launchpad"}
 MODERN_RUNTIME_COMMANDS = {"start", "serve", "discover", "evaluate", "agents", "gateway", "auth", "skill"}
 LEGACY_ALIAS_MAP = {
     "command": "help",
@@ -99,6 +99,10 @@ def _legacy_dispatch_argv(raw_args: list[str]) -> list[str] | None:
         return None
 
     normalized = first.lower()
+    if normalized in {"help", "commands", "command"}:
+        return ["help", *raw_args[1:]]
+    if normalized in {"launchpad", "lp"}:
+        return None
     if normalized == "help" or normalized in CLI_COMMAND_ALIASES:
         return None
     if normalized in LEGACY_ALIAS_MAP:
@@ -148,6 +152,53 @@ def _attempt_bootstrap_reexec(raw_args: list[str], exc: ModuleNotFoundError) -> 
 
 def _resolve_api_url(api_url: str | None) -> str:
     return (api_url or os.getenv("NOVA_API_URL") or os.getenv("NOVA_SERVER_URL") or "http://127.0.0.1:8000").rstrip("/")
+
+
+def _interactive_launchpad_enabled() -> bool:
+    return os.environ.get("NOVA_NO_INTERACTIVE", "").strip().lower() not in {"1", "true", "yes", "on"}
+
+
+def _launchpad_action_argv(mode: str) -> list[str] | None:
+    try:
+        from nova.utils.formatting import operator_launchpad_header
+        from nova.utils.interactive import is_tty, select_menu
+    except ModuleNotFoundError:
+        return None
+    if not _interactive_launchpad_enabled() or not is_tty():
+        return None
+
+    print(operator_launchpad_header(version=_nova_version()))
+    title = "¿Qué quieres hacer primero?"
+    footer = "↑/↓ mover · Enter ejecutar · número salto directo"
+    options = [
+        "Iniciar runtime operator",
+        "Descubrir agentes locales",
+        "Listar agentes gobernados",
+        "Instalar skill de Codex",
+        "Ver estado de autenticación",
+        "Salir",
+    ]
+    descriptions = [
+        "Arranca API, bridge y dashboard con la superficie principal de Nova.",
+        "Hace un scan real del host y de los CLIs detectados.",
+        "Muestra inventario de agentes gobernados y descubiertos.",
+        "Instala la skill pública de Nova para Codex.",
+        "Comprueba si la sesión del operador está guardada.",
+        "Cierra el launchpad sin ejecutar nada.",
+    ]
+    mapping = [["start"], ["discover"], ["agents", "list"], ["skill", "install", "--agent", "codex"], ["auth", "status"], []]
+    try:
+        selected = select_menu(
+            options,
+            title=title,
+            descriptions=descriptions,
+            default=0,
+            footer=footer,
+        )
+    except KeyboardInterrupt:
+        print()
+        return []
+    return mapping[selected]
 
 
 def _cli_session_headers(api_url: str | None = None) -> dict[str, str]:
@@ -368,6 +419,7 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--bridge-port", type=int)
     start.add_argument("--no-open-browser", action="store_true")
     subparsers.add_parser("help")
+    subparsers.add_parser("launchpad")
     init_cmd = subparsers.add_parser("init")
     init_cmd.add_argument("--json", action="store_true")
     serve = subparsers.add_parser("serve")
@@ -713,7 +765,7 @@ async def run_async(args: argparse.Namespace, raw_args: list[str] | None = None)
     if args.command == "help":
         from nova.utils.formatting import command_launchpad
 
-        print(command_launchpad())
+        print(command_launchpad(width=84))
         return
 
     if args.command == "auth":
@@ -742,6 +794,26 @@ async def run_async(args: argparse.Namespace, raw_args: list[str] | None = None)
         _attempt_bootstrap_reexec(list(raw_args or []), exc)
 
     config = NovaConfig()
+    if args.command == "start" and not raw_args:
+        selected_argv = _launchpad_action_argv("start")
+        if selected_argv == []:
+            return
+        if selected_argv and selected_argv != ["start"]:
+            await run_async(parse_cli_args(selected_argv), raw_args=selected_argv)
+            return
+    if args.command == "launchpad":
+        selected_argv = _launchpad_action_argv("launchpad")
+        if selected_argv == []:
+            return
+        if selected_argv and selected_argv != ["start"]:
+            await run_async(parse_cli_args(selected_argv), raw_args=selected_argv)
+            return
+        if selected_argv is None:
+            from nova.utils.formatting import command_launchpad
+
+            print(command_launchpad(width=84))
+            return
+        args.command = "start"
     if args.command == "start":
         print(launch_banner(dashboard_url=local_dashboard_url(config), version=config.version), flush=True)
 
@@ -996,7 +1068,11 @@ def main(argv: list[str] | None = None) -> None:
         _run_legacy_cli(legacy_args)
         return
     args = parse_cli_args(raw_args)
-    asyncio.run(run_async(args, raw_args=raw_args))
+    try:
+        asyncio.run(run_async(args, raw_args=raw_args))
+    except KeyboardInterrupt:
+        print()
+        return
 
 
 if __name__ == "__main__":
