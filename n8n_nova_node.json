@@ -4,7 +4,7 @@
   "icon": "file:nova_icon.svg",
   "displayName": "Nova Validate",
   "description": "Validate AI agent actions against Nova governance rules",
-  "documentation": "https://github.com/sxrubyo/nova-os/tree/main/n8n-nodes-nova",
+  "documentation": "https://github.com/sxrubyo/nova/tree/main/n8n-nodes-nova",
   "subtitle": "Governance Layer",
   "inputs": ["main"],
   "outputs": ["main", "escalated"],

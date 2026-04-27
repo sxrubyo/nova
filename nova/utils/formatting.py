@@ -53,6 +53,21 @@ def _brand_lines(*, version: str, tagline: str) -> list[str]:
     ]
 
 
+def compact_cli_banner(*, title: str, subtitle: str | None = None, version: str = NOVA_VERSION) -> str:
+    """Return the compact operator header used by secondary CLI commands."""
+
+    lines = [
+        "",
+        f"  ✦ nova · v{version} · Nova Operator",
+        "",
+        "",
+        f"  ✦  {title}",
+    ]
+    if subtitle:
+        lines.append(f"    {subtitle}")
+    return "\n".join(lines)
+
+
 def _section(title: str, rows: list[str], *, width: int) -> list[str]:
     lines = [
         f"  {title}",
@@ -162,39 +177,182 @@ def command_launchpad(*, width: int = 74) -> str:
     """Return the human-facing command overview shown by `nova help`."""
 
     resolved_width = _content_width(width)
-    lines = _brand_lines(version=NOVA_VERSION, tagline="Governance at machine speed.")
-    lines.append(_divider(resolved_width))
-    lines.append("")
+    lines = [compact_cli_banner(title="Nova Commands", subtitle="Common operator paths for runtime, discovery and governance.")]
     lines.extend(
         _section(
-            "NOVA COMMAND LAUNCHPAD",
+            "GETTING STARTED",
             [
-                "Common operator paths for runtime, discovery and governance.",
-                "",
-                "START",
                 "nova                    Abrir la superficie principal de Nova",
-                "nova start              Arrancar runtime explícitamente",
-                "nova launchpad          Abrir el menú operator con flechas",
-                "nova serve --api-only   Exponer solo la API sin SPA",
+                "nova init               First-run setup wizard",
+                "nova boot               Start Nova Core + connect all agents",
+                "nova guard              Protect all your AI agents in one command",
+                "nova rule \"<text>\"      Add a governance rule instantly",
+                "nova status             System health and metrics",
+                "nova launchpad          Guided operator entrypoint",
+                "nova config             Interactive settings hub",
+                "nova workspace          Workspace info, plan, quota",
+            ],
+            width=resolved_width,
+        )
+    )
+    lines.extend(
+        _section(
+            "AGENTS",
+            [
+                "nova agent create       Create agent - NL / template / manual",
+                "nova agent list         List all agents",
+                "nova agent edit         Edit rules, description, policy",
+                "nova agent history      View version history of rules",
+                "nova setup              Opinionated setup for known agent types",
+                "nova connect            Connect Nova Core to a running agent",
+            ],
+            width=resolved_width,
+        )
+    )
+    lines.extend(
+        _section(
+            "POLICIES",
+            [
+                "nova policy             List policy templates",
+                "nova policy create      Create reusable rule set",
+                "nova policy view <id>   View a specific policy",
+                "nova policy edit <id>   Edit a policy",
+                "nova policy delete      Delete a policy",
+            ],
+            width=resolved_width,
+        )
+    )
+    lines.extend(
+        _section(
+            "VALIDATION",
+            [
+                "nova validate           Validate an action",
+                "nova validate explain   Deep AI explanation of the decision",
+                "nova validate batch     Validate up to 20 actions in parallel",
+                "nova simulate           Test policy without creating token/ledger",
+                "nova test               Dry-run validation",
+            ],
+            width=resolved_width,
+        )
+    )
+    lines.extend(
+        _section(
+            "MEMORY",
+            [
+                "nova memory save        Store agent context",
+                "nova memory list        View agent memories",
+                "nova memory search      Semantic search across memories",
+                "nova memory update      Edit an existing memory",
+            ],
+            width=resolved_width,
+        )
+    )
+    lines.extend(
+        _section(
+            "LEDGER",
+            [
+                "nova ledger             View action history",
+                "nova verify             Check chain integrity",
+                "nova watch              Live stream entries",
+                "nova export             Export to JSON/CSV",
+                "nova audit              Generate audit report",
+            ],
+            width=resolved_width,
+        )
+    )
+    lines.extend(
+        _section(
+            "API KEYS",
+            [
+                "nova keys               List saved keys",
+                "nova keys create        Generate new key",
+                "nova keys use           Switch active key",
+            ],
+            width=resolved_width,
+        )
+    )
+    lines.extend(
+        _section(
+            "SKILLS",
+            [
+                "nova skill              Browse catalog (↑↓)",
+                "nova skill add <name>   Install a skill",
+                "nova skill info <name>  View skill details",
+            ],
+            width=resolved_width,
+        )
+    )
+    lines.extend(
+        _section(
+            "GOVERNANCE INTEGRATIONS",
+            [
+                "nova rules              List, manage & test rules",
+                "nova rules create       Interactive rule builder",
+                "nova rules test         Test a rule against a sample action",
+                "nova run                Wrap any CLI command with Nova validation",
+                "nova shield             HTTP proxy - intercept & validate every request",
+                "nova protect            Attach to a live HTTP agent",
                 "",
-                "DISCOVER",
                 "nova discover --json    Escanear repos, terminales, toolchains y agentes",
                 "nova agents list        Ver agentes gobernados y descubiertos",
-                "",
-                "GOVERN",
                 "nova connect <agent> --cannot-do \"rm -rf\"",
                 "nova validate --agent <agent> --action terminal.command --payload '{...}'",
                 "nova stream --agent <agent>  Seguir evaluaciones en vivo",
-                "",
-                "EXTEND",
-                "nova skill install --agent codex",
-                "nova skill install --agent gemini",
-                "nova skill install --agent opencode",
-                "",
-                "OPERATE",
-                "nova auth status | login | logout",
-                "nova ledger verify      Verificar integridad del ledger",
+                "nova scout              Security scan - detect misconfigurations",
+            ],
+            width=resolved_width,
+        )
+    )
+    lines.extend(
+        _section(
+            "TOOLS & SYSTEM",
+            [
+                "nova doctor             Diagnose & auto-repair common issues",
+                "nova mcp export         Export config as MCP-compatible manifest",
+                "nova mcp import         Import MCP tool definitions",
+                "nova chat               Chat with the Nova governance AI",
+                "nova anomalies          View detected behavioral anomalies",
+                "nova stream             Live-stream raw validation events",
+                "nova benchmark          Measure validation latency & throughput",
+            ],
+            width=resolved_width,
+        )
+    )
+    lines.extend(
+        _section(
+            "STATS",
+            [
+                "nova stats              Analytics overview",
+                "nova stats agents       Per-agent breakdown",
+                "nova stats hourly       Activity heatmap by hour",
+                "nova stats risk         Risk profile per agent",
+                "nova stats timeline     Hour-by-hour timeline",
+                "nova stats anomalies    Detected behavioral anomalies",
+            ],
+            width=resolved_width,
+        )
+    )
+    lines.extend(
+        _section(
+            "SYSTEM",
+            [
+                "nova auth status        Current operator session status",
+                "nova auth login         Sign in to the active workspace",
+                "nova auth logout        Clear the saved local session",
                 "nova gateway status     Revisar routing de proveedores",
+                "nova sync               Process offline queue",
+                "nova seed               Load demo data",
+                "nova alerts             View pending alerts",
+            ],
+            width=resolved_width,
+        )
+    )
+    lines.extend(
+        _section(
+            "ALIASES",
+            [
+                "s → status  v → validate  a → agent  c → config  l → ledger",
+                "w → watch  r → rules  st → stats  pol → policy  sim → simulate",
             ],
             width=resolved_width,
         )

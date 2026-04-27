@@ -76,9 +76,9 @@ def test_npm_package_is_publish_ready() -> None:
 
     assert package_json["publishConfig"]["access"] == "public"
     assert package_json["repository"]["type"] == "git"
-    assert package_json["repository"]["url"].endswith("sxrubyo/nova-os.git")
-    assert package_json["homepage"].endswith("sxrubyo/nova-os#readme")
-    assert package_json["bugs"]["url"].endswith("sxrubyo/nova-os/issues")
+    assert package_json["repository"]["url"].endswith("sxrubyo/nova.git")
+    assert package_json["homepage"].endswith("sxrubyo/nova#readme")
+    assert package_json["bugs"]["url"].endswith("sxrubyo/nova/issues")
 
 
 def test_npm_publish_workflow_exists() -> None:

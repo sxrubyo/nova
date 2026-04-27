@@ -130,10 +130,11 @@ function Login() {
         navigate('/dashboard')
       } else {
         const session = await api.post('/auth/signup', {
-          name: formData.name,
-          company: formData.company,
+          workspace_name: formData.company || formData.name,
+          owner_name: formData.name,
           email: formData.email,
           password: formData.password,
+          plan: 'free',
         })
         const workspaceApiKey = session.api_key || ''
         setApiKey(workspaceApiKey)

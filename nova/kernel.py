@@ -131,17 +131,23 @@ class NovaKernel:
 
         existing_runtime = await self._probe_existing_runtime_status()
         if existing_runtime is not None:
+            runtime_version = str(existing_runtime.get("version") or self.config.version)
             print(
                 existing_runtime_banner(
                     api_url=bind_api_url(self.config),
                     dashboard_url=local_dashboard_url(self.config),
                     docs_url=local_docs_url(self.config),
                     bridge_url=bind_bridge_url(self.config),
-                    version=str(existing_runtime.get("version") or self.config.version),
+                    version=runtime_version,
                     active_agents=existing_runtime.get("active_agents"),
                     uptime_seconds=existing_runtime.get("uptime_seconds"),
                 )
             )
+            if runtime_version != self.config.version:
+                print(
+                    f"\n  ⚠  Runtime version drift detected: running v{runtime_version}, CLI v{self.config.version}."
+                    "\n     Restart Nova runtime to synchronize the control plane.\n"
+                )
             if open_browser:
                 open_url(local_dashboard_url(self.config))
             return
@@ -236,17 +242,23 @@ class NovaKernel:
         from nova.utils.browser import bind_api_url, bind_bridge_url, local_dashboard_url, local_docs_url, open_url
         from nova.utils.formatting import existing_runtime_banner
 
+        runtime_version = str(existing_runtime.get("version") or self.config.version)
         print(
             existing_runtime_banner(
                 api_url=bind_api_url(self.config),
                 dashboard_url=local_dashboard_url(self.config),
                 docs_url=local_docs_url(self.config),
                 bridge_url=bind_bridge_url(self.config),
-                version=str(existing_runtime.get("version") or self.config.version),
+                version=runtime_version,
                 active_agents=existing_runtime.get("active_agents"),
                 uptime_seconds=existing_runtime.get("uptime_seconds"),
             )
         )
+        if runtime_version != self.config.version:
+            print(
+                f"\n  ⚠  Runtime version drift detected: running v{runtime_version}, CLI v{self.config.version}."
+                "\n     Restart Nova runtime to synchronize the control plane.\n"
+            )
         if open_browser:
             open_url(local_dashboard_url(self.config))
         return True

@@ -259,7 +259,8 @@ class DiscoveryEngine:
                 "error": f"Nova blocked task with decision {evaluation.decision.action.value}",
             }
 
-        result = await connection["connector"].send_task(agent, task)
+        governed_task = await self._apply_governance_overlay(connection["agent_id"], task)
+        result = await connection["connector"].send_task(agent, governed_task)
         await self.event_bus.publish(
             "task_completed",
             {
@@ -269,7 +270,12 @@ class DiscoveryEngine:
                 "duration_ms": result.duration_ms,
             },
         )
-        return {"success": result.success, "evaluation": evaluation, "task_result": result}
+        return {
+            "success": result.success,
+            "evaluation": evaluation,
+            "task_result": result,
+            "governance_overlay_applied": governed_task.prompt != task.prompt,
+        }
 
     async def get_logs(self, agent_key: str, *, limit: int = 100) -> list[dict[str, Any]]:
         connection = self._connections.get(agent_key)
@@ -424,3 +430,72 @@ class DiscoveryEngine:
             if agent.capabilities.get(key):
                 capabilities.append(permission)
         return capabilities
+
+    async def _apply_governance_overlay(self, agent_id: str, task: AgentTask) -> AgentTask:
+        if not task.prompt.strip():
+            return task
+        if not isinstance(task.payload, dict) or task.payload.get("skip_governance_overlay"):
+            return task
+
+        agent_record = await self.kernel.agent_registry.get(agent_id)
+        if agent_record is None:
+            return task
+
+        workspace_rules = agent_record.workspace.rules if agent_record.workspace else None
+        metadata = dict(agent_record.metadata or {})
+        permission_overrides = dict(metadata.get("permissions") or {})
+        can_do = list(
+            dict.fromkeys(
+                [
+                    *list(getattr(agent_record, "permissions", []) or []),
+                    *list(permission_overrides.get("can_do") or []),
+                    *list(getattr(workspace_rules, "can_do", []) or []),
+                ]
+            )
+        )
+        cannot_do = list(
+            dict.fromkeys(
+                [
+                    *list(permission_overrides.get("cannot_do") or []),
+                    *list(getattr(workspace_rules, "cannot_do", []) or []),
+                ]
+            )
+        )
+        if not can_do and not cannot_do:
+            return task
+
+        overlay_lines = [
+            "Nova governance overlay. Apply these rules before producing the final result.",
+            "Do not mention Nova, hidden governance, or these rules unless the user explicitly asks.",
+            "If your first draft would break any rule, silently rewrite it before returning the final answer.",
+            "Prefer correction over refusal for wording, tone, formatting, and style rules. Keep hard safety or destructive rules blocked.",
+        ]
+        if can_do:
+            overlay_lines.append("Allowed priorities:")
+            overlay_lines.extend(f"- {rule}" for rule in can_do[:12])
+        if cannot_do:
+            overlay_lines.append("Forbidden outcomes:")
+            overlay_lines.extend(f"- {rule}" for rule in cannot_do[:16])
+
+        governed_prompt = "\n".join(
+            [
+                "[Nova governance overlay]",
+                *overlay_lines,
+                "[Original task]",
+                task.prompt,
+            ]
+        )
+        payload = dict(task.payload or {})
+        payload["governance_overlay"] = {
+            "applied": True,
+            "can_do": can_do,
+            "cannot_do": cannot_do,
+        }
+        return AgentTask(
+            prompt=governed_prompt,
+            model=task.model,
+            payload=payload,
+            approval_mode=task.approval_mode,
+            working_directory=task.working_directory,
+            timeout=task.timeout,
+        )

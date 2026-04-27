@@ -1,6 +1,6 @@
 export const SERVER_IP = import.meta.env.VITE_SERVER_IP || window.location.hostname || 'localhost'
 const HAS_EXPLICIT_SERVER_ORIGIN = Boolean(import.meta.env.VITE_SERVER_ORIGIN)
-const DEFAULT_API_PORT = import.meta.env.VITE_API_PORT || '8000'
+const DEFAULT_API_PORT = import.meta.env.VITE_API_PORT || '9800'
 const USE_RELATIVE_API =
   import.meta.env.VITE_USE_RELATIVE_API === 'true' ||
   (!HAS_EXPLICIT_SERVER_ORIGIN && ['', '80', '443', DEFAULT_API_PORT].includes(window.location.port))

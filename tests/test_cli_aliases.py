@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 from unittest import mock
 from pathlib import Path
+import asyncio
 
 import pytest
 
@@ -30,7 +33,8 @@ def test_help_command_prints_launchpad() -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "Enterprise-grade governance infrastructure for AI agents." in result.stdout
+    assert "✦ nova ·" in result.stdout
+    assert "Nova Commands" in result.stdout
     assert "GETTING STARTED" in result.stdout
     assert "nova boot" in result.stdout
 
@@ -96,9 +100,9 @@ def test_commands_alias_dispatches_to_modern_launchpad() -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "Enterprise-grade governance infrastructure for AI agents." in result.stdout
-    assert "GOVERNANCE INTEGRATIONS" in result.stdout
-    assert "nova guard" in result.stdout
+    assert "✦ nova ·" in result.stdout
+    assert "Nova Commands" in result.stdout
+    assert "nova connect <agent> --cannot-do" in result.stdout
 
 
 def test_help_command_is_case_insensitive_for_primary_alias() -> None:
@@ -121,8 +125,8 @@ def test_platform_bootstrap_runs_for_runtime_commands() -> None:
 
 def test_legacy_dispatch_identifies_legacy_and_modern_routes() -> None:
     assert NOVA_CLI._legacy_dispatch_argv([]) is None
-    assert NOVA_CLI._legacy_dispatch_argv(["help"]) == ["help"]
-    assert NOVA_CLI._legacy_dispatch_argv(["commands"]) == ["help"]
+    assert NOVA_CLI._legacy_dispatch_argv(["help"]) is None
+    assert NOVA_CLI._legacy_dispatch_argv(["commands"]) is None
     assert NOVA_CLI._legacy_dispatch_argv(["launchpad"]) is None
     assert NOVA_CLI._legacy_dispatch_argv(["boot"]) == ["boot"]
     assert NOVA_CLI._legacy_dispatch_argv(["start"]) is None
@@ -151,7 +155,7 @@ def test_commands_alias_prints_launchpad() -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "Constellation · Enterprise Edition" in result.stdout
+    assert "Nova Commands" in result.stdout
     assert "nova skill" in result.stdout
 
 
@@ -165,8 +169,9 @@ def test_command_launchpad_lists_primary_workflows() -> None:
     launchpad = command_launchpad()
 
     assert "nova" in launchpad
+    assert "nova boot" in launchpad
     assert "nova discover --json" in launchpad
-    assert "nova skill install --agent codex" in launchpad
+    assert "nova skill add <name>" in launchpad
     assert "nova validate" in launchpad
 
 
@@ -258,3 +263,117 @@ def test_guard_summary_no_longer_crashes_on_description_nameerror() -> None:
         assert result.returncode == 0, result.stderr
         assert "name 'description' is not defined" not in result.stdout
         assert "Nova Guard active" in result.stdout
+
+
+def test_resolve_api_url_defaults_to_modern_runtime_port(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("NOVA_API_URL", raising=False)
+    monkeypatch.delenv("NOVA_SERVER_URL", raising=False)
+
+    assert NOVA_CLI._resolve_api_url(None) == "http://127.0.0.1:9800"
+
+
+def test_persist_cli_session_supports_bearer_tokens(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(NOVA_CLI, "CLI_SESSION_PATH", tmp_path / "web_session.json")
+
+    class EmptyHeaders:
+        def get_all(self, _: str):
+            return []
+
+    NOVA_CLI._persist_cli_session(
+        "http://127.0.0.1:9800",
+        EmptyHeaders(),
+        {"access_token": "abc123", "token_type": "bearer", "workspace_name": "Demo"},
+    )
+
+    saved = json.loads(NOVA_CLI.CLI_SESSION_PATH.read_text(encoding="utf-8"))
+    assert saved["api_url"] == "http://127.0.0.1:9800"
+    assert saved["access_token"] == "abc123"
+    assert NOVA_CLI._cli_session_headers("http://127.0.0.1:9800") == {"Authorization": "Bearer abc123"}
+
+
+def test_auth_cli_uses_api_namespace_routes(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    calls: list[tuple[str, str, dict | None]] = []
+
+    def fake_http_json(method: str, url: str, data=None, headers=None):
+        calls.append((method, url, data))
+        if url.endswith("/api/setup/status"):
+            return ({"needs_setup": False, "recommended_login": "credentials"}, SimpleNamespace(get_all=lambda _: []))
+        if url.endswith("/api/auth/register"):
+            return ({"access_token": "signup-token", "token_type": "bearer", "workspace_name": "Demo", "api_key": "nova_test"}, SimpleNamespace(get_all=lambda _: []))
+        if url.endswith("/api/auth/login"):
+            return ({"access_token": "login-token", "token_type": "bearer", "workspace_name": "Demo", "api_key": "nova_test"}, SimpleNamespace(get_all=lambda _: []))
+        if url.endswith("/api/auth/session"):
+            return ({"authenticated": True, "workspace": {"name": "Demo"}}, SimpleNamespace(get_all=lambda _: []))
+        if url.endswith("/api/auth/me"):
+            return ({"workspace_id": "ws_1", "email": "demo@example.com", "role": "admin"}, SimpleNamespace(get_all=lambda _: []))
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    monkeypatch.setattr(NOVA_CLI, "_http_json", fake_http_json)
+    monkeypatch.setattr(NOVA_CLI, "_persist_cli_session", lambda *args, **kwargs: None)
+    monkeypatch.setattr(NOVA_CLI, "_cli_session_headers", lambda *_args, **_kwargs: {"Authorization": "Bearer saved"})
+
+    asyncio.run(
+        NOVA_CLI._run_auth_command(
+            SimpleNamespace(
+                auth_command="signup",
+                api_url=None,
+                workspace_name="Demo Workspace",
+                company="Demo Company",
+                name="Demo User",
+                email="demo@example.com",
+                password="secret",
+                plan="free",
+                workspace_api_key="",
+                bootstrap_token="",
+            )
+        )
+    )
+    asyncio.run(
+        NOVA_CLI._run_auth_command(
+            SimpleNamespace(
+                auth_command="login",
+                api_url=None,
+                email="demo@example.com",
+                password="secret",
+            )
+        )
+    )
+    asyncio.run(
+        NOVA_CLI._run_auth_command(
+            SimpleNamespace(
+                auth_command="status",
+                api_url=None,
+            )
+        )
+    )
+    asyncio.run(
+        NOVA_CLI._run_auth_command(
+            SimpleNamespace(
+                auth_command="whoami",
+                api_url=None,
+                api_key=None,
+            )
+        )
+    )
+
+    routed_urls = [url for _, url, _ in calls]
+    assert "http://127.0.0.1:9800/api/setup/status" in routed_urls
+    assert "http://127.0.0.1:9800/api/auth/register" in routed_urls
+    assert "http://127.0.0.1:9800/api/auth/login" in routed_urls
+    assert "http://127.0.0.1:9800/api/auth/session" in routed_urls
+    assert "http://127.0.0.1:9800/api/auth/me" in routed_urls
+
+    signup_call = next(item for item in calls if item[1].endswith("/api/auth/register"))
+    assert signup_call[2]["workspace_name"] == "Demo Workspace"
+    assert signup_call[2]["owner_name"] == "Demo User"
+
+
+def test_discovery_table_uses_compact_secondary_header(capsys: pytest.CaptureFixture[str]) -> None:
+    NOVA_CLI._print_discovery_table(
+        [{"name": "Codex CLI", "is_running": False, "detection_methods": ["binary"], "confidence": 1.0}],
+        {"summary": {"repositories": 1, "terminals": 0, "active_terminals": 0}, "tooling": []},
+    )
+
+    output = capsys.readouterr().out
+    assert "✦ nova ·" in output
+    assert "Nova Discover" in output

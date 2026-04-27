@@ -3,7 +3,7 @@
 set -eu
 
 NOVA_DIR="$HOME/.nova"
-REPO_ARCHIVE_URL="${NOVA_REPO_ARCHIVE_URL:-https://codeload.github.com/sxrubyo/nova-os/tar.gz/refs/heads/main}"
+REPO_ARCHIVE_URL="${NOVA_REPO_ARCHIVE_URL:-https://codeload.github.com/sxrubyo/nova/tar.gz/refs/heads/main}"
 REPO_DIR="$HOME/.nova/repo"
 BIN_DIR="$HOME/.nova/bin"
 BOOTSTRAP_PATH=""

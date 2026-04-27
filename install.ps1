@@ -1,8 +1,8 @@
 # Nova OS — Windows installer
-# irm https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.ps1 | iex
+# irm https://raw.githubusercontent.com/sxrubyo/nova/main/install.ps1 | iex
 $ErrorActionPreference = "Stop"
 
-$RepoZipUrl = if ($env:NOVA_REPO_ZIP_URL) { $env:NOVA_REPO_ZIP_URL } else { "https://github.com/sxrubyo/nova-os/archive/refs/heads/main.zip" }
+$RepoZipUrl = if ($env:NOVA_REPO_ZIP_URL) { $env:NOVA_REPO_ZIP_URL } else { "https://github.com/sxrubyo/nova/archive/refs/heads/main.zip" }
 $NovaHome = Join-Path $env:USERPROFILE ".nova"
 $RepoDir = Join-Path $env:USERPROFILE ".nova\repo"
 $BinDir = Join-Path $env:USERPROFILE ".nova\bin"

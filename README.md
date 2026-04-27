@@ -13,10 +13,10 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20Termux-lightgrey)](https://github.com/sxrubyo/nova-os)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20Termux-lightgrey)](https://github.com/sxrubyo/nova)
 [![npm](https://img.shields.io/badge/npm-nova--os-red)](https://www.npmjs.com/package/nova-os)
-[![Version](https://img.shields.io/badge/version-4.0.8%20Supernova-gold)](https://github.com/sxrubyo/nova-os)
-[![Status](https://img.shields.io/badge/status-active-brightgreen)](https://github.com/sxrubyo/nova-os)
+[![Version](https://img.shields.io/badge/version-4.0.10%20Supernova-gold)](https://github.com/sxrubyo/nova)
+[![Status](https://img.shields.io/badge/status-active-brightgreen)](https://github.com/sxrubyo/nova)
 
 </div>
 
@@ -50,12 +50,12 @@ Nova fixes that.
 
 **Linux / macOS:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sxrubyo/nova/main/install.sh | bash
 ```
 
 **Windows (PowerShell):**
 ```powershell
-irm https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/sxrubyo/nova/main/install.ps1 | iex
 ```
 
 **npm:**
@@ -67,7 +67,7 @@ nova
 **Termux (Android, no root):**
 ```bash
 pkg install python git openssl
-curl -fsSL https://raw.githubusercontent.com/sxrubyo/nova-os/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sxrubyo/nova/main/install.sh | bash
 ```
 
 **Docker:**

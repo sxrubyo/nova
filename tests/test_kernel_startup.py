@@ -28,7 +28,7 @@ async def test_kernel_start_attaches_to_existing_runtime_before_binding(monkeypa
     async def fake_probe() -> dict[str, object]:
         return {
             "status": "operational",
-            "version": "4.0.7",
+            "version": kernel.config.version,
             "active_agents": 2,
             "uptime_seconds": 42,
         }
@@ -43,6 +43,36 @@ async def test_kernel_start_attaches_to_existing_runtime_before_binding(monkeypa
     assert "NOVA OS ONLINE" in output
     assert "Existing runtime already active" in output
     assert "Agents:      2" in output
+    assert "Runtime version drift detected" not in output
+
+
+@pytest.mark.asyncio
+async def test_kernel_start_warns_when_existing_runtime_version_differs(monkeypatch, capsys, tmp_path: Path) -> None:
+    from nova.kernel import NovaKernel
+
+    kernel = NovaKernel(_test_config(tmp_path))
+
+    async def fake_initialize() -> None:
+        kernel._initialized = True
+
+    async def fake_probe() -> dict[str, object]:
+        return {
+            "status": "operational",
+            "version": "4.0.7",
+            "active_agents": 2,
+            "uptime_seconds": 42,
+        }
+
+    monkeypatch.setattr(kernel, "initialize", fake_initialize)
+    monkeypatch.setattr(kernel, "_probe_existing_runtime_status", fake_probe)
+    monkeypatch.setattr("nova.utils.browser.open_url", lambda url: False)
+    kernel.config.version = "4.0.10"
+
+    await kernel.start(open_browser=False)
+
+    output = capsys.readouterr().out
+    assert "Runtime version drift detected" in output
+    assert "running v4.0.7, CLI v4.0.10" in output
 
 
 @pytest.mark.asyncio

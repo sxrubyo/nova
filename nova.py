@@ -100,7 +100,7 @@ def _legacy_dispatch_argv(raw_args: list[str]) -> list[str] | None:
 
     normalized = first.lower()
     if normalized in {"help", "commands", "command"}:
-        return ["help", *raw_args[1:]]
+        return None
     if normalized in {"launchpad", "lp"}:
         return None
     if normalized == "help" or normalized in CLI_COMMAND_ALIASES:
@@ -151,7 +151,7 @@ def _attempt_bootstrap_reexec(raw_args: list[str], exc: ModuleNotFoundError) -> 
 
 
 def _resolve_api_url(api_url: str | None) -> str:
-    return (api_url or os.getenv("NOVA_API_URL") or os.getenv("NOVA_SERVER_URL") or "http://127.0.0.1:8000").rstrip("/")
+    return (api_url or os.getenv("NOVA_API_URL") or os.getenv("NOVA_SERVER_URL") or "http://127.0.0.1:9800").rstrip("/")
 
 
 def _interactive_launchpad_enabled() -> bool:
@@ -213,7 +213,13 @@ def _cli_session_headers(api_url: str | None = None) -> dict[str, str]:
     stored_api_url = str(session.get("api_url") or "").rstrip("/")
     requested_api_url = _resolve_api_url(api_url)
     if not cookie_name or not cookie_value:
-        return {}
+        access_token = str(session.get("access_token") or "").strip()
+        token_type = str(session.get("token_type") or "bearer").strip() or "bearer"
+        if not access_token:
+            return {}
+        if stored_api_url and stored_api_url != requested_api_url:
+            return {}
+        return {"Authorization": f"{token_type.title()} {access_token}"}
     if stored_api_url and stored_api_url != requested_api_url:
         return {}
     return {"Cookie": f"{cookie_name}={cookie_value}"}
@@ -240,17 +246,26 @@ def _extract_session_cookie(headers: Any) -> tuple[str, str] | None:
 
 def _persist_cli_session(api_url: str, headers: Any, payload: dict[str, Any]) -> None:
     cookie = _extract_session_cookie(headers)
-    if cookie is None:
+    access_token = str(payload.get("access_token") or "").strip()
+    token_type = str(payload.get("token_type") or "bearer").strip() or "bearer"
+    if cookie is None and not access_token:
         return
+    if cookie is None:
+        cookie_name = ""
+        cookie_value = ""
+    else:
+        cookie_name, cookie_value = cookie
     CLI_SESSION_PATH.parent.mkdir(parents=True, exist_ok=True)
     CLI_SESSION_PATH.write_text(
         json.dumps(
             {
                 "api_url": api_url,
-                "cookie_name": cookie[0],
-                "cookie_value": cookie[1],
+                "cookie_name": cookie_name,
+                "cookie_value": cookie_value,
+                "access_token": access_token,
+                "token_type": token_type,
                 "email": payload.get("email", ""),
-                "workspace_name": payload.get("name", ""),
+                "workspace_name": payload.get("workspace_name", payload.get("name", "")),
                 "saved_at": datetime.now(timezone.utc).isoformat(),
             },
             indent=2,
@@ -295,12 +310,12 @@ async def _run_auth_command(args: argparse.Namespace) -> None:
     api_url = _resolve_api_url(getattr(args, "api_url", None))
 
     if args.auth_command == "status":
-        setup_status, _ = _http_json("GET", f"{api_url}/setup/status")
+        setup_status, _ = _http_json("GET", f"{api_url}/api/setup/status")
         session_headers = _cli_session_headers(api_url)
         session_payload: dict[str, Any] = {"authenticated": False}
         if session_headers:
             try:
-                session_payload, _ = _http_json("GET", f"{api_url}/auth/session", headers=session_headers)
+                session_payload, _ = _http_json("GET", f"{api_url}/api/auth/session", headers=session_headers)
             except SystemExit:
                 session_payload = {"authenticated": False}
         print(
@@ -318,7 +333,7 @@ async def _run_auth_command(args: argparse.Namespace) -> None:
         return
 
     if args.auth_command == "signup":
-        setup_status, _ = _http_json("GET", f"{api_url}/setup/status")
+        setup_status, _ = _http_json("GET", f"{api_url}/api/setup/status")
         if setup_status.get("needs_setup") and args.bootstrap_token:
             payload, headers = _http_json(
                 "POST",
@@ -336,14 +351,13 @@ async def _run_auth_command(args: argparse.Namespace) -> None:
         else:
             payload, headers = _http_json(
                 "POST",
-                f"{api_url}/auth/signup",
+                f"{api_url}/api/auth/register",
                 data={
-                    "name": args.name,
+                    "workspace_name": (args.workspace_name or args.company or args.name).strip(),
+                    "owner_name": args.name,
                     "email": args.email,
                     "password": args.password,
-                    "company": args.company,
                     "plan": args.plan,
-                    "api_key": args.workspace_api_key,
                 },
             )
         _persist_cli_session(api_url, headers, payload)
@@ -353,7 +367,7 @@ async def _run_auth_command(args: argparse.Namespace) -> None:
     if args.auth_command == "login":
         payload, headers = _http_json(
             "POST",
-            f"{api_url}/auth/login",
+            f"{api_url}/api/auth/login",
             data={"email": args.email, "password": args.password},
         )
         _persist_cli_session(api_url, headers, payload)
@@ -365,7 +379,7 @@ async def _run_auth_command(args: argparse.Namespace) -> None:
         if args.api_key:
             payload, _ = _http_json("GET", f"{api_url}/workspaces/me", headers={"x-api-key": args.api_key})
         else:
-            payload, _ = _http_json("GET", f"{api_url}/auth/me", headers=headers)
+            payload, _ = _http_json("GET", f"{api_url}/api/auth/me", headers=headers)
         print(json.dumps(payload, indent=2))
         return
 
@@ -401,7 +415,7 @@ async def _run_auth_command(args: argparse.Namespace) -> None:
         session_headers = _cli_session_headers(api_url)
         if session_headers:
             try:
-                _http_json("POST", f"{api_url}/auth/logout", data={}, headers=session_headers)
+                _http_json("POST", f"{api_url}/api/auth/logout", data={}, headers=session_headers)
             except SystemExit:
                 pass
         _clear_cli_session()
@@ -615,18 +629,14 @@ def _discovery_tooling_rows(tooling: list[dict[str, Any]], limit: int = 16) -> l
 
 
 def _print_discovery_table(agents: list[dict[str, Any]], inventory: dict[str, Any] | None = None) -> None:
+    from nova.utils.formatting import compact_cli_banner
+
+    print(compact_cli_banner(title="Nova Discover", subtitle="Scanning repos, terminals, toolchains and governed agents."))
+    print()
     console = _console()
     if console is None or Table is None:
         print(json.dumps({"agents": agents, "inventory": inventory or {}}, indent=2))
         return
-    if Panel is not None:
-        console.print(
-            Panel.fit(
-                "[bold bright_blue]NOVA OS[/bold bright_blue]\n"
-                "[white]Host discovery • governed runtime • operator visibility[/white]",
-                border_style="bright_blue",
-            )
-        )
     table = Table(title="Nova OS - Agent Discovery Scan")
     table.add_column("#", style="cyan")
     table.add_column("Agent", style="bold")
@@ -652,24 +662,68 @@ def _print_discovery_table(agents: list[dict[str, Any]], inventory: dict[str, An
             f"pkgmgr={((host.get('package_manager') or {}).get('name')) or 'n/a'}"
         )
         tooling = _discovery_tooling_rows(inventory.get("tooling", []), limit=16)
-        if tooling:
-            tool_table = Table(title="Installed toolchains")
-            tool_table.add_column("Tool", style="bold")
-            tool_table.add_column("Category")
-            tool_table.add_column("Version")
-            for item in tooling:
-                tool_table.add_row(item.get("label", item.get("key", "?")), item.get("category", "?"), item.get("version") or "detected")
-            console.print(tool_table)
-
         recommendations = inventory.get("recommended_installs", [])
-        if recommendations:
-            install_table = Table(title="Recommended installs")
-            install_table.add_column("Tool", style="bold yellow")
-            install_table.add_column("Reason")
-            install_table.add_column("Install")
-            for item in recommendations[:8]:
-                install_table.add_row(item.get("tool", "?"), item.get("reason", ""), item.get("install_command") or "manual")
-            console.print(install_table)
+    else:
+        tooling = []
+        recommendations = []
+    if tooling:
+        tool_table = Table(title="Installed toolchains")
+        tool_table.add_column("Tool", style="bold")
+        tool_table.add_column("Category")
+        tool_table.add_column("Version")
+        for item in tooling:
+            tool_table.add_row(item.get("label", item.get("key", "?")), item.get("category", "?"), item.get("version") or "detected")
+        console.print(tool_table)
+    if recommendations:
+        install_table = Table(title="Recommended installs")
+        install_table.add_column("Tool", style="bold yellow")
+        install_table.add_column("Reason")
+        install_table.add_column("Install")
+        for item in recommendations[:8]:
+            install_table.add_row(item.get("tool", "?"), item.get("reason", ""), item.get("install_command") or "manual")
+        console.print(install_table)
+
+
+def _print_registered_agents(registered: list[dict[str, Any]], discovered: list[dict[str, Any]]) -> None:
+    from nova.utils.formatting import compact_cli_banner
+
+    print(compact_cli_banner(title="Nova Agents", subtitle="Registered and discovered agents in the current workspace."))
+    print()
+    console = _console()
+    if console is None or Table is None:
+        print(json.dumps({"registered": registered, "discovered": discovered}, indent=2))
+        return
+
+    registered_table = Table(title="Registered agents")
+    registered_table.add_column("Name", style="bold")
+    registered_table.add_column("Provider")
+    registered_table.add_column("Model")
+    registered_table.add_column("Status")
+    registered_table.add_column("Workspace")
+    for agent in registered:
+        workspace = agent.get("workspace") or {}
+        registered_table.add_row(
+            str(agent.get("name") or "Unknown"),
+            str(agent.get("provider") or "-"),
+            str(agent.get("model") or "-"),
+            str(agent.get("status") or "-"),
+            str(workspace.get("name") or workspace.get("slug") or "-"),
+        )
+    console.print(registered_table)
+
+    discovered_table = Table(title="Discovered agents")
+    discovered_table.add_column("Agent", style="bold")
+    discovered_table.add_column("Status")
+    discovered_table.add_column("Detection")
+    discovered_table.add_column("Confid.")
+    for agent in discovered:
+        discovered_table.add_row(
+            str(agent.get("name") or "Unknown"),
+            "online" if agent.get("is_running") else "idle",
+            "+".join(agent.get("detection_methods") or [agent.get("detection_method") or "?"]),
+            f"{round((agent.get('confidence') or 0) * 100)}%",
+        )
+    console.print(discovered_table)
 
 
 async def _agent_metrics(kernel: Any, agent_id: str) -> dict[str, Any]:
@@ -954,7 +1008,7 @@ async def run_async(args: argparse.Namespace, raw_args: list[str] | None = None)
         if subject in {None, "list"}:
             registered = [_to_payload(agent) for agent in await kernel.agent_registry.list(default_workspace.id)]
             discovered = [_to_payload(agent) for agent in await kernel.discovery.scan(force=False)]
-            print(json.dumps({"registered": registered, "discovered": discovered}, indent=2))
+            _print_registered_agents(registered, discovered)
             return
         if subject == "create":
             if not args.name or not args.model:

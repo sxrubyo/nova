@@ -287,7 +287,7 @@ _AGENT_WAKE_MESSAGES = [
     "Systems coming online...",
 ]
 
-NOVA_VERSION = "4.0.9"
+NOVA_VERSION = "4.0.10"
 NOVA_BUILD = "2026.03.supernova"
 NOVA_CODENAME = "Supernova"
 
@@ -4375,7 +4375,7 @@ def check_for_updates(force=False):
     
     try:
         req = urllib.request.Request(
-            "https://api.github.com/repos/sxrubyo/nova-os/releases/latest",
+            "https://api.github.com/repos/sxrubyo/nova/releases/latest",
             headers={
                 "User-Agent": f"nova-cli/{NOVA_VERSION}",
                 "Accept": "application/vnd.github.v3+json",
@@ -5678,7 +5678,7 @@ def cmd_init(args):
     print("  " + q(C.W, f"  {L['apikey_sub']}"))
     print()
     print("  " + q(C.W, "  Docs: ") +
-          q(C.W, "https://github.com/sxrubyo/nova-os", underline=True))
+          q(C.W, "https://github.com/sxrubyo/nova", underline=True))
     print()
     
     existing_key = cfg.get("api_key", "") or get_active_key()
@@ -5854,7 +5854,7 @@ def cmd_init(args):
         print()
         warn("Your API key is saved locally but won't be registered server-side automatically.")
         hint("To register it: set WORKSPACE_ADMIN_TOKEN in your environment and re-run  nova init")
-        hint("Docs: https://github.com/sxrubyo/nova-os")
+        hint("Docs: https://github.com/sxrubyo/nova")
         print()
 
     # ── [6/10] Connect ────────────────────────────────────────────────────────
@@ -5880,7 +5880,7 @@ def cmd_init(args):
         else:
             warn("Server is up - but this API key is not yet registered.")
             hint("Set WORKSPACE_ADMIN_TOKEN before  nova init  to auto-register your key.")
-            hint("Docs: https://github.com/sxrubyo/nova-os")
+            hint("Docs: https://github.com/sxrubyo/nova")
     else:
         fail(format_api_error(health, L["connection_failed"]))
         print()
@@ -10070,7 +10070,7 @@ def _config_about():
     kv("Config", str(CONFIG_FILE), C.G3)
     
     print()
-    kv("Documentation", "https://github.com/sxrubyo/nova-os", C.B7)
+    kv("Documentation", "https://github.com/sxrubyo/nova", C.B7)
     kv("Support", "https://nova-os.com/support", C.B7)
     kv("Terms", "https://nova-os.com/terms", C.G3)
     
@@ -10328,7 +10328,7 @@ def cmd_help(args=None):
     
     # Links
     print("  " + q(C.W, "Docs: ") + 
-          q(C.W, "https://github.com/sxrubyo/nova-os", underline=True))
+          q(C.W, "https://github.com/sxrubyo/nova", underline=True))
     print()
 
 
@@ -14320,7 +14320,7 @@ def cmd_workspace(args):
             print("  " + q(C.W, "This means your key exists locally but isn't registered server-side."))
             print()
             hint("If you control the server, set WORKSPACE_ADMIN_TOKEN and re-run  nova init")
-            hint("Or register manually - see https://github.com/sxrubyo/nova-os")
+            hint("Or register manually - see https://github.com/sxrubyo/nova")
             hint("To switch keys:  nova keys")
             print()
         else:

@@ -97,3 +97,51 @@ async def test_discovered_codex_task_is_blocked_by_agent_permissions(kernel, wor
     assert result["blocked"] is True
     assert result["evaluation"].decision.action.value == "BLOCK"
     assert connector.sent_tasks == []
+
+
+@pytest.mark.asyncio
+async def test_discovered_agent_tasks_receive_governance_overlay_before_delivery(kernel, workspace, monkeypatch) -> None:
+    connector = FakeConnector()
+    monkeypatch.setattr(ConnectorFactory, "create", lambda agent, config=None: connector)
+
+    discovered = DiscoveredAgent(
+        agent_key="codex_cli-governed",
+        fingerprint_key="codex_cli",
+        name="Codex CLI",
+        type="cli_agent",
+        confidence=0.95,
+        detection_method="binary",
+        detection_methods=["binary", "config_file"],
+        capabilities={
+            "can_execute_code": True,
+            "can_modify_files": True,
+            "can_run_commands": True,
+            "can_access_network": True,
+        },
+        binary_path="/usr/bin/codex",
+        metadata={"source": "test"},
+        risk_profile={"risk_factors": ["shell_access", "file_system_access"]},
+    )
+    kernel.discovery._cached_agents[discovered.agent_key] = discovered
+
+    connect_result = await kernel.discovery.connect(
+        agent_key=discovered.agent_key,
+        workspace_id=workspace.id,
+        config={},
+        permissions={"cannot_do": ["Nunca digas hola"], "can_do": ["Mantener tono profesional"]},
+    )
+    assert connect_result.success is True
+
+    result = await kernel.discovery.send_task(
+        agent_key=discovered.agent_key,
+        workspace_id=workspace.id,
+        task=AgentTask(prompt="Responde al cliente sobre horarios", payload={}),
+    )
+
+    assert result["success"] is True
+    assert result["governance_overlay_applied"] is True
+    sent_prompt = connector.sent_tasks[0].prompt
+    assert "[Nova governance overlay]" in sent_prompt
+    assert "silently rewrite it before returning the final answer" in sent_prompt
+    assert "Nunca digas hola" in sent_prompt
+    assert "Mantener tono profesional" in sent_prompt
