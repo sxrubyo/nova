@@ -287,7 +287,7 @@ _AGENT_WAKE_MESSAGES = [
     "Systems coming online...",
 ]
 
-NOVA_VERSION = "4.0.11"
+NOVA_VERSION = "4.0.12"
 NOVA_BUILD = "2026.03.supernova"
 NOVA_CODENAME = "Supernova"
 
@@ -658,8 +658,11 @@ def print_logo(tagline=True, compact=False, animated=False, minimal=False):
         return
 
     if compact:
-        banner = f"✦ nova · v{NOVA_VERSION} · Nova Operator"
-        print("  " + q(C.GLD_BRIGHT, banner, bold=True))
+        print_nova_starburst(animated=False)
+        print("  " + q(C.G2, _next_rotating_tagline()))
+        print("  " + q(C.GLD_BRIGHT, "✦", bold=True) + " " +
+              q(C.G3, "Constellation · Enterprise Edition"))
+        print("  " + q(C.G3, "─" * 62))
         print()
         sys.stdout.write(C.R)
         return

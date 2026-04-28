@@ -2,11 +2,54 @@
 
 from __future__ import annotations
 
+import os
 import shutil
+import sys
 import textwrap
-from datetime import timedelta
+from datetime import datetime
+from datetime import timedelta, timezone
 
 from nova.constants import NOVA_BUILD, NOVA_CODENAME, NOVA_NAME, NOVA_STARBURST_LINES, NOVA_VERSION
+
+NOVA_TAGLINES = (
+    "The missing layer in your AI stack.",
+    "Intelligence with limits. Actions with proof.",
+    "Built for scale. Designed for trust.",
+    "What stands between your agent and the world.",
+    "Sleep well. Your agents are supervised.",
+)
+
+
+def _supports_color() -> bool:
+    return sys.stdout.isatty() or bool(os.getenv("FORCE_COLOR"))
+
+
+def _paint(text: str, code: str, *, bold: bool = False) -> str:
+    if not _supports_color():
+        return text
+    prefix = "\033[1m" if bold else ""
+    return f"{prefix}\033[{code}m{text}\033[0m"
+
+
+def primary(text: str, *, bold: bool = False) -> str:
+    return _paint(text, "38;5;15", bold=bold)
+
+
+def muted(text: str) -> str:
+    return _paint(text, "38;5;244")
+
+
+def accent(text: str, *, bold: bool = False) -> str:
+    return _paint(text, "38;5;221", bold=bold)
+
+
+def warm(text: str, *, bold: bool = False) -> str:
+    return _paint(text, "38;5;179", bold=bold)
+
+
+def _rotating_tagline() -> str:
+    day_index = datetime.now(timezone.utc).toordinal() % len(NOVA_TAGLINES)
+    return NOVA_TAGLINES[day_index]
 
 
 def _terminal_width(default: int = 72) -> int:
@@ -21,7 +64,7 @@ def _content_width(default: int = 72, *, minimum: int = 42) -> int:
 
 
 def _divider(width: int) -> str:
-    return "  " + ("─" * max(34, min(width - 2, 42)))
+    return muted("  " + ("─" * max(34, min(width - 2, 62))))
 
 
 def _wrap_rows(rows: list[str], *, width: int, indent: str = "  ") -> list[str]:
@@ -44,33 +87,32 @@ def _wrap_rows(rows: list[str], *, width: int, indent: str = "  ") -> list[str]:
 def _brand_lines(*, version: str, tagline: str) -> list[str]:
     return [
         "",
-        *NOVA_STARBURST_LINES,
+        *(accent(line) for line in NOVA_STARBURST_LINES),
         "",
-        "           N  O  V  A",
-        f"           ·  v{version} {NOVA_CODENAME}  ·",
+        accent("           N  O  V  A", bold=True),
+        muted(f"           ·  v{version} {NOVA_CODENAME}  ·"),
         "",
-        f"  {tagline}",
+        muted(f"  {tagline}"),
+        accent("  ✦", bold=True) + " " + muted("Constellation · Enterprise Edition"),
     ]
 
 
 def compact_cli_banner(*, title: str, subtitle: str | None = None, version: str = NOVA_VERSION) -> str:
-    """Return the compact operator header used by secondary CLI commands."""
+    """Return the branded operator header used by secondary CLI commands."""
 
-    lines = [
-        "",
-        f"  ✦ nova · v{version} · Nova Operator",
-        "",
-        "",
-        f"  ✦  {title}",
-    ]
+    width = _content_width(74)
+    lines = _brand_lines(version=version, tagline=_rotating_tagline())
+    lines.append(_divider(width))
+    lines.append("")
+    lines.append("  " + accent("✦", bold=True) + "  " + primary(title, bold=True))
     if subtitle:
-        lines.append(f"    {subtitle}")
+        lines.append("    " + muted(subtitle))
     return "\n".join(lines)
 
 
 def _section(title: str, rows: list[str], *, width: int) -> list[str]:
     lines = [
-        f"  {title}",
+        "  " + warm(title, bold=True),
         _divider(width),
         "",
     ]
@@ -364,14 +406,11 @@ def operator_launchpad_header(*, version: str) -> str:
     """Return the branded launchpad header shown by `nova` and `nova launchpad`."""
 
     width = _content_width(74)
-    lines = _brand_lines(version=version, tagline="Governance at machine speed.")
-    lines.append(_divider(width))
-    lines.append("")
+    lines = [compact_cli_banner(title="Operator Launchpad", subtitle="Elige la siguiente acción sin salir de la terminal.", version=version)]
     lines.extend(
         _section(
             "OPERATOR LAUNCHPAD",
             [
-                "Elige la siguiente acción sin salir de la terminal.",
                 "Nova mantiene navegación por flechas aquí; la referencia completa vive en `nova commands`.",
             ],
             width=width,

@@ -631,7 +631,7 @@ def _discovery_tooling_rows(tooling: list[dict[str, Any]], limit: int = 16) -> l
 
 
 def _print_discovery_table(agents: list[dict[str, Any]], inventory: dict[str, Any] | None = None) -> None:
-    from nova.utils.formatting import compact_cli_banner
+    from nova.utils.formatting import accent, compact_cli_banner, muted, primary, warm
 
     print(compact_cli_banner(title="Nova Discover", subtitle="Scanning repos, terminals, toolchains and governed agents."))
     print()
@@ -646,17 +646,20 @@ def _print_discovery_table(agents: list[dict[str, Any]], inventory: dict[str, An
         return [f"{indent}{line}" for line in (wrapped or [value])]
 
     def section(title: str) -> None:
-        print(f"  {title}")
+        print("  " + warm(title, bold=True))
         print(divider())
         print()
 
     def bullet(label: str, value: str, *, marker: str = "•") -> None:
-        lines = wrap_line(f"{marker} {label} {value}".strip())
+        lead = f"{marker} {label}".strip()
+        payload = f"{primary(lead, bold=True)} {muted(value)}".strip()
+        lines = wrap_line(payload)
         for line in lines:
             print(line)
 
     def kv(label: str, value: str, *, indent: str = "    ") -> None:
-        lines = wrap_line(f"{label} {value}".strip(), indent=indent)
+        payload = f"{primary(label, bold=True)} {muted(value)}".strip()
+        lines = wrap_line(payload, indent=indent)
         for line in lines:
             print(line)
 
@@ -708,7 +711,7 @@ def _print_discovery_table(agents: list[dict[str, Any]], inventory: dict[str, An
 
 
 def _print_registered_agents(registered: list[dict[str, Any]], discovered: list[dict[str, Any]]) -> None:
-    from nova.utils.formatting import compact_cli_banner
+    from nova.utils.formatting import compact_cli_banner, muted, primary, warm
 
     print(compact_cli_banner(title="Nova Agents", subtitle="Registered and discovered agents in the current workspace."))
     print()
@@ -723,17 +726,20 @@ def _print_registered_agents(registered: list[dict[str, Any]], discovered: list[
         return [f"{indent}{line}" for line in (wrapped or [value])]
 
     def section(title: str) -> None:
-        print(f"  {title}")
+        print("  " + warm(title, bold=True))
         print(divider())
         print()
 
     def bullet(label: str, value: str, *, marker: str = "•") -> None:
-        lines = wrap_line(f"{marker} {label} {value}".strip())
+        lead = f"{marker} {label}".strip()
+        payload = f"{primary(lead, bold=True)} {muted(value)}".strip()
+        lines = wrap_line(payload)
         for line in lines:
             print(line)
 
     def kv(label: str, value: str, *, indent: str = "    ") -> None:
-        lines = wrap_line(f"{label} {value}".strip(), indent=indent)
+        payload = f"{primary(label, bold=True)} {muted(value)}".strip()
+        lines = wrap_line(payload, indent=indent)
         for line in lines:
             print(line)
 

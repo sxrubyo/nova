@@ -33,7 +33,8 @@ def test_help_command_prints_launchpad() -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "✦ nova ·" in result.stdout
+    assert "N  O  V  A" in result.stdout
+    assert "Constellation · Enterprise Edition" in result.stdout
     assert "Nova Commands" in result.stdout
     assert "GETTING STARTED" in result.stdout
     assert "nova boot" in result.stdout
@@ -100,7 +101,8 @@ def test_commands_alias_dispatches_to_modern_launchpad() -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "✦ nova ·" in result.stdout
+    assert "N  O  V  A" in result.stdout
+    assert "Constellation · Enterprise Edition" in result.stdout
     assert "Nova Commands" in result.stdout
     assert "nova connect <agent> --cannot-do" in result.stdout
 
@@ -375,7 +377,8 @@ def test_discovery_table_uses_compact_secondary_header(capsys: pytest.CaptureFix
     )
 
     output = capsys.readouterr().out
-    assert "✦ nova ·" in output
+    assert "N  O  V  A" in output
+    assert "Constellation · Enterprise Edition" in output
     assert "Nova Discover" in output
     assert "AGENTS" in output
     assert "Nova OS - Agent Discovery Scan" not in output
