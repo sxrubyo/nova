@@ -377,3 +377,5 @@ def test_discovery_table_uses_compact_secondary_header(capsys: pytest.CaptureFix
     output = capsys.readouterr().out
     assert "✦ nova ·" in output
     assert "Nova Discover" in output
+    assert "AGENTS" in output
+    assert "Nova OS - Agent Discovery Scan" not in output

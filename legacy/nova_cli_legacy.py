@@ -287,7 +287,7 @@ _AGENT_WAKE_MESSAGES = [
     "Systems coming online...",
 ]
 
-NOVA_VERSION = "4.0.10"
+NOVA_VERSION = "4.0.11"
 NOVA_BUILD = "2026.03.supernova"
 NOVA_CODENAME = "Supernova"
 

@@ -8,7 +8,9 @@ import importlib.util
 import json
 import os
 import platform
+import shutil
 import sys
+import textwrap
 from datetime import datetime, timezone
 from http.cookies import SimpleCookie
 from pathlib import Path
@@ -633,55 +635,76 @@ def _print_discovery_table(agents: list[dict[str, Any]], inventory: dict[str, An
 
     print(compact_cli_banner(title="Nova Discover", subtitle="Scanning repos, terminals, toolchains and governed agents."))
     print()
-    console = _console()
-    if console is None or Table is None:
-        print(json.dumps({"agents": agents, "inventory": inventory or {}}, indent=2))
-        return
-    table = Table(title="Nova OS - Agent Discovery Scan")
-    table.add_column("#", style="cyan")
-    table.add_column("Agent", style="bold")
-    table.add_column("Status")
-    table.add_column("Detection")
-    table.add_column("Confid.")
+    width = max(64, min(96, shutil.get_terminal_size((84, 24)).columns))
+
+    def divider() -> str:
+        return "  " + ("─" * max(36, min(width - 2, 62)))
+
+    def wrap_line(value: str, *, indent: str = "  ") -> list[str]:
+        available = max(28, width - len(indent))
+        wrapped = textwrap.wrap(value, width=available, break_long_words=False, break_on_hyphens=False)
+        return [f"{indent}{line}" for line in (wrapped or [value])]
+
+    def section(title: str) -> None:
+        print(f"  {title}")
+        print(divider())
+        print()
+
+    def bullet(label: str, value: str, *, marker: str = "•") -> None:
+        lines = wrap_line(f"{marker} {label} {value}".strip())
+        for line in lines:
+            print(line)
+
+    def kv(label: str, value: str, *, indent: str = "    ") -> None:
+        lines = wrap_line(f"{label} {value}".strip(), indent=indent)
+        for line in lines:
+            print(line)
+
+    section("AGENTS")
+    if not agents:
+        print("  No agents discovered.")
     for index, agent in enumerate(agents, start=1):
+        name = str(agent.get("name") or "Unknown")
         status = "online" if agent.get("is_running") else "idle"
-        detection = "+".join(agent.get("detection_methods") or [agent.get("detection_method") or "?"])
-        table.add_row(str(index), agent.get("name", "Unknown"), status, detection, f"{round((agent.get('confidence') or 0) * 100)}%")
-    console.print(table)
+        confidence = f"{round((agent.get('confidence') or 0) * 100)}%"
+        detection_items = [str(item).replace("_", " ") for item in (agent.get("detection_methods") or [agent.get("detection_method") or "?"])]
+        bullet(f"{index}. {name}", f"· status: {status} · confidence: {confidence}")
+        kv("detection:", ", ".join(detection_items))
     if inventory:
         summary = inventory.get("summary", {})
         host = inventory.get("host", {})
         signals = inventory.get("signals", {})
-        console.print(
-            f"[bold blue]Host inventory[/bold blue] "
-            f"repos={summary.get('repositories', 0)} "
-            f"terminals={summary.get('terminals', 0)} "
-            f"active={summary.get('active_repositories', 0)} "
-            f"codex_home={'yes' if signals.get('has_codex_home') else 'no'} "
-            f"platform={host.get('platform') or signals.get('platform') or 'unknown'} "
-            f"pkgmgr={((host.get('package_manager') or {}).get('name')) or 'n/a'}"
-        )
+        print()
+        section("HOST INVENTORY")
+        kv("repositories:", str(summary.get("repositories", 0)))
+        kv("terminals:", str(summary.get("terminals", 0)))
+        kv("active repos:", str(summary.get("active_repositories", 0)))
+        kv("codex home:", "yes" if signals.get("has_codex_home") else "no")
+        kv("platform:", str(host.get("platform") or signals.get("platform") or "unknown"))
+        kv("package manager:", str(((host.get("package_manager") or {}).get("name")) or "n/a"))
         tooling = _discovery_tooling_rows(inventory.get("tooling", []), limit=16)
         recommendations = inventory.get("recommended_installs", [])
     else:
         tooling = []
         recommendations = []
     if tooling:
-        tool_table = Table(title="Installed toolchains")
-        tool_table.add_column("Tool", style="bold")
-        tool_table.add_column("Category")
-        tool_table.add_column("Version")
+        print()
+        section("INSTALLED TOOLCHAINS")
         for item in tooling:
-            tool_table.add_row(item.get("label", item.get("key", "?")), item.get("category", "?"), item.get("version") or "detected")
-        console.print(tool_table)
+            label = str(item.get("label", item.get("key", "?")))
+            category = str(item.get("category", "?"))
+            version = str(item.get("version") or "detected")
+            bullet(label, f"· {category} · {version}")
     if recommendations:
-        install_table = Table(title="Recommended installs")
-        install_table.add_column("Tool", style="bold yellow")
-        install_table.add_column("Reason")
-        install_table.add_column("Install")
+        print()
+        section("RECOMMENDED INSTALLS")
         for item in recommendations[:8]:
-            install_table.add_row(item.get("tool", "?"), item.get("reason", ""), item.get("install_command") or "manual")
-        console.print(install_table)
+            tool = str(item.get("tool", "?"))
+            reason = str(item.get("reason", ""))
+            install_command = str(item.get("install_command") or "manual")
+            bullet(tool, "")
+            kv("reason:", reason)
+            kv("install:", install_command)
 
 
 def _print_registered_agents(registered: list[dict[str, Any]], discovered: list[dict[str, Any]]) -> None:
@@ -689,41 +712,50 @@ def _print_registered_agents(registered: list[dict[str, Any]], discovered: list[
 
     print(compact_cli_banner(title="Nova Agents", subtitle="Registered and discovered agents in the current workspace."))
     print()
-    console = _console()
-    if console is None or Table is None:
-        print(json.dumps({"registered": registered, "discovered": discovered}, indent=2))
-        return
+    width = max(64, min(96, shutil.get_terminal_size((84, 24)).columns))
 
-    registered_table = Table(title="Registered agents")
-    registered_table.add_column("Name", style="bold")
-    registered_table.add_column("Provider")
-    registered_table.add_column("Model")
-    registered_table.add_column("Status")
-    registered_table.add_column("Workspace")
+    def divider() -> str:
+        return "  " + ("─" * max(36, min(width - 2, 62)))
+
+    def wrap_line(value: str, *, indent: str = "  ") -> list[str]:
+        available = max(28, width - len(indent))
+        wrapped = textwrap.wrap(value, width=available, break_long_words=False, break_on_hyphens=False)
+        return [f"{indent}{line}" for line in (wrapped or [value])]
+
+    def section(title: str) -> None:
+        print(f"  {title}")
+        print(divider())
+        print()
+
+    def bullet(label: str, value: str, *, marker: str = "•") -> None:
+        lines = wrap_line(f"{marker} {label} {value}".strip())
+        for line in lines:
+            print(line)
+
+    def kv(label: str, value: str, *, indent: str = "    ") -> None:
+        lines = wrap_line(f"{label} {value}".strip(), indent=indent)
+        for line in lines:
+            print(line)
+
+    section("REGISTERED AGENTS")
+    if not registered:
+        print("  No registered agents.")
     for agent in registered:
         workspace = agent.get("workspace") or {}
-        registered_table.add_row(
-            str(agent.get("name") or "Unknown"),
-            str(agent.get("provider") or "-"),
-            str(agent.get("model") or "-"),
-            str(agent.get("status") or "-"),
-            str(workspace.get("name") or workspace.get("slug") or "-"),
-        )
-    console.print(registered_table)
+        bullet(str(agent.get("name") or "Unknown"), f"· provider: {agent.get('provider') or '-'} · model: {agent.get('model') or '-'}")
+        kv("status:", str(agent.get("status") or "-"))
+        kv("workspace:", str(workspace.get("name") or workspace.get("slug") or "-"))
 
-    discovered_table = Table(title="Discovered agents")
-    discovered_table.add_column("Agent", style="bold")
-    discovered_table.add_column("Status")
-    discovered_table.add_column("Detection")
-    discovered_table.add_column("Confid.")
+    print()
+    section("DISCOVERED AGENTS")
+    if not discovered:
+        print("  No discovered agents.")
     for agent in discovered:
-        discovered_table.add_row(
+        bullet(
             str(agent.get("name") or "Unknown"),
-            "online" if agent.get("is_running") else "idle",
-            "+".join(agent.get("detection_methods") or [agent.get("detection_method") or "?"]),
-            f"{round((agent.get('confidence') or 0) * 100)}%",
+            f"· status: {'online' if agent.get('is_running') else 'idle'} · confidence: {round((agent.get('confidence') or 0) * 100)}%",
         )
-    console.print(discovered_table)
+        kv("detection:", ", ".join(str(item).replace("_", " ") for item in (agent.get("detection_methods") or [agent.get("detection_method") or "?"])))
 
 
 async def _agent_metrics(kernel: Any, agent_id: str) -> dict[str, Any]:
